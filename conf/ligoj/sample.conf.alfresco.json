@@ -1,0 +1,53 @@
+{
+    "groups": [
+        "dev",
+        "admin",
+        "test",
+        "securite"
+    ],
+    "alfresco": {
+        "sites": [
+            {
+                "id": "securite",
+                "title": "sécurité",
+                "description": "__",
+                "roles": {
+                    "securite": {
+                        "permissions": [
+                            "SiteManager"
+                        ]
+                    }
+                }
+            },
+            {
+                "id": "sandbox",
+                "roles": {
+                    "dev": {
+                        "permissions": [
+                            "SiteCollaborator"
+                        ]
+                    },
+                    "test": {
+                        "permissions": [
+                            "SiteConsumer"
+                        ]
+                    }
+                }
+            }
+        ]
+    },
+    "alfresco2": {
+        "roles": {
+            "dev": {
+                "permissions": [
+                    "SiteCollaborator"
+                ]
+            },
+            "test": {
+                "permissions": [
+                    "SiteConsumer"
+                ]
+            }
+        }
+    }
+}

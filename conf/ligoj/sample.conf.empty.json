@@ -1,0 +1,8 @@
+{
+    "groups": [
+        "dev",
+        "admin",
+        "test",
+        "secu"
+    ]
+}

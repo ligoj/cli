@@ -1,0 +1,37 @@
+{
+    "groups": [
+        "dev",
+        "admin",
+        "test",
+        "securite"
+    ],
+    "argocd": {
+        "projects": [
+            {
+                "name":"project1",
+                "description": "Project description",
+                "roles": {
+                    "dev": {
+                        "permissions": [
+                            {
+                                "action": "get"
+                            },
+                            {
+                                "action": "delete",
+                                "application": "app1",
+                                "permission": "deny"
+                            }
+                        ]
+                    },
+                    "test": {
+                        "permissions": [
+                            {
+                                "action": "get"
+                            }
+                        ]
+                    }
+                }
+            }
+        ]
+    }
+}

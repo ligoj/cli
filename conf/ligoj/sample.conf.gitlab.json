@@ -1,0 +1,29 @@
+{
+    "groups": [
+        "dev",
+        "admin",
+        "test",
+        "secu"
+    ],
+    "gitlab": {
+        "updateMode": "once/create",
+        "roles": {
+            "dev": {
+                "name": "Développeurs",
+                "permissions": [
+                    "developer"
+                ]
+            },
+            "admin": {
+                "permissions": [
+                    "owner"
+                ]
+            },
+            "test": {
+                "permissions": [
+                    "reporter"
+                ]
+            }
+        }
+    }
+}
