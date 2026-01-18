@@ -1,0 +1,113 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Configuration",
+    "$defs": {
+        "permissions": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+                "type": "string",
+                "pattern": "[-A-Za-z0-9]+"
+            }
+        },
+        "roles_simple": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+                "pattern": "^[-A-Za-z0-9]+$"
+            },
+            "patternProperties": {
+                "^.*$": {
+                    "type": "object",
+                    "propertyNames": {
+                        "permissions": {
+                            "$ref": "#/$defs/permissions"
+                        }
+                    }
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+        "groups": {
+            "type": "array",
+            "minContains": 0,
+            "items": {
+                "type": "string",
+                "pattern": "[-A-Za-z0-9]+"
+            }
+        },
+        "jenkins": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "sonar": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "nexus": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "gitlab": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "argocd": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "alfresco": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "sites": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["roles", "id"],
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "pattern": "[-A-Za-z0-9]+"
+                            },
+                            "title": {
+                                "type": "string",
+                                "pattern": "[-A-Za-z0-9.]+"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "roles": {
+                                "type": "object",
+                                "minProperties": 1,
+                                "additionalProperties": false,
+                                "propertyNames": {
+                                    "pattern": "^[-A-Za-z0-9]+$"
+                                },
+                                "patternProperties": {
+                                    "^.*$": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "permissions": {
+                                                "enum": [
+                                                    "SiteManager",
+                                                    "SiteCollaborator",
+                                                    "SiteConsumer"
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
