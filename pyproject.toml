@@ -1,7 +1,10 @@
 #cf. doc at https://packaging.python.org/en/latest/guides/writing-pyproject-toml
 [build-system]
-requires = ["setuptools>=70.0.0", "wheel>=0.43.0"]
+requires = ["setuptools>=70.0.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ligojcli", "ligojcli.plugins"]
 
 [project]
 name = "ligojcli"
@@ -25,9 +28,6 @@ dependencies = [
 
 [project.scripts]
 ligoj = "ligojcli.ligoj:ligoj"
-
-[tool.setuptools.packages]
-find = { where = ["ligojcli"] }
 
 [tool.setuptools.package-data]
 ligojcli = ["*.yaml", "*.json"]
