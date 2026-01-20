@@ -1,7 +1,15 @@
+# Optional default target
+# all: init test
+
+# Install the package in editable mode
 init:
-    pip install -r requirements.txt
+	@echo "Installing dependencies..."
+	pip install -e .
 
+# Run the test suite
 test:
-    py.test tests
+	@echo "Running tests..."
+	py.test tests
 
+# Declare phony targets so make knows they are not files
 .PHONY: init test

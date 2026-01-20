@@ -1,27 +1,36 @@
 #cf. doc at https://packaging.python.org/en/latest/guides/writing-pyproject-toml
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=70.0.0", "wheel>=0.43.0"]
 build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-packages = ["ligojcli", "ligojcli.plugins"]
 
 [project]
 name = "ligojcli"
 version = "1.0.0"
 description = "Ligoj CLI"
 authors = [{ name = "Fabrice Daugé", email = "fdaugan@kloudy.io" }]
+readme = "README.md"
+requires-python = ">=3.10"
+
 dependencies = [
     "colorama==0.4.6",
     "requests==2.32.4",
-    "dnspython==2.7.0",
+    "dnspython==2.8.0",
     "pyyaml==6.0.2",
     "configparser==7.2.0",
     "unidecode==1.4.0",
-    "jsonschema===4.25.0",
+    "jsonschema==4.25.0",
     "jsonmerge==1.9.2",
     "Jinja2==3.1.6"
 ]
 
 [project.scripts]
 ligoj = "ligojcli.ligoj:ligoj"
+
+[tool.setuptools.packages]
+find = { where = ["ligojcli"] }
+
+[tool.setuptools.package-data]
+ligojcli = ["*.yaml", "*.json"]
+
+[tool.setuptools.exclude-package-data]
+ligojcli = ["tests/*"]
