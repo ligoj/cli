@@ -1,0 +1,90 @@
+[
+    {
+        "parameter": "service:id:ldap:base-dn",
+        "text": "cn=Test"
+    },
+    {
+        "parameter": "service:id:ldap:clear-password",
+        "bool": true
+    },
+    {
+        "parameter": "service:id:ldap:companies-class",
+        "text": "organizationalUnit"
+    },
+    {
+        "parameter": "service:id:ldap:companies-dn",
+        "text": "ou=people,dc=sample,dc=com"
+    },
+    {
+        "parameter": "service:id:ldap:company-pattern",
+        "text": "[^,]+,ou=([^,]+),.*"
+    },
+    {
+        "parameter": "service:id:ldap:groups-class",
+        "text": "groupOfUniqueNames"
+    },
+    {
+        "parameter": "service:id:ldap:groups-dn",
+        "text": "dc=sample,dc=com"
+    },
+    {
+        "parameter": "service:id:ldap:groups-member-attribute",
+        "text": "uniqueMember"
+    },
+    {
+        "parameter": "service:id:ldap:local-id-attribute",
+        "text": "employeeNumber"
+    },
+    {
+        "parameter": "service:id:ldap:locked-attribute",
+        "text": "employeeType"
+    },
+    {
+        "parameter": "service:id:ldap:locked-value",
+        "text": "LOCKED"
+    },
+    {
+        "parameter": "service:id:ldap:password",
+        "text": "secret"
+    },
+    {
+        "parameter": "service:id:ldap:people-class",
+        "text": "inetOrgPerson"
+    },
+    {
+        "parameter": "service:id:ldap:people-dn",
+        "text": "dc=sample,dc=com"
+    },
+    {
+        "parameter": "service:id:ldap:quarantine-dn",
+        "text": "ou=quarantine,dc=sample,dc=com"
+    },
+    {
+        "parameter": "service:id:ldap:self-search",
+        "bool": true
+    },
+    {
+        "parameter": "service:id:ldap:uid-attribute",
+        "text": "uid"
+    },
+    {
+        "parameter": "service:id:ldap:url",
+        "text": "ldap://localhost:389/"
+    },
+    {
+        "parameter": "service:id:ldap:user-dn",
+        "text": "uid=admin,ou=system"
+    },
+    {
+        "parameter": "service:id:ldap:people-custom-attributes",
+        "text": "uidFonctionnel"
+    },
+    {
+        "parameter": "service:id:ldap:people-class-create",
+        "text": "mefiPersonne"
+    },
+    {
+        "parameter": "service:id:ldap:login-attributes",
+        "text": "uid,uidFonctionnel,mail"
+    }
+]

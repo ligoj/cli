@@ -1,0 +1,14 @@
+[
+    {
+        "text": "secret",
+        "parameter": "service:build:jenkins:api-token"
+    },
+    {
+        "text": "http://jenkins.sample.com/",
+        "parameter": "service:build:jenkins:url"
+    },
+    {
+        "text": "jdupont",
+        "parameter": "service:build:jenkins:user"
+    }
+]

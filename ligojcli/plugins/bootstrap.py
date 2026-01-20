@@ -217,7 +217,7 @@ def execute_action(service, action, _operation, args):
 
             context: dict[str, str] = {"project": {"key": project_key} | ({"name": project_key, "id": 0} if project is None else {"name": project.get("name"), "id": project.get("id")})}
             definition_json = utils.load_json_from_url_or_file_with_interpolation(utils.not_none(args.get("from"), "configuration file/URL"), context)
-            schema_base = utils.load_json_from_url_or_file_with_interpolation("./schema.json", context)
+            schema_base = utils.load_json_from_url_or_file_with_interpolation("./plugins/schema.json", context)
             schema_extension = utils.load_json_from_url_or_file_with_interpolation(args.get("schema"), context)
             schema = schema_base if schema_extension is None else merge(schema_base, schema_extension)
             validate(definition_json, schema)

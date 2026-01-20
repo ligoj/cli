@@ -1,0 +1,33 @@
+  securityRealm:
+      ldap:
+        configurations:
+        - displayNameAttributeName: "cn"
+          groupMembershipStrategy:
+            fromGroupSearch:
+              filter: "(| (member={0}) (uniqueMember={0}) (memberUid={1}))"
+          groupSearchBase: "ou=sample,c=com"
+          groupSearchFilter: "(& (cn={0}) (| (objectclass=groupOfNames) (objectclass=groupOfUniqueNames)\
+            \ (objectclass=posixGroup)))"
+          inhibitInferRootDN: true
+          managerDN: "cn=admin,ou=sample,c=com"
+          managerPasswordSecret: "password"
+          rootDN: ""
+          server: "ldap://10.125.5.217:389"
+          userSearchBase: "ou=sample,c=com"
+          userSearch: (|(uid={0})(mail={0})(uidfonctionnel={0}))
+        disableMailAddressResolver: false
+        disableRolePrefixing: true
+        groupIdStrategy: "caseInsensitive"
+        userIdStrategy: "caseInsensitive"
+  authorizationStrategy:
+    roleBased:
+      roles:
+        global:
+          - name: "admin"
+            description: "Jenkins administrators"
+            permissions:
+              - "Overall/Administer"
+            entries:
+              - user: "admin"
+              - user: "jdupont"
+              - group: "jenkins-administrators"

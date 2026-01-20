@@ -9,7 +9,7 @@ Ligoj CLI makes REST calls to a remote Ligoj instances, with parameters and erro
 - Python 3.11+
 - Connectivity and API keys to target endpoints `Ligoj`, `Nexus`, `Jenkins`, `SonarQube`
 - `pip`
-- Valid [credentials](#credentialscredentials)
+- Valid [credentials](#credentials)
 
 
 ## Development mode installation
@@ -43,7 +43,7 @@ pip install -U  --root-user-action=ignore pip -e .
 
 Ligoj credentials are based on user/password or user/API Key.
 
-Fill the [configuration files](#configuration-files) file with the created API key from there  [#/api/token ("?" > "Api" > "Token")](https://ligoj.picmere/ligoj/#/api/token)
+Fill the [configuration files](#configuration-files) file with the created API key from there  [#/api/token ("?" > "Api" > "Token")](http://localhost:8080/ligoj/#/api/token)
 
 You can also:
 - use [session login](#login-with-password) command to get temporary session
@@ -804,7 +804,7 @@ ligoj plugin install --id "plugin-req"
 ```
 
 ```log
-[INFO ] [ligoj] Plugin 'plugin-req' has been installed/updated, a [restart](#restart-api) is required
+[INFO ] [ligoj] Plugin 'plugin-req' has been installed/updated, a restart is required
 ``````
 
 Two successful consecutive executions give this output:
@@ -899,11 +899,11 @@ ligoj node upsert --id "service:id:ldap:remote1" --name "Remote1" --from https:/
 ```
 
 Input `--from` JSON:
-- See [`--from`](#---from) for JSON loading options
+- See [`--from`](#--from) for JSON loading options
 - JSON can be as list or dict (compact). See sample.
 - The parameters marked as sensitive are encrypted in database of Ligoj.
 
-Content of sample [ligoj-ldap.json](./ligoj-ldap.json) file:
+Content of sample [ligoj-ldap.json](docs/nodes/ldap.json) file:
 
 ```json
 [
@@ -1223,7 +1223,7 @@ ligoj subscription create --project project1 --node "service:id:ldap:remote1" --
 ```
 
 Input `--from` JSON:
-- See [`--from`](#---from) for JSON loading options
+- See [`--from`](#--from) for JSON loading options
 - JSON can be as list or dict (compact). See sample.
 - The parameters marked as sensitive are encrypted in database of Ligoj.
 
@@ -1402,7 +1402,7 @@ ligoj bootstrap init --base-dn="dc=sample,dc=com"
 
 Configure a new project and its administrator.
 
-![Sequence](docs/welcome-user.png)
+![Sequence](docs/bootstrap/welcome-user.png)
 
 ```bash
 ligoj bootstrap welcome-user --id jdupont --project project1 --name "Project 1" --group-suffix="-team"
@@ -1482,7 +1482,7 @@ Supported services are:
 - Alfresco
 - GitLab
 
-![Sequence](docs/create-roles.png)
+![Sequence](docs/bootstrap/create-roles.png)
 
 
 Created contents by tools
@@ -1510,8 +1510,8 @@ Created contents by tools
 | [Harbor](#harbor)                 | Projects members        |                                                       |
 
 
-Group and role configuration [JSON file conf.json](./conf/ligoj/create-roles-sample.conf.json).
-See [`--from`](#---from) for JSON loading options
+Group and role configuration [JSON file conf.json](docs/bootstrap/create-roles.json).
+See [`--from`](#--from) for JSON loading options
 
 ```bash
 ligoj bootstrap create-roles --project project-a --from conf.json \
@@ -1884,10 +1884,10 @@ curl -X POST  -H "Content-Type: application/json" -d '{"username":"admin","passw
 
 Delete mapped roles from various tools symmetrically as [`create-roles` operation](#bootstrap-create-roles).
 
-![Sequence](docs/delete-roles.png)
+![Sequence](docs/bootstrap/delete-roles.png)
 
 
-See [`--from`](#---from) for JSON loading options
+See [`--from`](#--from) for JSON loading options
 
 By default, only roles are deleted, to perform a fully cleanup see the [--with-data option](#--with-data)
 

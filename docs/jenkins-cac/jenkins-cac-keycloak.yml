@@ -1,0 +1,13 @@
+  securityRealm:
+    keycloak:
+      keycloakJson: |-
+        {
+          "realm": "master",
+          "auth-server-url": "https://keycloak.sample.com/",
+          "ssl-required": "external",
+          "resource": "jenkins",
+          "public-client": true,
+          "confidential-port": 0
+        }
+      keycloakRespectAccessTokenTimeout: false
+      keycloakValidate: false
