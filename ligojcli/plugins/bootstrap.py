@@ -35,6 +35,7 @@ def configure(subparser_service):
     parser_action.add_argument("--internal-users-base-dn", help="LDAP DN of internal users, starting from users-base-dn", default="")
     parser_action.add_argument("--technical-users-base-dn", help="LDAP DN of technical users, starting from users-base-dn", default="")
     parser_action.add_argument("--external-users-base-dn", help="LDAP DN of writable external users, starting from users-base-dn", default="")
+    parser_action.add_argument("--technical-groups", help="List of technical groups", default="", nargs="*")
 
     # bootstrap welcome-user
     parser_action = subparser_action.add_parser("welcome-user", help="Create an new project for given administrator")
@@ -322,38 +323,32 @@ def bootstrap_create_roles(project_key: str, groups: list[str], definition_json,
 # Create container scope "Global Sub Groups"[company] as needed (ou=groups)
 # Create container scope "Unassigned"[company] as needed (ou=people)
 # Create container scope "Internal"[company] as needed (ou=internal,ou=people)
-# Create container scope "Technical Users"[company] as needed (ou=technical-users,ou=people)
+# Create container scope "Technical"[company] as needed (ou=technical-users,ou=people)
 # Create LDAP OU "technical-groups" in scope "Global Sub Groups"[group]
 # Create LDAP OU "technical-users" in scope "Unassigned"[company]
-# Create group "sonar-administrators" in scope "Technical Group"
-# Create group "jenkins-administrators" in scope "Technical Group"
-# Create group "nexus-administrators" in scope "Technical Group"
-# Create group "full-reads" in scope "Technical Group"
+# Create groups as need within "technical-groups"
 def bootstrap_init(
-    base_dn: str, groups_base_dn: str, projects_base_dn: str, technical_groups_base_dn: str, users_base_dn: str, internal_users_base_dn: str, technical_users_base_dn: str, external_users_base_dn: str
+    base_dn: str, groups_base_dn: str, projects_base_dn: str, technical_groups_base_dn: str, users_base_dn: str, internal_users_base_dn: str, technical_users_base_dn: str, external_users_base_dn: str,
+    technical_groups: list[str],
 ):
     # Companies
     scope_unassigned_company = ligoj.create_container_scope("Unassigned", "company", ligoj.ldap_concat(users_base_dn, "", base_dn))
     ligoj.create_container_scope("Internal", "company", ligoj.ldap_concat(internal_users_base_dn, users_base_dn, base_dn))
     ligoj.create_container_scope("External", "company", ligoj.ldap_concat(external_users_base_dn, users_base_dn, base_dn))
-    ligoj.create_container_scope("Technical Users", "company", ligoj.ldap_concat(technical_users_base_dn, users_base_dn, base_dn))
+    ligoj.create_container_scope("Technical", "company", ligoj.ldap_concat(technical_users_base_dn, users_base_dn, base_dn))
     ligoj.create_company(ligoj.DEFAULT_LDAP_OU_TECHNICAL_USERS, scope_unassigned_company)
     ligoj.create_company(ligoj.DEFAULT_LDAP_OU_EXTERNAL_USERS, scope_unassigned_company)
 
     # Groups
-    ligoj.create_container_scope("Unassigned", "group", ligoj.ldap_concat(groups_base_dn, "", base_dn))
+    scope_unassigned_group = ligoj.create_container_scope("Unassigned", "group", ligoj.ldap_concat(groups_base_dn, "", base_dn))
     ligoj.create_container_scope("Project", "group", ligoj.ldap_concat(projects_base_dn, groups_base_dn, base_dn))
-    scope_technical_group = ligoj.create_container_scope("Technical Group", "group", ligoj.ldap_concat(technical_groups_base_dn, groups_base_dn, base_dn))
-    scope_parent_mocked_company = (
-        scope_unassigned_company if groups_base_dn == users_base_dn else ligoj.create_container_scope("Global Sub Groups", "company", ligoj.ldap_concat(groups_base_dn, "", base_dn))
-    )
-    ligoj.create_ou("technical-groups", scope_parent_mocked_company)
 
     # Cross instances administrator access
-    ligoj.group_create("sonar-administrators", scope_technical_group)
-    ligoj.group_create("jenkins-administrators", scope_technical_group)
-    ligoj.group_create("nexus-administrators", scope_technical_group)
-    ligoj.group_create("full-read", scope_technical_group)
+    if technical_groups_base_dn and not technical_groups.empty():
+        scope_technical_group = ligoj.create_container_scope("Technical", "group", ligoj.ldap_concat(technical_groups_base_dn, groups_base_dn, base_dn))
+        ligoj.create_ou("technical-groups", scope_unassigned_group, "group")
+        for technical_group in technical_groups:
+            ligoj.create_group(technical_group, scope_technical_group)
 
 
 ##

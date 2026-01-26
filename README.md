@@ -1291,24 +1291,57 @@ ligoj subscription refresh --id 252
 Operations related to [plugin-id](https://github.com/ligoj/plugin-id) and sud-plugins.
 
 
+## Plugin `id:container-scope` operations
+
+Operations related to container scopes managed by `service:id` nodes.
+
+
+### Create container scope
+
+Create a container scope
+
+```bash
+ligoj id:container-scope create --id "Unassigned" --type "group" --dn "ou=groups,dc=example,dc=com"
+ligoj id:container-scope create --id "Projects" --type "group" --dn "ou=projects,ou=groups,dc=example,dc=com"
+ligoj id:container-scope create --id "Tools" --type "group" --dn "ou=tools,ou=groups,dc=example,dc=com"
+ligoj id:container-scope create --id "Unassigned" --type "company" --dn "ou=people,dc=example,dc=com"
+ligoj id:container-scope create --id "Internal" --type "company" --dn "ou=internal,ou=people,dc=example,dc=com"
+ligoj id:container-scope create --id "Unassigned" --type "tree" --dn "dc=example,dc=com"
+```
+
+
+### Get container scope
+
+Create a container scope
+
+```bash
+ligoj id:container-scope get --id "SampleGroup2"
+```
+
+```json
+{"id": "samplegroup2", "name": "SampleGroup2", "scope": "Unassigned", "locked": false}
+```
+
 ## Plugin `id:group` operations
 
 Operations related to groups managed by `service:id` nodes
 
+Group name is case insensitive.
 
 ### Create group
 
-Create a group
+Create a group.
+
 
 ```bash
-ligoj id:group create --id "SampleGroup2" --scope "Unassigned"
+ligoj id:group create --name "SampleGroup2" --scope "Unassigned"
 ```
 
 Create a group inside a group
 
 ```bash
-ligoj id:group create --id "SampleSubGroup" --scope "Unassigned" --parent "SampleGroup2"
-ligoj id:group create --id "SampleSubGroup2" --scope "Unassigned" --parent "SampleSubGroup"
+ligoj id:group create --name "SampleSubGroup" --scope "Unassigned" --parent "SampleGroup2"
+ligoj id:group create --name "SampleSubGroup2" --scope "Unassigned" --parent "SampleSubGroup"
 ```
 
 
@@ -1317,7 +1350,7 @@ ligoj id:group create --id "SampleSubGroup2" --scope "Unassigned" --parent "Samp
 Create a group
 
 ```bash
-ligoj id:group get --id "SampleGroup2"
+ligoj id:group get --name "SampleGroup2"
 ```
 
 ```json
@@ -1385,7 +1418,7 @@ The following commands can be executed perform several API commands following a 
 Most bootstrap arguments like `--jenkins-endpoint`, corresponding [configuration file](#configuration-files) option such as `jenkins_endpoint` is accepted, and environment variable `JENKINS_ENDPOINT` too.
 
 
-## Bootstrap init
+## Bootstrap `init`
 
 Initialize Ligoj with basic group management, containers, and companies hierarchy.
 
@@ -1398,7 +1431,65 @@ ligoj bootstrap init --base-dn="dc=sample,dc=com"
 *Note* `--base-dn` argument can also be defined as `ligoj_ldap_base_dn` in [configuration file](#configuration-files) and `LIGOJ_LDAP_BASE_DN` environment variable.
 
 
-## Bootstrap welcome-user
+Hierarchy tree sample for base DN `dc=sample,dc=com`
+
+
+| DN LDAP                                                                              | Scope name   | Scope type |
+| ------------------------------------------------------------------------------------ | ------------ | ---------- |
+| `ou=people`                                                                          | `Unassigned` | `company`  |
+| `  ou=technical-users,ou=people`                                                     | `Technical`  | `company`  |
+| `  ou=external,ou=people`                                                            | `External`   | `company`  |
+| `ou=groups`                                                                          | `Unassigned` | `group`    |
+| `  ou=projects,ou=groups`                                                            | `Project`    | `group`    |
+| `  ou=tools,ou=groups`                                                               | `Technical`  | `group`    |
+| `    cn=jenkins-administrators,ou=tools,ou=groups`                                   | (inherited)  | `group`    |
+| `    cn=nexus-administrators,ou=tools,ou=groups`                                     | (inherited)  | `group`    |
+| `      cn=nexus-administrators-paris,cn=nexus-administrators,ou=tools,ou=groups`     | (inherited)  | `group`    |
+| `        cn=nexus-administrators-paris-8,cn=nexus-administrators,ou=tools,ou=groups` | (inherited)  | `group`    |
+
+
+### Via `ligoj bootstrap init`
+
+```bash
+ligoj bootstrap init --base-dn="ou=dgfip,ou=mefi,o=gouv,c=fr" --users-base-dn "ou=people" --internal-users-base-dn "" --technical-users-base-dn "ou=technical-users" --external-users-base-dn "ou=external" --groups-base-dn "ou=groups" --technical-groups-base-dn "ou=tools" --projects-base-dn "ou=projects" --technical-groups "sonar-administrators" "jenkins-administrators" "nexus-administrators"
+```
+
+### Via `ligoj id` commands
+
+```bash
+## Users and companies
+
+### OU LDAP intermediate
+ligoj id:ou create --name "people" --parent-dn "dc=sample,dc=com"
+ligoj id:ou create --name "external" --parent-dn "ou=people,dc=sample,dc=com"
+ligoj id:ou create --name "technical-users" --parent-dn "ou=people,dc=sample,dc=com"
+
+### Companies
+ligoj id:scope create --name "Unassigned" --type "company" --dn "ou=people,dc=sample,dc=com"
+ligoj id:scope create --name "External" --type "company" --dn "ou=external,ou=people,dc=sample,dc=com"
+ligoj id:scope create --name "Technical" --type "company" --dn "ou=technical-users,ou=people,dc=sample,dc=com"
+
+## Groups
+
+### OU LDAP intermediate
+ligoj id:ou create --name "groups" --parent-dn "dc=sample,dc=com"
+ligoj id:ou create --name "projects" --parent-dn "ou=groups,dc=sample,dc=com"
+ligoj id:ou create --name "tools" --parent-dn "ou=groups,dc=sample,dc=com"
+
+### Scope functionals for groups
+ligoj id:scope create --name "Unassigned" --type "group" --dn "ou=groups,dc=sample,dc=com"
+ligoj id:scope create --name "Project" --type "group" --dn "ou=projects,ou=groups,dc=sample,dc=com"
+ligoj id:scope create --name "Technical" --type "group" --dn "ou=tools,ou=groups,dc=sample,dc=com"
+
+### Technical groups and sub-groups
+ligoj id:group create --name "jenkins-administrators" --scope "Technical"
+ligoj id:group create --name "nexus-administrators" --scope "Technical"
+ligoj id:group create --name "nexus-administrators-paris" --scope "Technical" --parent "nexus-administrators"
+ligoj id:group create --name "nexus-administrators-paris-8" --scope "Technical" --parent "nexus-administrators-paris"
+```
+
+
+## Bootstrap `welcome-user`
 
 Configure a new project and its administrator.
 

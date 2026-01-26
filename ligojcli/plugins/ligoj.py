@@ -271,13 +271,36 @@ def configure(subparser_service):
     # plugin:id group
     subparser_action = subparser_service.add_parser("id:group", help="Plugin id group operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("create", help="Create a new group")
-    parser_action.add_argument("--id", "-i", help="Group name", required=True)
-    parser_action.add_argument("--scope", "-s", help="Scope name", required=True)
+    parser_action.add_argument("--name", "-n", help="Group name", required=True)
+    parser_action.add_argument("--scope", "-s", help="Scope groupe name or identifier.", required=True)
     parser_action.add_argument("--parent", "-p", help="Parent group name")
     parser_action = subparser_action.add_parser("import", help="Import groups")
     parser_action.add_argument("--from", "-f", help="Import URL or local file name", required=True)
     parser_action = subparser_action.add_parser("get", help="Get group by name")
-    parser_action.add_argument("--id", "-i", help="Group name", required=True)
+    parser_action.add_argument("--name", "-n", help="Group name", required=True)
+
+    # plugin:id container scope
+    subparser_action = subparser_service.add_parser("id:scope", help="Plugin id container scope operations").add_subparsers(title="action", help="Action", dest="action")
+    parser_action = subparser_action.add_parser("create", help="Create a new container scope")
+    parser_action.add_argument("--name", "-n", help="Container scope name", required=True)
+    parser_action.add_argument("--type", "-t", help="Scope type", required=True, choices=["company", "group"])
+    parser_action.add_argument("--dn", help="Container scope DN")
+    parser_action = subparser_action.add_parser("get", help="Get container scope by name or identifier")
+    parser_action.add_argument("--id", "-i", help="Container scope identifier", required=False)
+    parser_action.add_argument("--name", "-n", help="Container scope name, exclusive with id", required=False)
+    parser_action.add_argument("--type", "-t", help="Scope type. Required with name", required=False, choices=["company", "group"])
+    parser_action = subparser_action.add_parser("delete", help="Delete a container scope or by identifier")
+    parser_action.add_argument("--id", "-i", help="Container scope identifier", required=False)
+    parser_action.add_argument("--name", "-n", help="Container scope name, exclusive with id", required=False)
+    parser_action.add_argument("--type", "-t", help="Scope type. Required with name", required=False, choices=["company", "group"])
+
+    # plugin:id ou
+    subparser_action = subparser_service.add_parser("id:ou", help="Plugin id Organizational Unit operations").add_subparsers(title="action", help="Action", dest="action")
+    parser_action = subparser_action.add_parser("create", help="Create a new OU")
+    parser_action.add_argument("--name", "-n", help="OU name", required=True)
+    parser_action.add_argument("--parent-dn", "-d", help="Parent DN", required=True)
+    parser_action = subparser_action.add_parser("delete", help="Delete an OU")
+    parser_action.add_argument("--name", "-n", help="OU name", required=False)
 
 
 def parse_remote_args(args):
@@ -479,14 +502,34 @@ def execute_action(service, action, _, args):
             return user_delete(args["id"])
     elif service == "id:group":
         if action == "get":
-            return group_get_by_name(args["id"])
+            return group_get_by_name(args["name"])
         if action == "create":
-            group_scope_name = args["scope"]
-            group_scope_id = get_container_scope(group_scope_name, "group")["id"]
-            return group_create(args["id"], group_scope_id, args.get("parent"))
+            scope = utils.not_none(args.get("scope"), "scope")
+            return create_group(args["name"], scope, args.get("parent"))
         if action == "import":
             group_import_file = utils.load_json_from_url_or_file_with_interpolation(utils.not_none(args.get("from"), "Import file/URL"), {})
             return group_import(group_import_file)
+    elif service == "id:scope":
+        if action == "get":
+            if args.get("id") is None and (args.get("name") is None or args.get("type") is None):
+                raise ValueError("[ligoj] When id is not provided, name and type are required")
+            if args.get("id"):
+                return get_container_scope_by_id(utils.not_none(args.get("id")))
+            return get_container_scope_by_name(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"))
+        if action == "create":
+            return create_container_scope(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"), utils.not_none(args.get("dn"), "dn"))
+        if action == "delete":
+            if args.get("id") is None and (args.get("name") is None or args.get("type") is None):
+                raise ValueError("[ligoj] When scope id is not provided, scope name and scope type are required")
+            if args.get("id"):
+                return delete_container_scope_by_id(utils.not_none(args.get("id"), "id"))
+            return delete_container_scope_by_name(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"))
+    elif service == "id:ou":
+        if action == "create":
+            return create_ou(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("parent_dn"), "parent-dn"))
+        if action == "delete":
+            return delete_ou(utils.not_none(args.get("name"), "name"))
+
     return None
 
 
@@ -1123,12 +1166,46 @@ def group_import(csv_file):
     return call_api("POST", "service/id/group/batch", data={"csv-file": csv_file, "encoding": "UTF-8", "columns": ["name", "scope", "parent", "department", "owner", "assistant"]}).json()
 
 
-def get_container_scope(name, container_type):
-    utils.info(f"[ligoj] Fetch container scope '{name}' ...")
+def get_container_scope_id(name_or_id: str | int, container_type: str | None, required: bool = True) -> int:
+    if isinstance(name_or_id, int):
+        return name_or_id
+    if isinstance(name_or_id, str) and name_or_id.isdigit():
+        return int(name_or_id)
+    if not container_type:
+        raise ValueError("[ligoj] Scope type is required when scope name is provided instead of scope identifier")
+    utils.info(f"[ligoj] Fetch container scope '{name_or_id}' [{container_type}] ...")
+    response = call_api("GET", f"service/id/container-scope/name/{name_or_id}/{container_type}", ignore_error=True)
+    if not response:
+        if required:
+            raise ValueError(f"[ligoj] Scope '{name_or_id}' not found in type '{container_type}'")
+        return None
+    return response.json()["id"]
+
+
+def get_container_scope_by_id(id: int):
+    utils.info(f"[ligoj] Fetch container scope '{id}' ...")
+    return call_api("GET", f"service/id/container-scope/{id}").json()
+
+
+def get_container_scope_by_name(name: str, container_type: str):
+    utils.info(f"[ligoj] Fetch container scope '{name}' [{container_type}] ...")
     return call_api("GET", f"service/id/container-scope/name/{name}/{container_type}").json()
 
 
-def create_container_scope(name, container_type, dn):
+def delete_container_scope_by_id(id: int):
+    utils.info(f"[ligoj] Delete container scope '{id}' ...")
+    return call_api("DELETE", f"service/id/container-scope/{id}")
+
+
+def delete_container_scope_by_name(name: str, container_type: str):
+    utils.info(f"[ligoj] Delete container scope '{name}' [{container_type}] ...")
+    container_scope = get_container_scope_id(name, container_type, False)
+    if container_scope is None:
+        return None
+    return call_api("DELETE", f"service/id/container-scope/{container_scope}").json()
+
+
+def create_container_scope(name: str, container_type: str, dn: str) -> int:
     utils.info(f"[ligoj] Create container scope '{name}'[{container_type}] associated to DN '{dn}' ...")
     container_response = call_api("GET", f"service/id/container-scope/name/{name}/{container_type}", ignore_error=True)
     if container_response is not None:
@@ -1144,41 +1221,45 @@ def create_container_scope(name, container_type, dn):
     return call_api("POST", "service/id/container-scope", data={"dn": dn, "name": name, "type": container_type}).json()
 
 
-def create_company(name, container_scope, **kwargs):
+def create_company(name: str | int, container_scope: str | int, **kwargs):
     utils.info(f"[ligoj] Create company '{name}' in scope id '{container_scope}' ...")
     container_response = call_api("GET", f"service/id/company/{name}", ignore_error=True)
-    if container_response is not None:
+    if container_response:
         utils.debug(f"[ligoj] Company '{name}' already exists'")
         return
 
-    return call_api(
-        "POST",
-        "service/id/company",
-        data=kwargs.get("data", {}) | {"name": name, "scope": container_scope},
-        ignore_error=kwargs.get("ignore_error", False),
-    )
+    return call_api("POST", "service/id/company", data=kwargs.get("data", {}) | {"name": name, "scope": container_scope}, ignore_error=kwargs.get("ignore_error", False))
 
 
-def create_ou(name, container_scope):
-    utils.info(f"[ligoj] Create LDAP OU'{name}' in scope id '{container_scope}' ...")
-    try:
-        return call_api("POST", "service/id/company", data={"name": name, "scope": container_scope}, ignore_error=True)
-    except BaseException as _ignore:
-        utils.warn(f"[ligoj] LDAP OU creation failed for '{name}' but might exists already ...")
-        return False
+def create_ou(name: str, parent_dn: str, **kwargs):
+    utils.info(f"[ligoj] Create LDAP OU'{name}' in parent DN '{parent_dn}' ...")
+    container_response = call_api("GET", f"service/id/company/{name}", ignore_error=True)
+    if container_response:
+        utils.debug(f"[ligoj] OU '{name}' already exists'")
+        return container_response
+
+    container_scope_id = create_container_scope(f"temporary-scope-{name}", "company", parent_dn)
+    ou_response = call_api("POST", "service/id/company", data={"name": name, "scope": container_scope_id}, ignore_error=kwargs.get("ignore_error", False))
+    delete_container_scope_by_id(container_scope_id)
+    return ou_response
 
 
-def group_create(name: str, container_scope: int, parent_name: str | None = None):
-    utils.info(f"[ligoj] Create group '{'' if parent_name is None else f'{parent_name}/'}/{name}' in scope id '{container_scope}' ...")
+def delete_ou(name: str):
+    utils.info(f"[ligoj] Delete LDAP OU '{name}' ...")
+    return call_api("DELETE", "service/id/company", data={"name": name})
+
+
+def create_group(name: str, container_scope_name_or_id: str | int, parent_name: str | None = None):
+    utils.info(f"[ligoj] Create group '{'' if parent_name is None else f'{parent_name}/'}/{name}' in scope '{container_scope_name_or_id}' ...")
     if unidecode(name) != name:
         raise ValueError(f"[ligoj] Group name '{name}' cannot contain non ASCII chars")
-
+    container_scope_id = get_container_scope_id(container_scope_name_or_id, "group")
     container_response = call_api("GET", f"service/id/group/{urllib.parse.quote(name, safe='')}", ignore_error=True)
     if container_response is not None:
         utils.debug(f"[ligoj] Group '{name}' already exists'")
         return container_response
 
-    return call_api("POST", "service/id/group", data={"name": name, "scope": container_scope, "parent": parent_name})
+    return call_api("POST", "service/id/group", data={"name": name, "scope": container_scope_id, "parent": parent_name})
 
 
 def project_get(project_key_or_id, headers=None):
