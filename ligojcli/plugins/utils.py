@@ -220,11 +220,11 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
     if response.status_code in [501, 502, 503]:
         raise ValueError(f"{message_url} ({response.status_code}), failed with technical error, {response.text}")
     if response.status_code == 403:
-        raise ValueError(f"{message_url} ({response.status_code}), check your credentials, {response.text}")
+        raise ValueError(f"{message_url} ({response.status_code}), check your authorizations, {response.text}")
     if response.status_code == 405:
         raise ValueError(f"{message_url} ({response.status_code}) is not a valid path or method, {response.text}")
     if response.status_code == 401:
-        raise ValueError(f"{message_url} ({response.status_code}), check your authorizations, {response.text}")
+        raise ValueError(f"{message_url} ({response.status_code}), check your credentials, {response.text}")
 
     # Escapable codes
     if response.status_code in [412, 409]:
