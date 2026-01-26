@@ -72,7 +72,8 @@ def configure(subparser_service):
     # role
     subparser_action = subparser_service.add_parser("role", help="System role operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("get", help="Return system role information")
-    parser_action.add_argument("--id", "-i", help="Role id/name")
+    parser_action.add_argument("--id", "-i", help="Role id. Exclusive with --name", required=False)
+    parser_action.add_argument("--name", "-n", help="Role name. Exclusive with --id", required=False)
     subparser_action.add_parser("list", help="Return system roles")
     parser_action = subparser_action.add_parser("create", help="Create system role")
     parser_action.add_argument("--id", "-i", help="Role id/name")
@@ -278,6 +279,7 @@ def configure(subparser_service):
     parser_action.add_argument("--from", "-f", help="Import URL or local file name", required=True)
     parser_action = subparser_action.add_parser("get", help="Get group by name")
     parser_action.add_argument("--name", "-n", help="Group name", required=True)
+    parser_action = subparser_action.add_parser("list", help="List groups")
 
     # plugin:id container scope
     subparser_action = subparser_service.add_parser("id:scope", help="Plugin id container scope operations").add_subparsers(title="action", help="Action", dest="action")
@@ -289,6 +291,8 @@ def configure(subparser_service):
     parser_action.add_argument("--id", "-i", help="Container scope identifier", required=False)
     parser_action.add_argument("--name", "-n", help="Container scope name, exclusive with id", required=False)
     parser_action.add_argument("--type", "-t", help="Scope type. Required with name", required=False, choices=["company", "group"])
+    parser_action = subparser_action.add_parser("list", help="List container scopes")
+    parser_action.add_argument("--type", "-t", help="Filtered scope type", required=True, choices=["company", "group"])
     parser_action = subparser_action.add_parser("delete", help="Delete a container scope or by identifier")
     parser_action.add_argument("--id", "-i", help="Container scope identifier", required=False)
     parser_action.add_argument("--name", "-n", help="Container scope name, exclusive with id", required=False)
@@ -503,6 +507,8 @@ def execute_action(service, action, _, args):
     elif service == "id:group":
         if action == "get":
             return group_get_by_name(args["name"])
+        if action == "list":
+            return group_list()
         if action == "create":
             scope = utils.not_none(args.get("scope"), "scope")
             return create_group(args["name"], scope, args.get("parent"))
@@ -516,6 +522,8 @@ def execute_action(service, action, _, args):
             if args.get("id"):
                 return get_container_scope_by_id(utils.not_none(args.get("id")))
             return get_container_scope_by_name(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"))
+        if action == "list":
+            return list_container_scopes(utils.not_none(args.get("type"), "type"))
         if action == "create":
             return create_container_scope(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"), utils.not_none(args.get("dn"), "dn"))
         if action == "delete":
@@ -745,7 +753,7 @@ def configuration_get(name: str | None):
         return call_api("GET", "system/configuration")
     utils.info(f"[ligoj] Get configuration '{name}' ...")
     response = call_api("GET", f"system/configuration/{name}", headers={"Accept": "text"})
-    return None if response is None else {"value": response.text}
+    return {"value": None} if response is None else {"value": response.text}
 
 
 def configuration_delete(name: str):
@@ -1192,6 +1200,11 @@ def get_container_scope_by_name(name: str, container_type: str):
     return call_api("GET", f"service/id/container-scope/name/{name}/{container_type}").json()
 
 
+def list_container_scopes(container_type: str):
+    utils.info(f"[ligoj] Fetch container scopes [{container_type}] ...")
+    return call_api("GET", f"service/id/container-scope/{container_type}").json()
+
+
 def delete_container_scope_by_id(id: int):
     utils.info(f"[ligoj] Delete container scope '{id}' ...")
     return call_api("DELETE", f"service/id/container-scope/{id}")
@@ -1274,6 +1287,11 @@ def group_get_by_name(group):
         raise ValueError(f"[ligoj] Group name '{group}' cannot contain non ASCII chars")
 
     response = call_api("GET", f"service/id/group/{group}", ignore_error=True)
+    return None if response is None else response.json()
+
+
+def group_list():
+    response = call_api("GET", "service/id/group", ignore_error=True)
     return None if response is None else response.json()
 
 
