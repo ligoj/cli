@@ -382,9 +382,13 @@ ligoj role list
 ### Get a system roles
 
 ```bash
-ligoj role get --id ADMIN
+ligoj role get --id 1
+ligoj role get --name ADMIN
 ```
 
+```json
+{"id": 1, "createdBy": "_system", "createdDate": 1758279349911, "lastModifiedBy": "_system", "lastModifiedDate": 1758279349911, "name": "ADMIN"}
+```
 
 ## Info
 
@@ -612,12 +616,55 @@ ligoj cache list
 ]
 ```
 
+## File
+
+A [file](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) is a remote file readable and/or writable by the API container.
+
+Related path must be authorized by the configuration value `ligoj.file.path`. This check is performed at upload and download times.
+
+```bash
+ligoj configuration set --id "ligoj.file.path" --value "^/home/files/.*,^/home/hooks/.*,^/home/ligoj/META-INF/resources/webjars/.*,^/home/ligoj/statics/themes/.*"
+```
+
+### Create or update file
+
+Upload a local file to a remote file.
+
+```bash
+ligoj file put --from https://path/to/icon.png --path "/home/ligoj/icon.png"
+ligoj file put --from docs/ui/logo.png --path "/home/ligoj/META-INF/resources/webjars/home/img/logo.png"
+ligoj file put --from docs/ui/bg1.jpg  --path "/home/ligoj/statics/themes/bootstrap-material-design/img/bg1.jpg"
+ligoj file put --from docs/ui/logo.png --path "/home/ligoj/statics/favicon.ico"
+ligoj file put --from docs/ui/logo.png --path "/home/ligoj/statics/themes/bootstrap-material-design/ico/favicon.ico"
+```
+
+### Delete file
+
+```bash
+ligoj file delete --path "/home/ligoj/icon.png"
+```
+
+### Hook get
+
+Download a remote file and saves it to local file.
+
+```bash
+ligoj file get --path "/home/ligoj/icon.png"  --out "./icon2.png"
+```
+
 ## Hook
 
-A hook is a user-level command triggered by an invoked API call of Ligoj.
+A [hook](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) is a command uploaded by an user, and triggered by a successfully invoked API call of Ligoj.
+
 When this command is executed, it receives a `PAYLOAD` event as environment variable.
 
-Related command must be authorized by the configuration value `ligoj.hook.path`. This check is performed at creation and execution time.
+Related command must be authorized by the configuration value `ligoj.hook.path`. This check is performed at creation and execution time: 
+
+```bash
+ligoj configuration set --id "ligoj.hook.path" --value "^/home/ligoj/hooks/.*"
+ligoj configuration set --id "ligoj.file.path" --value "^/home/ligoj/hooks/.*"
+ligoj file put --from docs/sample_hook_ligoj_audit.sh  --path "/home/ligoj/hooks/ligoj_audit.sh"  --executable
+```
 
 Payload structure:
 
@@ -639,8 +686,8 @@ Payload structure:
 ### Create hook
 
 ```bash
-ligoj hook upsert --name "audit_role_change" --command "/home/ligoj/ligoj_audit.sh" --directory /var/log --timeout 10 --match '{"path":"system/role.*"}' --inject secret1 secret2
-ligoj hook upsert --name "audit_role_change" --command "/home/ligoj/ligoj_audit.sh" --directory /var/log --timeout 10 --match '{"path":"system/role.*", "method":"POST"}' --inject secret1 secret2
+ligoj hook upsert --name "audit_role_change" --command "/home/ligoj/hooks/ligoj_audit.sh" --directory /var/log --timeout 10 --match '{"path":"system/security/role.*"}' --inject secret1 secret2
+ligoj hook upsert --name "audit_role_change" --command "/home/ligoj/hooks/ligoj_audit.sh" --directory /var/log --timeout 10 --match '{"path":"system/security/role.*", "method":"POST"}' --inject secret1 secret2
 ```
 
 **Note** 
@@ -673,7 +720,7 @@ docker exec ligoj-api python3 --version
 For update, `id` or `name` can be used. However if `name` needs to be update, provides also the `ìd`.
 
 ```bash
-ligoj hook upsert --id 4 --name "audit_role_change_new" --command "$(pwd)/ligoj_audit.sh" --directory  /var/log --match '{"path":"system/security/role.*"}' --inject "feature:iam:node:primary"  "my-secret"
+ligoj hook upsert --id 4 --name "audit_role_change_new" --command "$(pwd)/docs/sample_hook_ligoj_audit.sh" --directory  /var/log --match '{"path":"system/security/role.*"}' --inject "feature:iam:node:primary"  "my-secret"
 ```
 
 ### Delete hook
@@ -697,38 +744,9 @@ ligoj hook get --name "audit_role_change"
 ```
 
 ```json
-[{"id": 1, "name": "audit_role_change", "workingDirectory": "/var/log", "command": "/path/to/ligoj_audit.sh", "match": "{\"path\":\"system/role.*\"}", "injects": ["java.class.path"]}]
+[{"id": 1, "name": "audit_role_change", "workingDirectory": "/var/log", "command": "/path/to/ligoj_audit.sh", "match": "{\"path\":\"system/security/role.*\"}", "injects": ["java.class.path"]}]
 ```
 
-
-## File
-
-A remote file readable and/or writable by the API container.
-
-Related path must be authorized by the configuration value `ligoj.file.path`. This check is performed at upload and download times.
-
-### Create or update file
-
-Upload a local file to a remote file.
-
-```bash
-ligoj file put --from /path/to/icon.png  --path "/home/ligoj/icon.png" 
-ligoj file put --from https://path/to/icon.png --path "/home/ligoj/icon.png"
-```
-
-### Delete file
-
-```bash
-ligoj file delete --path "/home/ligoj/icon.png"
-```
-
-### Hook get
-
-Download a remote file and saves it to local file.
-
-```bash
-ligoj file get --path "/home/ligoj/icon.png"  --out "./icon2.png"
-```
 
 ## Plugin
 
@@ -1291,7 +1309,7 @@ ligoj subscription refresh --id 252
 Operations related to [plugin-id](https://github.com/ligoj/plugin-id) and sud-plugins.
 
 
-## Plugin `id:container-scope` operations
+## Plugin `id:scope` operations
 
 Operations related to container scopes managed by `service:id` nodes.
 
@@ -1301,25 +1319,45 @@ Operations related to container scopes managed by `service:id` nodes.
 Create a container scope
 
 ```bash
-ligoj id:container-scope create --id "Unassigned" --type "group" --dn "ou=groups,dc=example,dc=com"
-ligoj id:container-scope create --id "Projects" --type "group" --dn "ou=projects,ou=groups,dc=example,dc=com"
-ligoj id:container-scope create --id "Tools" --type "group" --dn "ou=tools,ou=groups,dc=example,dc=com"
-ligoj id:container-scope create --id "Unassigned" --type "company" --dn "ou=people,dc=example,dc=com"
-ligoj id:container-scope create --id "Internal" --type "company" --dn "ou=internal,ou=people,dc=example,dc=com"
-ligoj id:container-scope create --id "Unassigned" --type "tree" --dn "dc=example,dc=com"
+ligoj id:scope create --id "Unassigned" --type "group" --dn "ou=groups,dc=example,dc=com"
+ligoj id:scope create --id "Projects" --type "group" --dn "ou=projects,ou=groups,dc=example,dc=com"
+ligoj id:scope create --id "Tools" --type "group" --dn "ou=tools,ou=groups,dc=example,dc=com"
+ligoj id:scope create --id "Unassigned" --type "company" --dn "ou=people,dc=example,dc=com"
+ligoj id:scope create --id "Internal" --type "company" --dn "ou=internal,ou=people,dc=example,dc=com"
+ligoj id:scope create --id "Unassigned" --type "tree" --dn "dc=example,dc=com"
 ```
 
 
 ### Get container scope
 
-Create a container scope
+Return a container scope
 
 ```bash
-ligoj id:container-scope get --id "SampleGroup2"
+ligoj id:scope get --id "SampleGroup2"
 ```
 
 ```json
 {"id": "samplegroup2", "name": "SampleGroup2", "scope": "Unassigned", "locked": false}
+```
+
+
+### List container scopes
+
+Return a list of container scopes
+
+```bash
+ligoj id:scope list --type "group"
+```
+
+```json
+{
+  "recordsTotal": 4, "recordsFiltered": 3, 
+  "data": [
+    {"id": 5, "name": "Unassigned", "dn": "ou=groups,dc=sample,dc=com", "type": "group", "locked": false}, 
+    {"id": 6, "name": "Project", "dn": "ou=projects,ou=groups,dc=sample,dc=com", "type": "group", "locked": false}, 
+    {"id": 7, "name": "Technical", "dn": "ou=tools,ou=groups,dc=sample,dc=com", "type": "group", "locked": false}
+  ]
+}
 ```
 
 ## Plugin `id:group` operations
@@ -1355,6 +1393,74 @@ ligoj id:group get --name "SampleGroup2"
 
 ```json
 {"id": "samplegroup2", "name": "SampleGroup2", "scope": "Unassigned", "locked": false}
+```
+
+### List group
+
+List groups
+
+```bash
+ligoj id:group list
+```
+
+```json
+{
+    "recordsTotal": 4,
+    "recordsFiltered": 4,
+    "data": [
+        {
+            "id": "sample group",
+            "name": "Sample Group",
+            "scope": "Unassigned",
+            "locked": false,
+            "countVisible": 3,
+            "count": 3,
+            "canWrite": true,
+            "canAdmin": true,
+            "containerType": "group"
+        },
+        {
+            "id": "samplegroup2",
+            "name": "SampleGroup2",
+            "scope": "Unassigned",
+            "locked": false,
+            "countVisible": 0,
+            "count": 0,
+            "canWrite": true,
+            "canAdmin": true,
+            "containerType": "group"
+        },
+        {
+            "id": "samplesubgroup",
+            "name": "SampleSubGroup",
+            "scope": "Unassigned",
+            "locked": false,
+            "countVisible": 0,
+            "count": 0,
+            "canWrite": true,
+            "canAdmin": true,
+            "containerType": "group",
+            "parents": [
+                "samplegroup2"
+            ]
+        },
+        {
+            "id": "samplesubgroup2",
+            "name": "SampleSubGroup2",
+            "scope": "Unassigned",
+            "locked": false,
+            "countVisible": 0,
+            "count": 0,
+            "canWrite": true,
+            "canAdmin": true,
+            "containerType": "group",
+            "parents": [
+                "samplesubgroup",
+                "samplegroup2"
+            ]
+        }
+    ]
+}
 ```
 
 ## Plugin `id:user` operations
