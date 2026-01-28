@@ -686,17 +686,24 @@ Payload structure:
 ### Create hook
 
 ```bash
+# Asynchronous hook
 ligoj hook upsert --name "audit_role_change" --command "/home/ligoj/hooks/ligoj_audit.sh" --directory /var/log --timeout 10 --match '{"path":"system/security/role.*"}' --inject secret1 secret2
-ligoj hook upsert --name "audit_role_change" --command "/home/ligoj/hooks/ligoj_audit.sh" --directory /var/log --timeout 10 --match '{"path":"system/security/role.*", "method":"POST"}' --inject secret1 secret2
+
+# Synchronous hook
+ligoj hook upsert --name "audit_role_change" --command "/home/ligoj/hooks/ligoj_audit.sh" --directory /var/log --timeout 10 --match '{"path":"system/security/role.*", "method":"POST"}' --inject secret1 secret2 --delay 0
 ```
 
 **Note** 
 - For Docker image runtime, this program is executed by the container `ligoj-api`, and must be resolvable. Either this program is already packaged in the container, either it is mounted as a Docker volume to the host. Usually the mounted volume is `/home/ligoj` and points to the host path such as `/var/path/to/ligoj`. In the above hook sample, the user-level script would be `/var/path/to/ligoj/ligoj_audit.sh`.
+- `--name` The human readable hook name. Is displayed in logs and HTTP headers of synchronous executions.
+- `--command` The command to execute. Must be allowed by `ligoj.hook.path` configuration. This condition is checked at creation and execution time.
+- `--directory` The working directory where the hook is executed.
 - `--inject` Can relate to any configuration names supported by the [configuration get](#configuration) command and will be provided in the payload variable.
 - `--match` Must be a valid JSON stringified object having :
-  - at least the `path` property relating to a valid regular expression matching to one of the available Ligoj's endpoint.
-  - an optional `method` property corresponding to ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"].
-
+  * at least the `path` property relating to a valid regular expression matching to one of the available Ligoj's endpoint.
+  * an optional `method` property corresponding to ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"].
+- `--delay` The delay in seconds before the hook is executed. Default to `1`. Use `0` for synchronous hooks.
+- `--timeout` The timeout in seconds before the hook is executed. Default to `10`.
 
 Sample executable hook script `/home/ligoj/ligoj_audit.sh`:
 

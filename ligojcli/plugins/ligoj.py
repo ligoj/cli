@@ -220,13 +220,16 @@ def configure(subparser_service):
     # hook
     subparser_action = subparser_service.add_parser("hook", help="Hook operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("upsert", help="Update of create a hook")
-    parser_action.add_argument("--id", "-i", help="Hook identifier to update", type=int)
-    parser_action.add_argument("--name", "-n", help="Hook name to create or update")
-    parser_action.add_argument("--directory", "-d", help="Working directory of executed command. Must not contain spaces")
-    parser_action.add_argument("--command", "-c", help="Command to execute, split by ` ` char to separate program from its arguments. Must be allowed by `ligoj.hook.path` configuration.")
-    parser_action.add_argument("--match", "-m", help='Hook JSON structure. Currently supports only path and optionally method filtering. ie. {"path": "rest/path/to", "method": "GET"}')
+    parser_action.add_argument("--id", "-i", required=False, help="Hook identifier to update", type=int)
+    parser_action.add_argument("--name", "-n", required=True, help="Hook name to create or update (unique)")
+    parser_action.add_argument("--directory", "-d", required=True, help="Working directory of executed command. Must not contain spaces")
+    parser_action.add_argument(
+        "--command", "-c", required=True, help="Command to execute, split by ` ` char to separate program from its arguments. Must be allowed by `ligoj.hook.path` configuration."
+    )
+    parser_action.add_argument("--match", "-m", required=True, help='Hook JSON structure. Currently supports only path and optionally method filtering. ie. {"path": "rest/path/to", "method": "GET"}')
     parser_action.add_argument("--inject", help='Can relate to any configuration name supported by the "configuration get" command. Decrypted as needed.', action="append", default=[])
-    parser_action.add_argument("--timeout", "-t", default=30, type=int, help="Maximum integration time in second")
+    parser_action.add_argument("--timeout", "-t", default=10, type=int, help="Maximum integration time in second")
+    parser_action.add_argument("--delay", default=1, type=int, help="Delay in second before execution. Use 0 for synchronous execution")
     parser_action = subparser_action.add_parser("delete", help="Update of create a hook")
     parser_action.add_argument("--id", "-i", help="Hook identifier to delete", type=int, required=False)
     parser_action.add_argument("--name", "-n", help="Hook name to delete", required=False)
@@ -454,6 +457,7 @@ def execute_action(service, action, _, args):
                 utils.not_none(args.get("match"), "JSON match"),
                 list(itertools.chain.from_iterable(args.get("inject", []))),
                 args.get("timeout"),
+                args.get("delay"),
             )
     elif service == "file":
         if action == "get":
@@ -782,7 +786,7 @@ def hook_delete(hook_id: str | None, name: str | None):
     return None
 
 
-def hook_upsert(hook_id: str | None, name: str, directory: str, command: str, match: str, inject: list, timeout: int | None):
+def hook_upsert(hook_id: str | None, name: str, directory: str, command: str, match: str, inject: list, timeout: int, delay: int):
     utils.info(f"[ligoj] Update/create hook '{name}' ...")
     try:
         match_obj = json.loads(match)
@@ -794,7 +798,16 @@ def hook_upsert(hook_id: str | None, name: str, directory: str, command: str, ma
     except Exception as err:
         raise ValueError(f"[ligoj] Hook '{name}', invalid JSON syntax for match") from err
 
-    return call_api("POST", "system/hook", data={"name": name, "id": hook_id, "workingDirectory": directory, "command": command, "match": match, "inject": inject, "timeout": timeout})
+    if not hook_id:
+        hook_response = call_api("GET", f"system/hook/name/{name}", ignore_error=True)
+        if hook_response:
+            hook_id = hook_response.json()["id"]
+
+    return call_api(
+        "PUT" if hook_id else "POST",
+        "system/hook",
+        data={"name": name, "id": hook_id, "workingDirectory": directory, "command": command, "match": match, "inject": inject, "timeout": timeout, "delay": delay},
+    )
 
 
 def hook_get(hook_id: str | None, name: str | None):
