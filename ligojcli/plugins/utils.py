@@ -175,10 +175,12 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
     ignore_404 = kwargs.get("ignore_404", False) is True
     ignore_400 = kwargs.get("ignore_400", False) is True
     full_url = re.sub("([^:]/)/", "\\1", re.sub("([^:]/)/", "\\1", f"{endpoint}/{url}"))
-    message_url = f"[{component}] API call {method} {full_url if log_level in ['TRACE'] else url}"
+    message_url = f"[{component}] API {method} {full_url if log_level in ['TRACE'] else url}"
     message_req = f"{message_url}{f' ?{query_parameters}' if len(query_parameters.keys()) else ''} {dict_data if isinstance(dict_data, dict) and len(dict_data.keys()) else ''}"
+    message_headers = f" -- {headers}" if len(headers.keys()) and log_level in ["TRACE"] else ""
+    message_cookies = f" -- {kwargs.get('cookies') if len(kwargs.get('cookies', {}).keys()) else ''}" if len(kwargs.get("cookies", {}).keys()) and log_level in ["TRACE"] else ""
     if log_level in ["TRACE"]:
-        trace(f"{message_req} -- {headers if len(headers.keys()) else ''} -- {kwargs.get('cookies') if len(kwargs.get('cookies', {}).keys()) else ''} ...")
+        trace(f"{message_req}{message_headers}{message_cookies} ...")
     else:
         debug(f"{message_req} ...")
 
@@ -215,38 +217,40 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
         raise ValueError(f"[{component}] API call failed", e) from e
 
     # Unconditional exit codes
+    message_headers = f" -- {response.headers}" if len(response.headers.keys()) and log_level in ["TRACE"] else ""
+    message_response = f"{message_url} ({response.status_code}){message_headers}"
     if response.status_code == 504:
-        raise ValueError(f"{message_url} ({response.status_code}), failed with internal timeout")
+        raise ValueError(f"{message_response}, failed with internal timeout")
     if response.status_code in [501, 502, 503]:
-        raise ValueError(f"{message_url} ({response.status_code}), failed with technical error, {response.text}")
+        raise ValueError(f"{message_response}, failed with technical error, {response.text}")
     if response.status_code == 403:
-        raise ValueError(f"{message_url} ({response.status_code}), check your authorizations, {response.text}")
+        raise ValueError(f"{message_response}, check your authorizations, {response.text}")
     if response.status_code == 405:
-        raise ValueError(f"{message_url} ({response.status_code}) is not a valid path or method, {response.text}")
+        raise ValueError(f"{message_response}, is not a valid path or method, {response.text}")
     if response.status_code == 401:
-        raise ValueError(f"{message_url} ({response.status_code}), check your credentials, {response.text}")
+        raise ValueError(f"{message_response}, check your credentials, {response.text}")
 
     # Escapable codes
     if response.status_code in [412, 409]:
         if ignore_error or ignore_412 or ignore_409:
-            trace(f"{message_url} {response.status_code}, object was previously created, {response.text}")
+            trace(f"{message_response}, object was previously created, {response.text}")
         else:
-            raise ValueError(f"{message_url} ({response.status_code}), object was previously created")
+            raise ValueError(f"{message_response}, object was previously created")
         return None
     elif response.status_code == 404:
         if ignore_error or ignore_404:
-            trace(f"{message_url} {response.status_code}, object not found, {response.text}")
+            trace(f"{message_response}, object not found, {response.text}")
         else:
-            raise ValueError(f"{message_url} ({response.status_code}), object not found, {response.text}")
+            raise ValueError(f"{message_response}, object not found, {response.text}")
         return None
     elif response.status_code == 400:
         if ignore_error or ignore_400:
-            trace(f"{message_url} {response.status_code}, invalid input, {response.text}")
+            trace(f"{message_response}, invalid input, {response.text}")
         else:
-            raise ValueError(f"{message_url} ({response.status_code}), invalid input, {response.text}")
+            raise ValueError(f"{message_response}, invalid input, {response.text}")
         return None
     elif response.status_code == 204:
-        trace(f"{message_url} ({response.status_code}), no result")
+        trace(f"{message_response}, no result")
         return None
 
     if response.status_code not in [200, 201, 202, 204, 400, 404, 409, 412]:
@@ -259,16 +263,16 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
             except BaseException as _ignore2:
                 message = str(response)
         if ignore_error or ignore_500:
-            trace(f"{message_url} failed with code {response.status_code}, message={message} (ignored error)")
+            trace(f"{message_response}, message={message} (ignored error)")
             return None
-        raise ValueError(f"{message_url} failed with code {response.status_code}, message={message}")
+        raise ValueError(f"{message_response}, message={message}")
     try:
-        trace(f"{message_url} ({response.status_code}), {'(ignored output)' if kwargs.get('ignore_output', False) else response.json()}")
+        trace(f"{message_response} {'(ignored output)' if kwargs.get('ignore_output', False) else response.json()}")
     except BaseException as _ignore:
         try:
-            trace(f"{message_url} ({response.status_code}), {'(ignored output)' if kwargs.get('ignore_output', False) else response.text}")
+            trace(f"{message_response}, {'(ignored output)' if kwargs.get('ignore_output', False) else response.text}")
         except BaseException as _ignore2:
-            trace(f"{message_url} ({response.status_code}), (no response)")
+            trace(f"{message_response} (no response)")
 
     if kwargs.get("return_headers", False):
         return response.headers
