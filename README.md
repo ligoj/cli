@@ -69,13 +69,13 @@ ligoj \
 
 Options are source in this order of priority, from the most to the least priority:
 
-1. Command line options – Overrides settings in any other location, such as the --output, and --profile parameters.
+1. Command line options – Overrides settings in any other location, such as the `--output` and `--profile` parameters.
 2. Environment variables – You can store values in your system's environment variables.
 3. Session file – `default` section or given profile name. The session file is located at `~/.ligoj/sessions` on Linux or macOS, and holds:
   - Session cookies set wih [`login`](#login-with-password) command.
   - API keys set wih [`login`](#login-with-api-key) command.
-3. Credentials file – `default` section or given profile name. The credentials file is located at `~/.ligoj/credentials` on Linux or macOS.
-4. Configuration file – `default` section or given profile name. The config file is located at `~/.ligoj/config` on Linux or macOS. Alternative file `~/.ligoj/cli-config` is supported.
+4. Credentials file – `default` section or given profile name. The credentials file is located at `~/.ligoj/credentials` on Linux or macOS.
+5. Configuration file – `default` section or given profile name. The config file is located at `~/.ligoj/config` on Linux or macOS. Alternative file `~/.ligoj/cli-config` is supported.
 
 
 ### Configuration files
@@ -144,8 +144,8 @@ ligoj --output text --version
 ### `--log-level`
 
 To configure the verbosity.
-- `TRACE` level displays the in/out data
-- `DEBUG` level displays the internal API calls
+- `TRACE` level displays the in/out data. `--verbose` and `--trace` are shortcuts for this level.
+- `DEBUG` level displays the internal API calls `--debug` is a shortcut for this level.
 - `INFO` level displays the actions
 - `WARN` level displays the unexpected behaviors
 - `ERROR` level displays the only fatal errors
@@ -154,6 +154,8 @@ This option can also be specified in [configuration files](#configuration-files)
 
 ```bash
 ligoj --log-level INFO ....
+ligoj --verbose ....
+ligoj --trace ....
 ```
 
 ### `--insecure`
@@ -232,6 +234,19 @@ After the content has been retrieved, it is interpolated with [Jinja](https://py
 - context is completed with environment variables
 - Surrounding spaces inside `{{..}}` are ignored
 
+### `--no-color`
+
+Disable colors in messages.
+
+### `--fail-on-hook-error`
+
+Fail (exit code 1) when any hook returns a failure status (`X-Ligoj-Hook-*=FAILED`). See [hooks](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) for more details.
+
+Hooks status and message are displayed with `DEBUG` log level:
+```log
+[DEBUG] [ligoj] Hook 'audit_role_change' status: SUCCEED
+[DEBUG] [ligoj] Hook 'audit_role_change' status: FAILED: Message for user
+```
 
 ## Session
 

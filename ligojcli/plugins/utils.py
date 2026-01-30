@@ -38,6 +38,7 @@ no_color: bool = True
 insecure: bool = False
 buffer_log: bool = False
 cookie_session = None
+fail_on_hook_error: bool = False
 now_str: str = datetime.now().strftime("%Y-%m-%d-%H%M%S")
 ini_profile: str | None = None
 ini_config = ConfigParser()
@@ -54,6 +55,7 @@ def init() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
     parser.add_argument("--api-run-user", "-U", help="Run as username, only when API user is an administrator", default=None)
     parser.add_argument("--api-key", help="API key", default=None)
     parser.add_argument("--profile", help="Profile name", default=None)
+    parser.add_argument("--fail-on-hook-error", help="Fail on hook error", default=False, action="store_true")
     parser.add_argument("--version", "-v", help="Version", action="store_true")
     parser.add_argument("--no-color", help="Disable colors in messages", action="store_true", default=False)
     parser.add_argument("--verbose", "-V", help="Enable TRACE level", action="store_true", default=False)
@@ -74,6 +76,7 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
     global buffer_log
     global cookie_session
     global log_level
+    global fail_on_hook_error
     args = parser.parse_args()
     args = vars(args)
 
@@ -95,6 +98,7 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
     if insecure is True:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     output = get_config(args, "output", "LIGOJ_OUTPUT", "json")
+    fail_on_hook_error = get_config(args, "fail-on-hook-error", "LIGOJ_FAIL_ON_HOOK_ERROR", "False").lower() in ["true", "1", "yes"]
 
     return (args, output)
 
