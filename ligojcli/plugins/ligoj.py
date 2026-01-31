@@ -560,19 +560,20 @@ def call_api(method, url, **kwargs):
     response = utils.call_rest_api(method, "ligoj", f"{ligoj_endpoint}{'/' if url.startswith('/') else '/rest/'}", url.removeprefix("/"), None, kwargs)
 
     # Check hook status within all X-Ligoj-Hook-* and print the error message
-    for header in response.headers:
-        if header.startswith("X-Ligoj-Hook-") and not header.endswith("-Message"):
-            hook = header.removeprefix("X-Ligoj-Hook-")
-            status = response.headers.get(header)
-            message = response.headers.get(header + "-Message")
-            if message:
-                hook_log = f"[ligoj] Hook '{hook}' status: {status}: {message}"
-            else:
-                hook_log = f"[ligoj] Hook '{hook}' status: {status}"
-            if utils.fail_on_hook_error and status == "FAILED":
-                raise ValueError(hook_log)
-            else:
-                utils.debug(hook_log)
+    if response:
+        for header in response.headers:
+            if header.startswith("X-Ligoj-Hook-") and not header.endswith("-Message"):
+                hook = header.removeprefix("X-Ligoj-Hook-")
+                status = response.headers.get(header)
+                message = response.headers.get(header + "-Message")
+                if message:
+                    hook_log = f"[ligoj] Hook '{hook}' status: {status}: {message}"
+                else:
+                    hook_log = f"[ligoj] Hook '{hook}' status: {status}"
+                if utils.fail_on_hook_error and status == "FAILED":
+                    raise ValueError(hook_log)
+                else:
+                    utils.debug(hook_log)
     return response
 
 
