@@ -98,8 +98,7 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
     if insecure is True:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     output = get_config(args, "output", "LIGOJ_OUTPUT", "json")
-    fail_on_hook_error = get_config(args, "fail-on-hook-error", "LIGOJ_FAIL_ON_HOOK_ERROR", "False").lower() in ["true", "1", "yes"]
-
+    fail_on_hook_error = str(get_config(args, "fail_on_hook_error", "LIGOJ_FAIL_ON_HOOK_ERROR", "False")).lower() in ["true", "1", "yes"]
     return (args, output)
 
 
