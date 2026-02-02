@@ -7,10 +7,14 @@ build-backend = "setuptools.build_meta"
 packages = ["ligojcli", "ligojcli.plugins"]
 
 [project]
-name = "ligojcli"
+name = "ligoj-cli"
 version = "1.0.0"
 description = "Ligoj CLI"
-authors = [{ name = "Fabrice Daugé", email = "fdaugan@kloudy.io" }]
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Fabrice Daugan", email = "fdaugan@kloudy.io" }]
 dependencies = [
     "colorama==0.4.6",
     "requests==2.32.4",
@@ -20,8 +24,14 @@ dependencies = [
     "unidecode==1.4.0",
     "jsonschema===4.25.0",
     "jsonmerge==1.9.2",
-    "Jinja2==3.1.6"
+    "Jinja2==3.1.6",
+    "pytimeparse==1.1.8"
 ]
 
 [project.scripts]
 ligoj = "ligojcli.ligoj:ligoj"
+
+[project.urls]
+Homepage = "https://github.com/ligoj/ligoj-cli"
+Documentation = "https://github.com/ligoj/ligoj-cli"
+Repository = "https://github.com/ligoj/ligoj-cli"

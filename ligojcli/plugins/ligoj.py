@@ -8,6 +8,8 @@ import itertools
 from typing import Any
 import urllib.parse
 from unidecode import unidecode
+import pytimeparse
+from datetime import datetime, timedelta
 from ligojcli.plugins import utils
 
 PLUGIN_NAME = "ligoj"
@@ -65,9 +67,12 @@ def configure(subparser_service):
     parser_action.add_argument("--id", "-i", help="Token name", required=False, default="")
     parser_action = subparser_action.add_parser("create", help="Generate a new token")
     parser_action.add_argument("--id", "-i", help="Token name", required=False, default="")
+    parser_action.add_argument("--expiration", "-e", help="Token expiration date or duration (e.g. 1d, 2w, 3m, 4y)", required=False, default="")
     parser_action.add_argument("--save", "-s", help="When set, token is instead output in credentials file", default=False, action="store_true")
     parser_action = subparser_action.add_parser("delete", help="Delete a token")
     parser_action.add_argument("--id", "-i", help="Token name", required=False, default="")
+    parser_action = subparser_action.add_parser("purge", help="Purge all expired tokens of principal user")
+    parser_action = subparser_action.add_parser("purge-all", help="Purge all expired tokens. Only available for administrators")
 
     # role
     subparser_action = subparser_service.add_parser("role", help="System role operations").add_subparsers(title="action", help="Action", dest="action")
@@ -427,13 +432,17 @@ def execute_action(service, action, _, args):
             return configuration_delete(utils.not_none(args.get("id"), "configuration name"))
     elif service == "token":
         if action == "create":
-            return token_create(utils.not_none(args.get("id"), "token name"), args.get("save", False))
+            return token_create(utils.not_none(args.get("id"), "token name"), args.get("expiration", ""), args.get("save", False))
         if action == "list":
             return token_list()
         if action == "get":
             return token_get(utils.not_none(args.get("id"), "token name"))
         if action == "delete":
             return token_delete(utils.not_none(args.get("id"), "token name"))
+        if action == "purge":
+            return token_purge()
+        if action == "purge-all":
+            return token_purge_all()
     elif service == "cache":
         if action == "invalidate":
             return cache_invalidate(args.get("id"))
@@ -732,9 +741,22 @@ def plugin_restart_context(wait: int = 0):
     return False
 
 
-def token_create(name: str, save: bool):
-    utils.info(f"[ligoj] Create token '{name}' ...")
-    response = call_api("POST", f"api/token/{name}", data={"name": name}).json()
+def token_create(name: str, expiration: str, save: bool):
+    expiration_date = None
+    if expiration:
+        try:
+            expiration_date = int(datetime.fromisoformat(expiration).timestamp())
+        except:
+            try:
+                parsed_date = pytimeparse.parse(expiration)
+                expiration_date = int((datetime.now() + timedelta(seconds=parsed_date)).timestamp())
+            except ValueError:
+                raise ValueError(utils.error(f"[ligoj] Invalid expiration value '{expiration}'"))
+        utils.info(f"[ligoj] Create token '{name}' expiring at {datetime.fromtimestamp(expiration_date)} ...")
+        response = call_api("POST", f"api/token", data={"name": name, "expiration": expiration_date}).json()
+    else:
+        utils.info(f"[ligoj] Create token '{name}' without expiration ...")
+        response = call_api("POST", f"api/token/{name}").json()
     if save:
         if not utils.ini_credentials.has_section(utils.ini_profile):
             utils.ini_credentials.add_section(utils.ini_profile)
@@ -748,6 +770,16 @@ def token_create(name: str, save: bool):
 def token_list():
     utils.info("[ligoj] List all tokens ...")
     return call_api("GET", "api/token")
+
+
+def token_purge_all():
+    utils.info("[ligoj] Purge all expired tokens ...")
+    return call_api("DELETE", "api/token/all")
+
+
+def token_purge():
+    utils.info("[ligoj] Purge all expired tokens of current user ...")
+    return call_api("DELETE", "api/token/my")
 
 
 def token_get(name: str | None):

@@ -7,3 +7,4 @@ unidecode==1.4.0
 jsonschema===4.25.0
 jsonmerge==1.9.2
 Jinja2==3.1.6
+pytimeparse==1.1.8

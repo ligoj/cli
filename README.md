@@ -488,31 +488,38 @@ Manage API keys of current user.
 
 ### Create a token
 
+For `expiration` option:
+- Either a full ISO date, Corresponds to the further date the generated token can be trusted.
+- Either a duration strarting from now, and in duration format. See [pytimeparse](https://pypi.org/project/pytimeparse/)
+
+Expired tokens are not neither listed, neither returned even if they are not yet physically deleted.
+
 ```bash
 ligoj token create --id cli_init
+ligoj token create --id today_only --expiration 1d
+ligoj token create --id SELF_TOKEN_RENEW --expiration 2029-12-31T23:59:59
 ```
 
 Optionally the created token can be saved into the current profile and will replace the previous one if existing in the current profile:
 
-```bash
-ligoj token create --id cli_init --save
+Output:
+
+```json
+{"id": "__api_key__", "name": "cli_init"}
 ```
 
 ### List tokens
 
 ```bash
 ligoj token list
-```
 
-```json
 ["cli_init", "test"]
 ```
 
-### Get a ttokenoken value
+### Get a token value
 
 ```bash
 ligoj token get --id cli_init
-```
 
 ```json
 {"value": "__api_key__"}
