@@ -34,6 +34,10 @@ export https_proxy="http://10.154.154.154:3128"
 export NO_PROXY="localhost,*.rie.gouv.fr,127.0.0.1,0.0.0.0,ligoj.$TENANT"
 pip install --upgrade pip
 pip install -U  --root-user-action=ignore pip -e . 
+
+# Build
+python -m pip install --upgrade build
+python -m build
 ```
 
 
@@ -1586,7 +1590,7 @@ Hierarchy tree sample for base DN `dc=sample,dc=com`
 ### Via `ligoj bootstrap init`
 
 ```bash
-ligoj bootstrap init --base-dn="ou=dgfip,ou=mefi,o=gouv,c=fr" --users-base-dn "ou=people" --internal-users-base-dn "" --technical-users-base-dn "ou=technical-users" --external-users-base-dn "ou=external" --groups-base-dn "ou=groups" --technical-groups-base-dn "ou=tools" --projects-base-dn "ou=projects" --technical-groups "sonar-administrators" "jenkins-administrators" "nexus-administrators"
+ligoj bootstrap init --base-dn="dc=sample,dc=com" --users-base-dn "ou=people" --internal-users-base-dn "" --technical-users-base-dn "ou=technical-users" --external-users-base-dn "ou=external" --groups-base-dn "ou=groups" --technical-groups-base-dn "ou=tools" --projects-base-dn "ou=projects" --technical-groups "sonar-administrators" "jenkins-administrators" "nexus-administrators"
 ```
 
 ### Via `ligoj id` commands
@@ -2196,7 +2200,7 @@ ligoj -V project delete              --id "pic-master" --with-data '*'
 
 This section covers the case of running Ligoj with interaction with HTTPS services using self-signed certificates or issued by internal Certificate Authorities.
 
-For each HTTPS websites run the following command
+For each HTTPS websites run the following command. It requires `keytool` to be available on the host.
 
 ```bash
 python plugins/ssl.py keycloack.sample.com 443 ./ligoj.jks changeit
