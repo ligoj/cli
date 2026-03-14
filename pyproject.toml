@@ -1,4 +1,3 @@
-#cf. doc at https://packaging.python.org/en/latest/guides/writing-pyproject-toml
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
@@ -32,6 +31,7 @@ dependencies = [
 ligoj = "ligojcli.ligoj:ligoj"
 
 [project.urls]
-Homepage = "https://github.com/ligoj/ligoj-cli"
-Documentation = "https://github.com/ligoj/ligoj-cli"
-Repository = "https://github.com/ligoj/ligoj-cli"
+Homepage = "https://github.com/ligoj/cli"
+Documentation = "https://github.com/ligoj/cli/README.md"
+Repository = "https://github.com/ligoj/cli"
+Issues = "https://github.com/ligoj/cli/issues"
