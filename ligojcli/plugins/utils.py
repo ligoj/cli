@@ -283,9 +283,7 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
 
 
 def flat_map_group(groups):
-    if groups is None:
-        return []
-    return list(filter(lambda x: len(x) > 0, (y for g in groups for y in re.split("[, ;]", g))))
+    return groups or []
 
 
 def ini_read():

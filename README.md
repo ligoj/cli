@@ -1510,8 +1510,11 @@ ligoj id:user create --id jdupont2 --firstname "Jean" --lastname "Dupont" --mail
 
 ### Delete user
 
+Delete an user. If the user does not exist, the command will not return an error.
+
 ```bash
 ligoj id:user delete --id jdupont2
+ligoj id:user delete --mail jdupont@kloudy.io
 ```
 
 ### List users
@@ -1519,6 +1522,7 @@ ligoj id:user delete --id jdupont2
 ```bash
 ligoj id:user list
 ligoj id:user list --company "department1" --group "Sample Group" --criteria "@sample.com" --page-length 2
+ligoj id:user list --company "department1" --page-length 2
 ```
 
 ```json
@@ -1534,8 +1538,11 @@ ligoj id:user list --company "department1" --group "Sample Group" --criteria "@s
 ```
 ### Get user
 
+Return an user. If the user does not exist, the command will return `null`.
+
 ```bash
 ligoj id:user get --id jdupont
+ligoj id:user get --mail jdupont@kloudy.io
 ```
 
 ```json
@@ -1544,22 +1551,34 @@ ligoj id:user get --id jdupont
 
 ### Add user to a group
 
+The user and the group must exist.
+The command does not fail if the user is already in the group.
+
 ```bash
 ligoj id:user add --id jdupont --groups "SampleGroup2"
+ligoj id:user add --mail jdupont@kloudy.io --groups "SampleGroup2"
+ligoj id:user add --mail cli10.name@sample.com --groups "Sample Group"
 ```
 
 ### Remove user from a group
 
+The user and the group must exist.
+The command does not fail if the user is not in the group.
+
 ```bash
 ligoj id:user remove --id jdupont --groups "SampleGroup2"
+ligoj id:user remove --mail jdupont@kloudy.io --groups "SampleGroup2"
 ```
 
 ### Reset user password
 
 For a specific user (need administrative rights):
 
+The user must exist.
+
 ```bash
 ligoj id:user reset-password --id jdupont
+ligoj id:user reset-password --mail jdupont@kloudy.io
 ```
 
 For current user:

@@ -84,11 +84,11 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("create-roles", help="Create role mappings and configurations in supported tools")
     parser_action.add_argument("--project", "-p", help="Associated project key")
     parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=ligoj.DEFAULT_PARENT_GROUP_SUFFIX)
-    parser_action.add_argument("--groups", help="Group names to create. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file", nargs="*")
+    parser_action.add_argument("--groups", help="Group names to create. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file", nargs="*", default=[])
     parser_action.add_argument("--from", "-f", help="Configuration JSON URL or local file name")
     parser_action.add_argument("--schema", help="Optional JSON Schema definition applied to configuration, JSON, file or URL", required=False)
     parser_action.add_argument("--includes", help="Includes only some plugins. '*' for all", required=False, action="extend", nargs="+", type=str, default=["*"])
-    parser_action.add_argument("--excludes", help="Excludes some plugins. '*' for all", required=False,action="extend", nargs="+", type=str, default=[])
+    parser_action.add_argument("--excludes", help="Excludes some plugins. '*' for all", required=False, action="extend", nargs="+", type=str, default=[])
     parser_action.add_argument("--sonar-endpoint", "-S", help="Endpoint of SonarQube", required=False)
     parser_action.add_argument("--sonar-api-token", help="SonarQube API token", required=False)
     parser_action.add_argument("--jenkins-home", "-H", help="JENKINS_HOME", required=False)
@@ -115,7 +115,7 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("delete-roles", help="Delete role mappings and configurations from supported tools")
     parser_action.add_argument("--project", "-p", help="Associated project key")
     parser_action.add_argument("--group-suffix", help="Suffix added to project name in deleted groups", default=ligoj.DEFAULT_PARENT_GROUP_SUFFIX)
-    parser_action.add_argument("--groups", help="Group names to delete. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file", nargs="*")
+    parser_action.add_argument("--groups", help="Group names to delete. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file", nargs="*", default=[])
     parser_action.add_argument("--from", "-f", help="Configuration JSON URL or local file name")
     parser_action.add_argument("--schema", help="Optional JSON Schema definition applied to configuration, JSON, file or URL", required=False)
     parser_action.add_argument("--with-data", help="Include data deletion, repositories, folders,... for some plugins. '*' for all", required=False, action="append", default=[])
@@ -149,7 +149,7 @@ def execute_action(service, action, _operation, args):
         global includes, excludes, with_data
         excludes = args.get("excludes", [])
         includes = args.get("includes", ["*"])
-        if len(includes) >1 and includes[0] == "*":
+        if len(includes) > 1 and includes[0] == "*":
             includes.pop(0)
         with_data = args.get("with_data", [])
         utils.debug(f"Inclusion options excludes={excludes}, includes={includes}, with_data={with_data}")
@@ -201,7 +201,7 @@ def execute_action(service, action, _operation, args):
                 args.get("parent_project"),
                 args.get("parent_admin"),
                 args.get("team_leader"),
-                utils.flat_map_group(args.get("groups", [])),
+                utils.flat_map_group(args.get("groups")),
             )
 
         if action in ["create-roles", "delete-roles"]:
@@ -226,28 +226,23 @@ def execute_action(service, action, _operation, args):
             if action == "create-roles":
                 return bootstrap_create_roles(
                     project_key,
-                    utils.flat_map_group(args.get("groups", [])),
+                    utils.flat_map_group(args.get("groups")),
                     definition_json,
                     args.get("group_suffix"),
                     args.get("on_behalf_of"),
                 )
 
             if action == "delete-roles":
-                return bootstrap_delete_roles(project, utils.flat_map_group(args.get("groups", [])), definition_json, args.get("group_suffix"))
+                return bootstrap_delete_roles(project, utils.flat_map_group(args.get("groups")), definition_json, args.get("group_suffix"))
 
 
 def is_plugin_included(definition_json, plugin) -> bool:
     plugin_name = getattr(plugin, "PLUGIN_NAME")
     endpoint = getattr(plugin, f"{plugin_name}_endpoint")
-    included = (plugin_name in definition_json 
-            and plugin_name not in excludes 
-            and "*" not in excludes 
-            and (plugin_name in includes or "*" in includes)
-            and endpoint and len(endpoint) > 0)
+    included = plugin_name in definition_json and plugin_name not in excludes and "*" not in excludes and (plugin_name in includes or "*" in includes) and endpoint and len(endpoint) > 0
     if included:
         utils.check_endpoint(endpoint, plugin_name)
     return included
-
 
 
 def is_plugin_with_data(plugin: str) -> bool:
@@ -328,7 +323,14 @@ def bootstrap_create_roles(project_key: str, groups: list[str], definition_json,
 # Create LDAP OU "technical-users" in scope "Unassigned"[company]
 # Create groups as need within "technical-groups"
 def bootstrap_init(
-    base_dn: str, groups_base_dn: str, projects_base_dn: str, technical_groups_base_dn: str, users_base_dn: str, internal_users_base_dn: str, technical_users_base_dn: str, external_users_base_dn: str,
+    base_dn: str,
+    groups_base_dn: str,
+    projects_base_dn: str,
+    technical_groups_base_dn: str,
+    users_base_dn: str,
+    internal_users_base_dn: str,
+    technical_users_base_dn: str,
+    external_users_base_dn: str,
     technical_groups: list[str],
 ):
     # Companies

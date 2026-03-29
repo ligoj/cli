@@ -265,7 +265,7 @@ def configure(subparser_service):
     parser_action.add_argument("--company", "-c", help="company")
     parser_action.add_argument("--groups", "-g", help="groups", nargs="*", default=[])
     parser_action.add_argument("--custom-attributes", "-A", help="Custom attributes. Case might be sensitive", default=False)
-    parser_action = subparser_action.add_parser("get", help="Return a list users filtered by id and/or by mail")
+    parser_action = subparser_action.add_parser("get", help="Return a user by id or by mail")
     parser_action.add_argument("--id", "-i", help="User name", required=False)
     parser_action.add_argument("--mail", "-m", help="User mail", required=False)
     parser_action = subparser_action.add_parser("list", help="Return a list users filtered by id and/or by mail")
@@ -276,11 +276,14 @@ def configure(subparser_service):
     parser_action.add_argument("--page-length", "-l", help="Page length", required=False)
     parser_action = subparser_action.add_parser("delete", help="Delete a user")
     parser_action.add_argument("--id", "-i", help="User name", required=False)
+    parser_action.add_argument("--mail", "-m", help="User mail", required=False)
     parser_action = subparser_action.add_parser("add", help="Add user to groups")
     parser_action.add_argument("--id", "-i", help="User name", required=False)
+    parser_action.add_argument("--mail", "-m", help="User mail", required=False)
     parser_action.add_argument("--groups", "-g", help="groups", nargs="+")
     parser_action = subparser_action.add_parser("remove", help="Remove user from groups")
     parser_action.add_argument("--id", "-i", help="User name", required=False)
+    parser_action.add_argument("--mail", "-m", help="User mail", required=False)
     parser_action.add_argument("--groups", "-g", help="groups", nargs="+")
 
     # plugin:id group
@@ -507,7 +510,7 @@ def execute_action(service, action, _, args):
                     "lastName": args.get("lastname"),
                     "mail": args.get("mail"),
                     "company": utils.not_none(args.get("company"), "user company"),
-                    "groups": utils.flat_map_group(args.get("groups", [])),
+                    "groups": utils.flat_map_group(args.get("groups")),
                     "customAttributes": json.loads(args.get("custom_attributes", "{}")),
                 }
             )
@@ -516,15 +519,20 @@ def execute_action(service, action, _, args):
         if action == "list":
             return user_list(args.get("company"), args.get("group"), args.get("criteria"), args.get("page"), args.get("page_length"))
         if action == "add":
-            for group in utils.flat_map_group(args.get("groups", [])):
+            user_id = get_user_id(args, True)
+            for group in utils.flat_map_group(args.get("groups")):
                 user_add_to_group(user_id, group)
             return False
         if action == "remove":
-            for group in utils.flat_map_group(args.get("groups", [])):
-                user_remove_from_group(args["id"], group)
+            user_id = get_user_id(args, True)
+            for group in utils.flat_map_group(args.get("groups")):
+                user_remove_from_group(user_id, group)
             return False
         if action == "delete":
-            return user_delete(args["id"])
+            return user_delete(get_user_id(args))
+        if action == "reset-password":
+            user_id = get_user_id(args, True)
+            return user_reset_password(user_id)
     elif service == "id:group":
         if action == "get":
             return group_get_by_name(args["name"])
@@ -559,6 +567,20 @@ def execute_action(service, action, _, args):
         if action == "delete":
             return delete_ou(utils.not_none(args.get("name"), "name"))
 
+    return None
+
+
+def get_user_id(args, must_exist=False):
+    if args.get("id"):
+        return user["id"]
+    elif args.get("mail"):
+        user = user_find_by_mail(args.get("mail"))
+        if user:
+            return user["id"]
+    else:
+        raise ValueError("[ligoj] User id or mail is required")
+    if must_exist:
+        raise ValueError(f"[ligoj] User '{args.get('id') or args.get('mail')}' not found")
     return None
 
 
@@ -1411,8 +1433,10 @@ def user_remove_from_group(user, group):
 
 
 def user_delete(user):
+    if not user:
+        return False
     utils.info(f"[ligoj] Delete user '{user}' ...")
-    user_response = call_api("GET", f"service/id/user/{user}", ignore_error=True)
+    user_response = call_api("GET", f"service/id/user/{user}", ignore_404=True)
     if user_response is None:
         utils.info(f"[ligoj] User '{user}' does not exist")
     return call_api("DELETE", f"service/id/user/{user}")
