@@ -268,13 +268,19 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("get", help="Return a list users filtered by id and/or by mail")
     parser_action.add_argument("--id", "-i", help="User name", required=False)
     parser_action.add_argument("--mail", "-m", help="User mail", required=False)
+    parser_action = subparser_action.add_parser("list", help="Return a list users filtered by id and/or by mail")
+    parser_action.add_argument("--company", "-c", help="Company name", required=False)
+    parser_action.add_argument("--group", "-g", help="Group name", required=False)
+    parser_action.add_argument("--criteria", "-s", help="Criteria", required=False)
+    parser_action.add_argument("--page", "-p", help="Page number", required=False)
+    parser_action.add_argument("--page-length", "-l", help="Page length", required=False)
     parser_action = subparser_action.add_parser("delete", help="Delete a user")
-    parser_action.add_argument("--id", "-i", help="User name")
+    parser_action.add_argument("--id", "-i", help="User name", required=False)
     parser_action = subparser_action.add_parser("add", help="Add user to groups")
-    parser_action.add_argument("--id", "-i", help="User name")
+    parser_action.add_argument("--id", "-i", help="User name", required=False)
     parser_action.add_argument("--groups", "-g", help="groups", nargs="+")
     parser_action = subparser_action.add_parser("remove", help="Remove user from groups")
-    parser_action.add_argument("--id", "-i", help="User name")
+    parser_action.add_argument("--id", "-i", help="User name", required=False)
     parser_action.add_argument("--groups", "-g", help="groups", nargs="+")
 
     # plugin:id group
@@ -507,9 +513,11 @@ def execute_action(service, action, _, args):
             )
         if action == "get":
             return (args.get("id") and user_get(args.get("id"))) or (args.get("mail") and user_find_by_mail(args.get("mail")))
+        if action == "list":
+            return user_list(args.get("company"), args.get("group"), args.get("criteria"), args.get("page"), args.get("page_length"))
         if action == "add":
             for group in utils.flat_map_group(args.get("groups", [])):
-                user_add_to_group(args["id"], group)
+                user_add_to_group(user_id, group)
             return False
         if action == "remove":
             for group in utils.flat_map_group(args.get("groups", [])):
@@ -1208,6 +1216,25 @@ def user_create(user_details):
 def user_get(user: str) -> dict | None:
     utils.info(f"[ligoj] Fetch user '{user}' ...")
     response = call_api("GET", f"service/id/user/{user}", ignore_error=True)
+    if response is None:
+        return None
+    return response.json()
+
+
+def user_list(company: str | None = None, group: str | None = None, criteria: str | None = None, page: int | None = None, page_size: int | None = None) -> dict | None:
+    utils.info(f"[ligoj] Fetch user list ...")
+    params = {}
+    if company:
+        params["company"] = company
+    if group:
+        params["group"] = group
+    if criteria:
+        params["search[value]"] = criteria
+    if page:
+        params["page"] = page
+    if page_size:
+        params["length"] = page_size
+    response = call_api("GET", f"service/id/user", params=params)
     if response is None:
         return None
     return response.json()

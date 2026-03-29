@@ -1514,6 +1514,24 @@ ligoj id:user create --id jdupont2 --firstname "Jean" --lastname "Dupont" --mail
 ligoj id:user delete --id jdupont2
 ```
 
+### List users
+
+```bash
+ligoj id:user list
+ligoj id:user list --company "department1" --group "Sample Group" --criteria "@sample.com" --page-length 2
+```
+
+```json
+{
+  "recordsTotal": 102, 
+  "recordsFiltered": 102,
+  "extensions": {"customAttributes": ["uidFonctionnel"]}},
+  "data": [
+    {"firstName": "John", "lastName": "Doe", "id": "jdoe", "company": "external", "mails": ["jdoe@sample.com"], "groups": ["Sample Group", "SampleGroup2"], "name": "jdoe"}, 
+    {"firstName": "Cli2", "lastName": "Name", "id": "cli2name", "company": "external", "mails": ["a@bc.org","cli2@sample.com"], "groups": ["Sample Group"], "name": "cli2name"}
+  ]
+}
+```
 ### Get user
 
 ```bash
