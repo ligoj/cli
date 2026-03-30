@@ -1,21 +1,20 @@
 #
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
-import sys
-import re
-import os
-import json
-
-from configparser import ConfigParser
-from os.path import expanduser
-from datetime import datetime
-from typing import Any
 import argparse
-import requests
+import json
+import os
+import re
+import sys
+from configparser import ConfigParser
+from datetime import datetime
+from os.path import expanduser
+from typing import Any
 
-from jinja2 import Environment, BaseLoader
-from colorama import Fore, Style
+import requests
 import urllib3
+from colorama import Fore, Style
+from jinja2 import BaseLoader, Environment
 
 # python -m pip install requests colorama
 

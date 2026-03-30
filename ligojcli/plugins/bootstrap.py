@@ -2,18 +2,12 @@
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
 import json
-import dns.resolver
-from jsonschema import validate
-from jsonmerge import merge
 
-from ligojcli.plugins import utils
-from ligojcli.plugins import ligoj
-from ligojcli.plugins import nexus
-from ligojcli.plugins import gitlab
-from ligojcli.plugins import argocd
-from ligojcli.plugins import alfresco
-from ligojcli.plugins import sonarqube
-from ligojcli.plugins import jenkins
+import dns.resolver
+from jsonmerge import merge
+from jsonschema import validate
+
+from ligojcli.plugins import alfresco, argocd, gitlab, jenkins, ligoj, nexus, sonarqube, utils
 
 includes: list[str] = []
 excludes: list[str] = []

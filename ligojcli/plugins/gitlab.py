@@ -3,8 +3,8 @@
 #
 import re
 import urllib.parse
-from ligojcli.plugins import utils
-from ligojcli.plugins import ligoj
+
+from ligojcli.plugins import ligoj, utils
 
 PLUGIN_NAME = "gitlab"
 DEFAULT_GITLAB_PROJECT_GROUP_PREFIX = ""
@@ -30,6 +30,7 @@ def configure(subparser_service):
     subparser_action_project = parser_action.add_parser("get", help="Get a project")
     subparser_action_project.add_argument("--path", "-p", help="Project path", required=True)
 
+
 def execute_action(service, action, operation, args):
     if service == "gitlab":
         parse_remote_args(args)
@@ -37,6 +38,7 @@ def execute_action(service, action, operation, args):
             if args.get("sub_action") == "get":
                 return gitlab_get_group(args["path"])
     return None
+
 
 # Extract from args the parameters related to remote access API of GitLab
 def parse_remote_args(args):
@@ -90,11 +92,16 @@ def gitlab_get_user_id(username: str):
 def gitlab_create_group(parent_id: int | str | None, path: str, definition, avatar: bool):
     utils.info(f"[gitlab] Create sub-group, parent={parent_id}: path={path} ...")
     path_no_slash = re.sub(r"^/", "", str(parent_id))
-    response = call_gitlab_api("POST", "/groups/", data=definition |{"name": definition.get("name", path), "path": path, "parent_id": parent_id if not parent_id or type(parent_id) == int else urllib.parse.quote(path_no_slash, safe="")})
+    response = call_gitlab_api(
+        "POST",
+        "/groups/",
+        data=definition | {"name": definition.get("name", path), "path": path, "parent_id": parent_id if not parent_id or type(parent_id) is int else urllib.parse.quote(path_no_slash, safe="")},
+    )
     if avatar:
         # Also upload the avatar
-        call_gitlab_api("PUT", f"/groups/{response['id']}", files = {'avatar': open('customize/avatar.png', 'rb')} )
+        call_gitlab_api("PUT", f"/groups/{response['id']}", files={"avatar": open("customize/avatar.png", "rb")})
     return response
+
 
 def gitlab_delete_group(path_or_id: int | str, ignore_error=True):
     utils.info(f"[gitlab] Delete group '{path_or_id} ...")
@@ -151,7 +158,7 @@ def gitlab_create_project_roles(project_group_path: str, project_key: str, group
         project_wrapper_group = gitlab_get_group(project_wrapper_group_full_path, ignore_error=True)
         if not project_wrapper_group:
             utils.info(f"[gitlab] Create project wrapper group '{wrapper_group_path}' inside '{gitlab_project_full_path}'")
-            project_wrapper_group = gitlab_create_group(project_group.get("id") or None, wrapper_group_path, {"name": wrapper_group_name,"project_creation_level":"noone"}, True)
+            project_wrapper_group = gitlab_create_group(project_group.get("id") or None, wrapper_group_path, {"name": wrapper_group_name, "project_creation_level": "noone"}, True)
             utils.debug(f"[gitlab] project_wrapper_group_object {project_wrapper_group}")
 
     # Sub-groups

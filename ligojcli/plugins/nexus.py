@@ -2,8 +2,8 @@
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
 import urllib.parse
-from ligojcli.plugins import utils
-from ligojcli.plugins import ligoj
+
+from ligojcli.plugins import ligoj, utils
 
 PLUGIN_NAME = "nexus"
 nexus_endpoint: str | None = None

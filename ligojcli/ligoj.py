@@ -2,20 +2,22 @@
 #
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
-import sys
-import os
 import json
+import os
+import sys
 
-from ligojcli.plugins import utils
+from ligojcli.plugins import (
+    alfresco,
+    argocd,
+    bootstrap,
+    gitlab,
+    harbor,
+    jenkins,
+    nexus,
+    sonarqube,
+    utils,
+)
 from ligojcli.plugins import ligoj as ligoj_plugin
-from ligojcli.plugins import argocd
-from ligojcli.plugins import alfresco
-from ligojcli.plugins import bootstrap
-from ligojcli.plugins import jenkins
-from ligojcli.plugins import harbor
-from ligojcli.plugins import nexus
-from ligojcli.plugins import gitlab
-from ligojcli.plugins import sonarqube
 
 
 def main():

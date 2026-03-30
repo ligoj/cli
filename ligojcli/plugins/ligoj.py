@@ -1,15 +1,17 @@
 #
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
-import re
-import json
-import time
 import itertools
-from typing import Any
+import json
+import re
+import time
 import urllib.parse
-from unidecode import unidecode
-import pytimeparse
 from datetime import datetime, timedelta
+from typing import Any
+
+import pytimeparse
+from unidecode import unidecode
+
 from ligojcli.plugins import utils
 
 PLUGIN_NAME = "ligoj"
@@ -587,7 +589,7 @@ def execute_action(service, action, _, args):
 
 def get_user_id(args, must_exist=False):
     if args.get("id"):
-        return user["id"]
+        return args.get("id")
     elif args.get("mail"):
         user = user_find_by_mail(args.get("mail"))
         if user:
@@ -791,14 +793,14 @@ def token_create(name: str, expiration: str, save: bool):
     if expiration:
         try:
             expiration_date = int(datetime.fromisoformat(expiration).timestamp())
-        except:
+        except ValueError:
             try:
                 parsed_date = pytimeparse.parse(expiration)
                 expiration_date = int((datetime.now() + timedelta(seconds=parsed_date)).timestamp())
             except ValueError:
                 raise ValueError(utils.error(f"[ligoj] Invalid expiration value '{expiration}'"))
         utils.info(f"[ligoj] Create token '{name}' expiring at {datetime.fromtimestamp(expiration_date)} ...")
-        response = call_api("POST", f"api/token", data={"name": name, "expiration": expiration_date}).json()
+        response = call_api("POST", "api/token", data={"name": name, "expiration": expiration_date}).json()
     else:
         utils.info(f"[ligoj] Create token '{name}' without expiration ...")
         response = call_api("POST", f"api/token/{name}").json()
@@ -829,13 +831,13 @@ def token_purge():
 
 def token_get(name: str | None):
     utils.info(f"[ligoj] Get token '{name}' ...")
-    response = call_api("GET", f"api/token/{name}")
+    response = call_api("GET", f"api/token/{urllib.parse.quote(name, safe='')}")
     return None if response is None else {"value": response.text}
 
 
 def token_delete(name: str):
     utils.info(f"[ligoj] Delete token '{name}' ...")
-    call_api("DELETE", f"api/token/{name}")
+    call_api("DELETE", f"api/token/{urllib.parse.quote(name, safe='')}")
     return False
 
 
@@ -850,13 +852,13 @@ def configuration_get(name: str | None):
         utils.info("[ligoj] Get all configurations ...")
         return call_api("GET", "system/configuration")
     utils.info(f"[ligoj] Get configuration '{name}' ...")
-    response = call_api("GET", f"system/configuration/{name}", headers={"Accept": "text"})
+    response = call_api("GET", f"system/configuration/{urllib.parse.quote(name, safe='')}", headers={"Accept": "text"})
     return {"value": None} if response is None else {"value": response.text}
 
 
 def configuration_delete(name: str):
     utils.info(f"[ligoj] Delete configuration '{name}' ...")
-    call_api("DELETE", f"system/configuration/{name}")
+    call_api("DELETE", f"system/configuration/{urllib.parse.quote(name, safe='')}")
     return False
 
 
@@ -893,7 +895,7 @@ def hook_upsert(hook_id: str | None, name: str, directory: str, command: str, ma
         raise ValueError(f"[ligoj] Hook '{name}', invalid JSON syntax for match") from err
 
     if not hook_id:
-        hook_response = call_api("GET", f"system/hook/name/{name}", ignore_error=True)
+        hook_response = call_api("GET", f"system/hook/name/{urllib.parse.quote(name, safe='')}", ignore_error=True)
         if hook_response:
             hook_id = hook_response.json()["id"]
 
@@ -944,12 +946,12 @@ def cache_invalidate(name: str | None):
         utils.info("[ligoj] Invalidate all caches ...")
         return call_api("DELETE", "system/cache")
     utils.info(f"[ligoj] Invalidate cache '{name}' ...")
-    return call_api("POST", f"system/cache/{name}")
+    return call_api("POST", f"system/cache/{urllib.parse.quote(name, safe='')}")
 
 
 def cache_get(name: str | None):
     utils.info(f"[ligoj] Statistics of cache '{name}' ...")
-    return call_api("GET", f"system/cache/{name}")
+    return call_api("GET", f"system/cache/{urllib.parse.quote(name, safe='')}")
 
 
 def cache_list():
@@ -1207,7 +1209,7 @@ def create_system_role(role_name, api_patterns, ui_patterns):
 
 
 def system_role_get_by_name(name):
-    return call_api("GET", f"system/security/role/name/{name}")
+    return call_api("GET", f"system/security/role/name/{urllib.parse.quote(name, safe='')}")
 
 
 def system_role_get(role_id):
@@ -1238,12 +1240,12 @@ def system_user_upsert(user, roles, api_key_name: str = None):
 
 def system_user_get(user):
     utils.info(f"[ligoj] Get system user '{user}' ...")
-    return call_api("GET", f"system/user/{user}").json()
+    return call_api("GET", f"system/user/{urllib.parse.quote(user, safe='')}").json()
 
 
 def system_user_delete(user):
     utils.info(f"[ligoj] Delete system user '{user}' ...")
-    return call_api("DELETE", f"system/user/{user}")
+    return call_api("DELETE", f"system/user/{urllib.parse.quote(user, safe='')}")
 
 
 def system_user_list(with_roles: bool = False):
@@ -1253,13 +1255,13 @@ def system_user_list(with_roles: bool = False):
 
 def user_reset_password(user):
     utils.info(f"[ligoj] Reset password of user '{user}' ...")
-    return call_api("PUT", f"service/id/user/{user}/reset", headers={"Accept": "text/plain"}).text
+    return call_api("PUT", f"service/id/user/{urllib.parse.quote(user, safe='')}/reset", headers={"Accept": "text/plain"}).text
 
 
 def user_create(user_details):
     user = user_details["id"]
     utils.info(f"[ligoj] Create user '{user}' ...")
-    response = call_api("GET", f"service/id/user/{user}", ignore_error=True)
+    response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_error=True)
     if response is not None:
         utils.debug(f"[ligoj] User '{user}' already exists")
         return None
@@ -1269,14 +1271,14 @@ def user_create(user_details):
 
 def user_get(user: str) -> dict | None:
     utils.info(f"[ligoj] Fetch user '{user}' ...")
-    response = call_api("GET", f"service/id/user/{user}", ignore_error=True)
+    response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_error=True)
     if response is None:
         return None
     return response.json()
 
 
 def user_list(company: str | None = None, group: str | None = None, criteria: str | None = None, page: int | None = None, page_size: int | None = None) -> dict | None:
-    utils.info(f"[ligoj] Fetch user list ...")
+    utils.info("[ligoj] Fetch user list ...")
     params = {}
     if company:
         params["company"] = company
@@ -1288,7 +1290,7 @@ def user_list(company: str | None = None, group: str | None = None, criteria: st
         params["page"] = page
     if page_size:
         params["length"] = page_size
-    response = call_api("GET", f"service/id/user", params=params)
+    response = call_api("GET", "service/id/user", params=params)
     if response is None:
         return None
     return response.json()
@@ -1325,7 +1327,7 @@ def get_container_scope_id(name_or_id: str | int, container_type: str | None, re
     if not container_type:
         raise ValueError("[ligoj] Scope type is required when scope name is provided instead of scope identifier")
     utils.info(f"[ligoj] Fetch container scope '{name_or_id}' [{container_type}] ...")
-    response = call_api("GET", f"service/id/container-scope/name/{name_or_id}/{container_type}", ignore_error=True)
+    response = call_api("GET", f"service/id/container-scope/name/{urllib.parse.quote(name_or_id, safe='')}/{container_type}", ignore_error=True)
     if not response:
         if required:
             raise ValueError(f"[ligoj] Scope '{name_or_id}' not found in type '{container_type}'")
@@ -1340,7 +1342,7 @@ def get_container_scope_by_id(id: int):
 
 def get_container_scope_by_name(name: str, container_type: str):
     utils.info(f"[ligoj] Fetch container scope '{name}' [{container_type}] ...")
-    return call_api("GET", f"service/id/container-scope/name/{name}/{container_type}").json()
+    return call_api("GET", f"service/id/container-scope/name/{urllib.parse.quote(name, safe='')}/{container_type}").json()
 
 
 def list_container_scopes(container_type: str):
@@ -1363,7 +1365,7 @@ def delete_container_scope_by_name(name: str, container_type: str):
 
 def create_container_scope(name: str, container_type: str, dn: str) -> int:
     utils.info(f"[ligoj] Create container scope '{name}'[{container_type}] associated to DN '{dn}' ...")
-    container_response = call_api("GET", f"service/id/container-scope/name/{name}/{container_type}", ignore_error=True)
+    container_response = call_api("GET", f"service/id/container-scope/name/{urllib.parse.quote(name, safe='')}/{container_type}", ignore_error=True)
     if container_response is not None:
         existing_id = container_response.json()["id"]
         if container_response.json()["dn"] == dn:
@@ -1379,7 +1381,7 @@ def create_container_scope(name: str, container_type: str, dn: str) -> int:
 
 def create_company(name: str | int, container_scope: str | int, **kwargs):
     utils.info(f"[ligoj] Create company '{name}' in scope id '{container_scope}' ...")
-    container_response = call_api("GET", f"service/id/company/{name}", ignore_error=True)
+    container_response = call_api("GET", f"service/id/company/{urllib.parse.quote(name, safe='')}", ignore_error=True)
     if container_response:
         utils.debug(f"[ligoj] Company '{name}' already exists'")
         return
@@ -1389,7 +1391,7 @@ def create_company(name: str | int, container_scope: str | int, **kwargs):
 
 def create_ou(name: str, parent_dn: str, **kwargs):
     utils.info(f"[ligoj] Create LDAP OU'{name}' in parent DN '{parent_dn}' ...")
-    container_response = call_api("GET", f"service/id/company/{name}", ignore_error=True)
+    container_response = call_api("GET", f"service/id/company/{urllib.parse.quote(name, safe='')}", ignore_error=True)
     if container_response:
         utils.debug(f"[ligoj] OU '{name}' already exists'")
         return container_response
@@ -1449,26 +1451,26 @@ def group_list():
 
 def user_add_to_group(user, group):
     utils.info(f"[ligoj] Add user '{user}' to group '{group}' ...")
-    user_response = call_api("GET", f"service/id/user/{user}", ignore_error=True)
+    user_response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_error=True)
     if user_response is None:
         raise ValueError(f"[ligoj] User '{user}' does not exist")
 
     user_details = user_response.json()
     if group not in user_details["groups"]:
-        return call_api("PUT", f"service/id/user/{user}/group/{group}")
+        return call_api("PUT", f"service/id/user/{urllib.parse.quote(user, safe='')}/group/{urllib.parse.quote(group, safe='')}")
     utils.info(f"[ligoj] User '{user}' is already in group '{group}'")
     return None
 
 
 def user_remove_from_group(user, group):
     utils.info(f"[ligoj] Remove user '{user}' from group '{group}' ...")
-    user_response = call_api("GET", f"service/id/user/{user}", ignore_error=True)
+    user_response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_error=True)
     if user_response is None:
         raise ValueError(f"[ligoj] User '{user}' does not exist")
 
     user_details = user_response.json()
     if group in user_details["groups"]:
-        return call_api("DELETE", f"service/id/user/{user}/group/{group}")
+        return call_api("DELETE", f"service/id/user/{urllib.parse.quote(user, safe='')}/group/{urllib.parse.quote(group, safe='')}")
     utils.info(f"[ligoj] User '{user}' is not in group '{group}'")
     return None
 
@@ -1477,7 +1479,7 @@ def user_delete(user):
     if not user:
         return False
     utils.info(f"[ligoj] Delete user '{user}' ...")
-    user_response = call_api("GET", f"service/id/user/{user}", ignore_404=True)
+    user_response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_404=True)
     if user_response is None:
         utils.info(f"[ligoj] User '{user}' does not exist")
     return call_api("DELETE", f"service/id/user/{user}")
@@ -1522,7 +1524,7 @@ def delegate_org_create(managed_type, managed_id, receiver_type, receiver_id, ad
     utils.info(
         f"[ligoj] Create delegate to '{receiver_type}' '{receiver_id}' to manage '{managed_type}' '{managed_id}' with admin_privilege={admin_privilege} and write_privilege={write_privilege}  ..."
     )
-    delegates = call_api("GET", f"security/delegate?type={managed_type}&q={receiver_id}").json()["data"]
+    delegates = call_api("GET", f"security/delegate?type={managed_type}&q={urllib.parse.quote(receiver_id, safe='')}").json()["data"]
     if any(filter(lambda x: x["receiverType"] == receiver_type and x["name"] == managed_id, delegates)):
         utils.debug(f"[ligoj] Delegate already exists for '{receiver_id}'  ...")
     else:

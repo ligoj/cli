@@ -2,6 +2,7 @@
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
 import json
+
 from ligojcli.plugins import utils
 
 PLUGIN_NAME = "harbor"

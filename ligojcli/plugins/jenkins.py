@@ -2,17 +2,18 @@
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
 import difflib
-import shutil
-import time
-import uuid
 import json
 import os
+import shutil
+import time
 import urllib.parse
+import uuid
 from typing import Any
+
 import yaml
 from yaml.loader import SafeLoader
-from ligojcli.plugins import utils
-from ligojcli.plugins import ligoj
+
+from ligojcli.plugins import ligoj, utils
 
 # Jenkins
 JENKINS_CREDENTIALS_TYPES = {

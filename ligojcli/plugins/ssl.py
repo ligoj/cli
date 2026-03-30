@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
-import sys
 import os
-import subprocess
-import tempfile
 import re
+import subprocess
+import sys
+import tempfile
+
 
 def main():
     """

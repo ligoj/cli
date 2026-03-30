@@ -2,9 +2,10 @@
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
 import base64
+
 from unidecode import unidecode
-from ligojcli.plugins import utils
-from ligojcli.plugins import ligoj
+
+from ligojcli.plugins import ligoj, utils
 
 PLUGIN_NAME = "alfresco"
 alfresco_endpoint: str | None = None

@@ -1,8 +1,7 @@
 #
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
-from ligojcli.plugins import utils
-from ligojcli.plugins import ligoj
+from ligojcli.plugins import ligoj, utils
 
 PLUGIN_NAME = "sonar"
 SONAR_PERMISSIONS_PROJECT = ["codeviewer", "issueadmin", "securityhotspotadmin", "scan", "user", "admin"]
@@ -34,13 +33,14 @@ def configure(subparser_service):
     parser_action.add_argument("--name", help="Token name")
     parser_action.add_argument("--target-user", help="Target user's owner of the token")
 
+
 def execute_action(service, action, operation, args):
 
     # sonarqube
     if service == "sonar":
         parse_remote_args(args)
         if action == "project" and operation == "upsert":
-            return sonar_upsert_project(args.get("name"), args.get("description"), args.get("visibility"))
+            return sonar_create_project(args.get("name"), args.get("description"), args.get("visibility"))
         if action == "project" and operation == "list":
             return sonar_list_projects()
         if action == "project" and operation == "get":
@@ -154,7 +154,7 @@ def sonar_get_project(name):
 
 
 def sonar_list_projects():
-    utils.info(f"[sonar] List projects ...")
+    utils.info("[sonar] List projects ...")
     items = call_sonar_api("GET", "projects/search").json()["components"]
     return items
 
