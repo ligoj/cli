@@ -162,6 +162,9 @@ ligoj --verbose ....
 ligoj --trace ....
 ```
 
+If you want to pipe JSON result to `jq`, use `--output json` and `--log-level ERROR` options.
+
+
 ### `--insecure`
 
 To allow insecure server connections when using SSL.
