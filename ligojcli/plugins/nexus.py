@@ -29,8 +29,6 @@ def configure(subparser_service):
     parser_action.add_argument("--id", "-i", help="Role id", required=True)
 
 
-
-
 def execute_action(service, action, operation, args):
     parse_remote_args(args)
     if args["action"] == "repository":
@@ -45,11 +43,13 @@ def nexus_repository_action(args):
     elif args["sub_action"] == "delete":
         nexus_delete_repository(args["id"], args["format"], args["mode"])
 
+
 def nexus_role_action(args):
     if args["sub_action"] == "get":
         nexus_get_role(args["id"])
     elif args["sub_action"] == "delete":
         nexus_delete_role(args["id"])
+
 
 # Extract from args the parameters related to remote access API of Nexus
 def parse_remote_args(args):

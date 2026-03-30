@@ -38,6 +38,8 @@ pip install -U  --root-user-action=ignore pip -e .
 # Build
 python -m pip install --upgrade build
 python -m build
+ruff check . --fix
+flake8 .
 ```
 
 

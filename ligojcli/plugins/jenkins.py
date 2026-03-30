@@ -48,12 +48,13 @@ def configure(subparser_service):
     parser_action.add_argument("--wait-parameter", "-W", help="Name of Jenkins parameters user to track the actual executed build. Must be used with --wait", default=0)
 
 
-def execute_action(service, action,_operation, args):
+def execute_action(service, action, _operation, args):
     if service == "jenkins":
         if action == "run":
             parse_remote_args(args)
             return jenkins_run_job(args["job"], args.get("branch"), args.get("parameters", []), args.get("wait", 0), args.get("wait_parameter"))
     return None
+
 
 # Extract from args the parameters related to remote access API of Jenkins
 def parse_remote_args(args):
@@ -110,7 +111,7 @@ def jenkins_run_job(job_name: str, branch: str | None, parameters: list, wait: i
                 ).text
                 if build_status_xml == "<r>SUCCESS</r>":
                     break
-            except Exception as _ignore:
+            except Exception:
                 pass
             if build_status_xml and build_status_xml != "<r/>":
                 raise ValueError(f"[jenkins] Job '{job_name}' did not succeed: {build_status_xml}")
@@ -524,8 +525,8 @@ def jenkins_update_cac_file():
 
     merged_cac_plain = yaml.dump(merged_cac, sort_keys=False, default_flow_style=False)
     cac_differences = difflib.unified_diff(
-        list(map(lambda l: f"{l}\n", original_cac_plain.split("\n"))),
-        list(map(lambda l: f"{l}\n", merged_cac_plain.split("\n"))),
+        list(map(lambda line: f"{line}\n", original_cac_plain.split("\n"))),
+        list(map(lambda line: f"{line}\n", merged_cac_plain.split("\n"))),
         fromfile="Current",
         tofile="New",
         lineterm="",

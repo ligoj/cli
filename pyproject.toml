@@ -39,6 +39,7 @@ Issues = "https://github.com/ligoj/cli/issues"
 [dependency-groups]
 dev = [
     "ruff>=0.15.2",
+    "flake8"
 ]
 
 [tool.ruff]

@@ -975,7 +975,7 @@ def info_status(wait: int = 0):
                 details = call_api("GET", "/manage/health", ignore_error=True)
                 if details is not None:
                     return details
-            except Exception as _ignore:
+            except Exception:
                 pass
             time.sleep(2)
         utils.warn(f"[ligoj] No valid status retrieved after {wait}s")

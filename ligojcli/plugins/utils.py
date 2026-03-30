@@ -259,10 +259,10 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
         message = ""
         try:
             message = response.json()
-        except BaseException as _ignore:
+        except BaseException:
             try:
                 message = response.text
-            except BaseException as _ignore2:
+            except BaseException:
                 message = str(response)
         if ignore_error or ignore_500:
             trace(f"{message_response}, message={message} (ignored error)")
@@ -270,10 +270,10 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
         raise ValueError(f"{message_response}, message={message}")
     try:
         trace(f"{message_response} {'(ignored output)' if kwargs.get('ignore_output', False) else response.json()}")
-    except BaseException as _ignore:
+    except BaseException:
         try:
             trace(f"{message_response}, {'(ignored output)' if kwargs.get('ignore_output', False) else response.text}")
-        except BaseException as _ignore2:
+        except BaseException:
             trace(f"{message_response} (no response)")
 
     if kwargs.get("return_headers", False):

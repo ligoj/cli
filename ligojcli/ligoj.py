@@ -58,16 +58,16 @@ def main():
     elif result is not None:
         try:
             result = result.json()
-        except BaseException as _ignore:
+        except BaseException:
             try:
                 result = {"id": result.text}
-            except BaseException as _ignore2:
+            except BaseException:
                 pass
 
     if output == "json":
         try:
             print(json.dumps(result))
-        except Exception as _:
+        except Exception:
             print("Unable to display result as JSON", result)
 
     elif output == "text":
@@ -122,5 +122,5 @@ def ligoj() -> int:
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     ligoj()
