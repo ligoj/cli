@@ -347,6 +347,14 @@ Output the API key only if not existing.
 
 *Note* When role names are provided API calls are executed to retrieve their identifiers.
 
+### Delete a system user
+
+Delete a system user. The command will not fail if the user is not found.
+
+```bash
+ligoj user delete --id ligoj-user
+```
+
 
 ### List system users
 
@@ -383,13 +391,24 @@ Create or update a system role.
 **Note** Wheras Ligoj supports per HTTP method authorizations, this feature is not yet available from this CLI action.
 
 ```bash
+# Deprecated `--id` option
 ligoj role create --id ADMIN --api ".*" --ui ".*"
-ligoj role create --id SELF_TOKEN_RENEW --api "/api/token.*" --ui "/sys/token"
+ligoj role create --name ADMIN --api ".*" --ui ".*"
+ligoj role create --name SELF_TOKEN_RENEW --api "/api/token.*" --ui "/sys/token"
 ```
 
 Output is the created/existing role identifier.
 ```json
 123
+```
+
+### Delete a system role
+
+Delete a system role. The command will not fail if the role does not exist.
+
+```bash
+ligoj role delete --id 1
+ligoj role delete --name ADMIN
 ```
 
 ### List system roles
@@ -1399,6 +1418,7 @@ Operations related to groups managed by `service:id` nodes
 
 Group name is case insensitive.
 
+
 ### Create group
 
 Create a group.
@@ -1416,9 +1436,18 @@ ligoj id:group create --name "SampleSubGroup2" --scope "Unassigned" --parent "Sa
 ```
 
 
+### Delete a group
+
+Delete a group. The command will not fail if the group does not exist.
+
+```bash
+ligoj id:group delete --name "SampleGroup2"
+```
+
+
 ### Get group
 
-Create a group
+Retrieve a group
 
 ```bash
 ligoj id:group get --name "SampleGroup2"
@@ -1427,6 +1456,15 @@ ligoj id:group get --name "SampleGroup2"
 ```json
 {"id": "samplegroup2", "name": "SampleGroup2", "scope": "Unassigned", "locked": false}
 ```
+
+### Delete group
+
+Delete a group. If the group does not exist, the command will not return an error.
+
+```bash
+ligoj id:group delete --name "SampleGroup2"
+```
+
 
 ### List group
 

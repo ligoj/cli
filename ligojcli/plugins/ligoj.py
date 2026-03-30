@@ -81,9 +81,13 @@ def configure(subparser_service):
     parser_action.add_argument("--name", "-n", help="Role name. Exclusive with --id", required=False)
     subparser_action.add_parser("list", help="Return system roles")
     parser_action = subparser_action.add_parser("create", help="Create system role")
-    parser_action.add_argument("--id", "-i", help="Role id/name")
+    parser_action.add_argument("--id", "-i", help="[deprecated, use '--name'] Role name", required=False)
+    parser_action.add_argument("--name", "-n", help="Role name", required=False)
     parser_action.add_argument("--api", help="API patterns", nargs="*", default=[])
     parser_action.add_argument("--ui", help="UI patterns", nargs="*", default=[])
+    parser_action = subparser_action.add_parser("delete", help="Delete a role")
+    parser_action.add_argument("--id", "-i", help="Role id. Exclusive with --name", required=False)
+    parser_action.add_argument("--name", "-n", help="Role name. Exclusive with --id", required=False)
 
     # plugin
     subparser_action = subparser_service.add_parser("plugin", help="Plugins operations").add_subparsers(title="action", help="Action", dest="action")
@@ -122,7 +126,7 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("status", help="Return node information")
     parser_action.add_argument("--id", "-i", help="Node identifier")
     parser_action = subparser_action.add_parser("create", help="Create or update new node")
-    parser_action.add_argument("--id", "-i", help="[deprecated, used 'upsert'] Node identifier. Related plugin must be previously installed")
+    parser_action.add_argument("--id", "-i", help="[deprecated, use 'upsert'] Node identifier. Related plugin must be previously installed")
     parser_action.add_argument("--name", "-n", help="Node name")
     parser_action.add_argument("--from", "-f", help="Parameters JSON URL or local file name")
     parser_action = subparser_action.add_parser("upsert", help="Create or update new node")
@@ -297,6 +301,8 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("get", help="Get group by name")
     parser_action.add_argument("--name", "-n", help="Group name", required=True)
     parser_action = subparser_action.add_parser("list", help="List groups")
+    parser_action = subparser_action.add_parser("delete", help="Delete a group")
+    parser_action.add_argument("--name", "-n", help="Group name", required=True)
 
     # plugin:id container scope
     subparser_action = subparser_service.add_parser("id:scope", help="Plugin id container scope operations").add_subparsers(title="action", help="Action", dest="action")
@@ -486,14 +492,19 @@ def execute_action(service, action, _, args):
             return file_put(args.get("from"), args.get("path"), args.get("executable"))
     elif service == "role":
         if action == "create":
-            utils.info(f"Create system role '{utils.not_none(args.get('id'), 'role id')}', api={args.get('api')}, ui={args.get('ui')} ...")
-            return create_system_role(utils.not_none(args.get("id"), "role id"), utils.not_none(args.get("api"), "API patterns"), utils.not_none(args.get("ui"), "UI patterns"))
+            role_name = utils.not_none(args.get("name") or args.get("id"), "role name")
+            utils.info(f"Create system role '{role_name}', api={args.get('api')}, ui={args.get('ui')} ...")
+            return create_system_role(role_name, utils.not_none(args.get("api"), "API patterns"), utils.not_none(args.get("ui"), "UI patterns"))
         if action == "list":
             return system_role_list()
         if action == "get":
             if args.get("id") is not None:
                 return system_role_get(args.get("id"))
             return system_role_get_by_name(utils.not_none(args.get("name"), "role id or name"))
+        if action == "delete":
+            if args.get("id") is not None:
+                return system_role_delete(args.get("id"))
+            return system_role_delete_by_name(utils.not_none(args.get("name"), "role id or name"))
     elif service == "user":
         if action == "upsert":
             return system_user_upsert(utils.not_none(args.get("id"), "user id"), list(itertools.chain.from_iterable(args.get("roles", []))), args.get("api_key_name"))
@@ -501,6 +512,8 @@ def execute_action(service, action, _, args):
             return system_user_list(args.get("with_roles", False))
         if action == "get":
             return system_user_get(utils.not_none(args.get("id"), "user id"))
+        if action == "delete":
+            return system_user_delete(utils.not_none(args.get("id"), "user id"))
     elif service == "id:user":
         if action == "create":
             return user_create(
@@ -544,6 +557,8 @@ def execute_action(service, action, _, args):
         if action == "import":
             group_import_file = utils.load_json_from_url_or_file_with_interpolation(utils.not_none(args.get("from"), "Import file/URL"), {})
             return group_import(group_import_file)
+        if action == "delete":
+            return group_delete(args["name"])
     elif service == "id:scope":
         if action == "get":
             if args.get("id") is None and (args.get("name") is None or args.get("type") is None):
@@ -1199,6 +1214,18 @@ def system_role_get(role_id):
     return call_api("GET", f"system/security/role/{role_id}")
 
 
+def system_role_delete_by_name(name):
+    role = system_role_get_by_name(name)
+    if role is None:
+        utils.debug(f"[ligoj] Role '{name}' does not exist")
+        return None
+    return system_role_delete(role["id"])
+
+
+def system_role_delete(role_id):
+    return call_api("DELETE", f"system/security/role/{role_id}")
+
+
 def system_role_list():
     return call_api("GET", "system/security/role")
 
@@ -1212,6 +1239,11 @@ def system_user_upsert(user, roles, api_key_name: str = None):
 def system_user_get(user):
     utils.info(f"[ligoj] Get system user '{user}' ...")
     return call_api("GET", f"system/user/{user}").json()
+
+
+def system_user_delete(user):
+    utils.info(f"[ligoj] Delete system user '{user}' ...")
+    return call_api("DELETE", f"system/user/{user}")
 
 
 def system_user_list(with_roles: bool = False):
@@ -1397,8 +1429,17 @@ def group_get_by_name(group):
     if unidecode(group) != group:
         raise ValueError(f"[ligoj] Group name '{group}' cannot contain non ASCII chars")
 
-    response = call_api("GET", f"service/id/group/{group}", ignore_error=True)
+    response = call_api("GET", f"service/id/group/{urllib.parse.quote(group, safe='')}", ignore_error=True)
     return None if response is None else response.json()
+
+
+def group_delete(group: str):
+    utils.info(f"[ligoj] Delete group '{group}' ...")
+    group_result = group_get_by_name(group)
+    if group_result is None:
+        utils.debug(f"[ligoj] Group '{group}' does not exist")
+        return None
+    return call_api("DELETE", f"service/id/group/{group_result['id']}")
 
 
 def group_list():
