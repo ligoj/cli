@@ -24,6 +24,7 @@ LIGOJ_SYSTEM_ROLE_PATH = "system/security/role"
 ligoj_endpoint: str | None = None
 ligoj_api_key: str | None = None
 ligoj_api_user: str | None = None
+ligoj_api_local_roles: bool = False
 ligoj_api_run_as_user: str | None = None
 
 
@@ -337,11 +338,13 @@ def parse_remote_args(args):
     global ligoj_api_user
     global ligoj_api_run_as_user
     global ligoj_endpoint
+    global ligoj_api_local_roles
 
     ligoj_api_key = utils.get_secret(args, "api_key", "LIGOJ_API_KEY", None)
     ligoj_api_user = utils.get_config(args, "api_user", "LIGOJ_API_USER", DEFAULT_LIGOJ_API_USER)
     ligoj_api_run_as_user = utils.get_config(args, "api_run_as_user", "LIGOJ_API_RUN_AS_USER", None)
     ligoj_endpoint = utils.get_config(args, "endpoint", "LIGOJ_ENDPOINT", DEFAULT_LIGOJ_ENDPOINT)
+    ligoj_api_local_roles = utils.get_config(args, "api_local_roles", "LIGOJ_API_LOCAL_ROLES", False)
 
 
 def execute_action(service, action, _, args):
@@ -606,13 +609,19 @@ def call_api(method, url, **kwargs):
     if ligoj_api_user is not None and ligoj_api_key is not None:
         # API key protocol
         if ligoj_api_run_as_user is not None and ligoj_api_key is not None:
-            kwargs["headers"] = {"x-api-user": ligoj_api_run_as_user, "x-api-via-user": ligoj_api_user, "x-api-key": ligoj_api_key} | headers
+            headers = {"x-api-user": ligoj_api_run_as_user, "x-api-via-user": ligoj_api_user, "x-api-key": ligoj_api_key} | headers
         else:
-            kwargs["headers"] = {"x-api-user": ligoj_api_user, "x-api-key": ligoj_api_key} | headers
+            headers = {"x-api-user": ligoj_api_user, "x-api-key": ligoj_api_key} | headers
     elif utils.cookie_session is not None:
         kwargs["cookies"] = {"JSESSIONID": utils.cookie_session}
     else:
         raise ValueError("[ligoj] No enough credential materials, no session and no API key pair found")
+
+    # Local roles mode
+    if ligoj_api_local_roles:
+        headers = {"x-api-local-roles": "true"} | headers
+
+    kwargs["headers"] = headers
     response = utils.call_rest_api(method, "ligoj", f"{ligoj_endpoint}{'/' if url.startswith('/') else '/rest/'}", url.removeprefix("/"), None, kwargs)
 
     # Check hook status within all X-Ligoj-Hook-* and print the error message

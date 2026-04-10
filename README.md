@@ -216,6 +216,20 @@ ligoj --api-run-as-user ligoj-user ....
 ```
 
 
+### `--api-local-roles`
+
+Restrict the computed roles to the local roles of the authenticated user. No plugin roles are involved.
+This flag make the authentication independent of the configured plugins: availability, miss-configuration, etc.
+
+Since this flag reduce the set of available roles, there is no restriction on the usage.
+
+This option can also be specified in [configuration files](#configuration-files) as `api-local-roles` or in environment variable `LIGOJ_API_LOCAL_ROLES`.
+
+```bash
+ligoj --api-local-roles session get
+```
+
+
 ### `--profile`
 
 Ligoj profile name to read from [configuration files](#configuration-files),  `credentials`, `config` and `sessions`.
