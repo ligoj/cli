@@ -1218,11 +1218,13 @@ def create_system_role(role_name, api_patterns, ui_patterns):
 
 
 def system_role_get_by_name(name):
-    return call_api("GET", f"system/security/role/name/{urllib.parse.quote(name, safe='')}")
+    response = call_api("GET", f"system/security/role/name/{urllib.parse.quote(name, safe='')}")
+    return None if response is None else response.json()
 
 
 def system_role_get(role_id):
-    return call_api("GET", f"system/security/role/{role_id}")
+    response = call_api("GET", f"system/security/role/{role_id}")
+    return None if response is None else response.json()
 
 
 def system_role_delete_by_name(name):
@@ -1238,12 +1240,12 @@ def system_role_delete(role_id):
 
 
 def system_role_list():
-    return call_api("GET", "system/security/role")
+    return call_api("GET", "system/security/role").json()
 
 
 def system_user_upsert(user, roles, api_key_name: str = None):
     utils.info(f"[ligoj] Create system user '{user}' with roles {roles} ...")
-    roles = list(map(lambda r: r if isinstance(r, int) else system_role_get_by_name(r).json()["id"], roles))
+    roles = list(map(lambda r: r if isinstance(r, int) else system_role_get_by_name(r)["id"], roles))
     return call_api("POST", "system/user", data={"login": user, "roles": roles} | ({} if api_key_name is None else {"apiToken": api_key_name}))
 
 
@@ -1300,9 +1302,7 @@ def user_list(company: str | None = None, group: str | None = None, criteria: st
     if page_size:
         params["length"] = page_size
     response = call_api("GET", "service/id/user", params=params)
-    if response is None:
-        return None
-    return response.json()
+    return None if response is None else response.json()
 
 
 def user_find_by_id_or_mail(id_or_mail: str, required: bool | None = True) -> dict | None:
@@ -1406,8 +1406,10 @@ def create_ou(name: str, parent_dn: str, **kwargs):
         return container_response
 
     container_scope_id = create_container_scope(f"temporary-scope-{name}", "company", parent_dn)
-    ou_response = call_api("POST", "service/id/company", data={"name": name, "scope": container_scope_id}, ignore_error=kwargs.get("ignore_error", False))
-    delete_container_scope_by_id(container_scope_id)
+    try:
+        ou_response = call_api("POST", "service/id/company", data={"name": name, "scope": container_scope_id}, ignore_error=kwargs.get("ignore_error", False))
+    finally:
+        delete_container_scope_by_id(container_scope_id)
     return ou_response
 
 
@@ -1552,7 +1554,7 @@ def delegate_org_create(managed_type, managed_id, receiver_type, receiver_id, ad
 
 
 def delegate_org_get_by_id(delegate_id: int):
-    return call_api("GET", f"security/delegate/{delegate_id}")
+    return call_api("GET", f"security/delegate/{delegate_id}").json()
 
 
 def delegate_org_filter_by_resource(resource_type: str, resource_id: str | None):
