@@ -1,11 +1,9 @@
 name: Publish to PyPI (dev)
 
 on:
-  release:
-    types: [published]
   push:
     branches:
-      - main
+      - develop
 
 permissions:
   contents: read
