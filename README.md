@@ -49,15 +49,15 @@ flake8 .
 
 Ligoj credentials are based on user/password or user/API Key.
 
-Fill the [configuration files](#configuration-files) file with the created API key from there  [#/api/token ("?" > "Api" > "Token")](http://localhost:8080/ligoj/#/api/token)
+Populate the [configuration files](#configuration-files) with the API key created here [#/api/token ("?" > "Api" > "Token")](http://localhost:8080/ligoj/#/api/token)
 
 You can also:
-- use [session login](#login-with-password) command to get temporary session
-- use [token](#token) command to create durable API keys
+- use the [session login](#login-with-password) command to get a temporary session
+- use the [token](#token) command to create durable API keys
 
-For standard actions, only `LIGOJ_ENDPOINT` is required and can be set either in the [configuration files](#configuration-files), as an environment variable, or as CLI options.
+For standard actions, only `LIGOJ_ENDPOINT` is required and can be set either in the [configuration files](#configuration-files), as an environment variable, or as a CLI option.
 
-For `bootstrap` actions more endpoints and credentials may be required in the [configuration files](#configuration-files) file.
+For `bootstrap` actions, more endpoints and credentials may be required in the [configuration files](#configuration-files).
 
 Sample usage:
 
@@ -73,20 +73,20 @@ ligoj \
 
 ## Settings
 
-Options are sourced in this order of priority, from the most to the least priority:
+Options are sourced in the following order of priority, from highest to lowest:
 
 1. Command line options – Overrides settings in any other location, such as the `--output` and `--profile` parameters.
 2. Environment variables – You can store values in your system's environment variables.
-3. Session file – `default` section or given profile name. The session file is located at `~/.ligoj/sessions` on Linux or macOS, and holds:
-  - Session cookies set with [`login`](#login-with-password) command.
-  - API keys set with [`login`](#login-with-api-key) command.
+3. Session file – `default` section or given profile name. The session file is located at `~/.ligoj/sessions` on Linux or macOS and holds:
+  - Session cookies set with the [`login`](#login-with-password) command.
+  - API keys set with the [`login`](#login-with-api-key) command.
 4. Credentials file – `default` section or given profile name. The credentials file is located at `~/.ligoj/credentials` on Linux or macOS.
 5. Configuration file – `default` section or given profile name. The config file is located at `~/.ligoj/config` on Linux or macOS. Alternative file `~/.ligoj/cli-config` is supported.
 
 
 ### Configuration files
 
-Section in these `.ini` files correspond to profile name. The default profile name is `default` and is used when no `--profile` option  and no `LIGOJ_PROFILE` are provided.
+Sections in these `.ini` files correspond to profile names. The default profile name is `default` and is used when no `--profile` option and no `LIGOJ_PROFILE` are provided.
 
 In the file `~/.ligoj/config`, default configurations can be specified. No secrets are sourced from this file.
 
@@ -104,9 +104,9 @@ output = "json"
 
 Read-only secrets are stored in the `~/.ligoj/credentials` file. 
 
-Temporary secrets (stored from [`session`](#session) command) are stored in the `~/.ligoj/sessions` file. 
+Temporary secrets (stored from the [`session`](#session) command) are stored in the `~/.ligoj/sessions` file. 
 
-While `~/.ligoj/credentials` can contain configuration settings, secrets are only sourced from the `~/.ligoj/credentials` and `~/.ligoj/sessions` file.
+While `~/.ligoj/credentials` can contain configuration settings, secrets are only sourced from the `~/.ligoj/credentials` and `~/.ligoj/sessions` files.
 
 Sample credential file:
 ```ini
@@ -126,7 +126,7 @@ The generic options are available to all actions.
 
 ### `--output`
 
-To determine the output mode of the command. 
+Determines the output mode of the command. 
 
 This option can also be specified in [configuration files](#configuration-files) as `output` or in environment variable `LIGOJ_OUTPUT`
 
@@ -190,7 +190,7 @@ ligoj --api-user ligoj-admin ....
 
 ### `--api-key`
 
-Fill the API key can be created from there  [#/api/token ("?" > "Api" > "Token")](https://localhost:8080/ligoj/#/api/token)
+Provide an API key, which can be created here [#/api/token ("?" > "Api" > "Token")](https://localhost:8080/ligoj/#/api/token)
 
 This option can also be specified in [configuration files](#configuration-files) as `api-key` or in environment variable `LIGOJ_API_KEY`
 
@@ -203,9 +203,9 @@ ligoj --api-key secret ....
 
 Ligoj API user name for impersonation. 
 
-Constraints are :
-- After the authentication succeed with [--api-user](#api-key) and [--api-user](#api-user)
-- Current user must have `POST /system.user` authorization
+Constraints are:
+- After the authentication succeeds with [--api-key](#api-key) and [--api-user](#api-user)
+- The current user must have `POST /system.user` authorization
 - `--api-run-as-user` must exist
 - The actions are executed in the name of `--api-run-as-user` and without needing the related credentials.
 
@@ -219,7 +219,7 @@ ligoj --api-run-as-user ligoj-user ....
 ### `--api-local-roles`
 
 Restrict the computed roles to the local roles of the authenticated user. No plugin roles are involved.
-This flag makes the authentication independent of the configured plugins: availability, misconfiguration, etc.
+This flag makes the authentication independent of the configured plugins (e.g., availability, misconfiguration, etc.).
 
 Since this flag reduces the set of available roles, there is no restriction on the usage.
 
@@ -232,9 +232,9 @@ ligoj --api-local-roles session get
 
 ### `--profile`
 
-Ligoj profile name to read from [configuration files](#configuration-files),  `credentials`, `config` and `sessions`.
+Ligoj profile name to read from [configuration files](#configuration-files),  `credentials`, `config`, and `sessions`.
 
-This option can also be specified with environment variable `LIGOJ_PROFILE`. By default is `default`.
+This option can also be specified with environment variable `LIGOJ_PROFILE`. The default is `default`.
 
 ```bash
 ligoj --profile some ....
@@ -248,13 +248,13 @@ JSON content to load. Accepted forms are:
 - Inline JSON string
 
 After the content has been retrieved, it is interpolated with [Jinja](https://pypi.org/project/Jinja2/) with current project (`project`) and environment variables (`env`) as context:
-- For sample:
+- For example:
   - `{{ project.id }}` is replaced by the project identifier. 
   - `{{ env.ENV_VAR }}` is replaced by the `ENV_VAR` environment variable value. 
   - `$${_not_existing_property_in_context_}` is replaced by an empty string.
 - `null` values are considered as empty string
-- context depends on the current action. Usually all given parameters are added to the context
-- context is completed with environment variables
+- The context depends on the current action. Usually, all given parameters are added to the context.
+- The context is completed with environment variables.
 - Surrounding spaces inside `{{..}}` are ignored
 
 ### `--no-color`
@@ -346,13 +346,13 @@ A system user can live without federated identity. After a successful login, a f
 
 ### Create a system user 
 
-Create a new system user with roles names or identifiers.
+Create a new system user with role names or identifiers.
 
 ```bash
 ligoj user upsert --id ligoj-admin@sample.com --roles USER ADMIN
 ```
 
-Optionally, at this time, an API key is generated but only once and only from administrators users.
+Optionally, at this time, an API key is generated but only once and only from administrator users.
 
 ```bash
 ligoj user upsert --id ligoj-admin@sample.com --roles USER ADMIN --api_key_name cli
@@ -391,7 +391,7 @@ ligoj user list --with-roles
 
 ### Delete a system user 
 
-Create a new system user with roles names or identifiers.
+Create a new system user with role names or identifiers.
 
 ```bash
 ligoj user delete --id ligoj-user
@@ -436,7 +436,7 @@ ligoj role delete --name ADMIN
 ligoj role list
 ```
 
-### Get a system roles
+### Get a system role
 
 ```bash
 ligoj role get --id 1
@@ -483,15 +483,15 @@ ligoj -v
 ```
 
 ```json
-{"version": "3.3.1-SNAPSHOT"}token
+{"version": "3.3.1-SNAPSHOT"}
 ```
 
 
 ### API Specification
 
-All Ligoj API are accessible with REST verbs.
+All Ligoj APIs are accessible with REST verbs.
 
-Currently 3 specifications formats are available:
+Currently 3 specification formats are available:
 - Swagger : Web UI based on OpenAPI JSON file
 - OpenAPI JSON file
 - [WADL](https://www.w3.org/submissions/wadl/)
@@ -531,8 +531,8 @@ Manage API keys of current user.
 ### Create a token
 
 For `expiration` option:
-- Either a full ISO date, Corresponds to the further date the generated token can be trusted.
-- Either a duration starting from now, and in duration format. See [pytimeparse](https://pypi.org/project/pytimeparse/)
+- Either a full ISO date, which corresponds to the furthest date the generated token can be trusted.
+- Either a duration starting from now, in a standard duration format. See [pytimeparse](https://pypi.org/project/pytimeparse/)
 
 Expired tokens are neither listed nor returned even if they are not yet physically deleted.
 
@@ -542,7 +542,7 @@ ligoj token create --id today_only --expiration 1d
 ligoj token create --id SELF_TOKEN_RENEW --expiration 2029-12-31T23:59:59
 ```
 
-Optionally the created token can be saved into the current profile and will replace the previous one if existing in the current profile:
+Optionally, the created token can be saved into the current profile, replacing any previously existing one:
 
 Output:
 
@@ -605,11 +605,11 @@ ligoj configuration set --id "cache.id-ldap-data.ttl" --value "3600"
 ```
 
 
-*Note* When you change a configuration related to plugin management, invalidate the related caches to retrieve the up-to-date plugin's versions
+*Note* When you change a configuration related to plugin management, invalidate the related caches to retrieve the up-to-date plugin versions.
 
 ### Get value
 
-Return configuration value from its `id`, and can be a Java property name or a stored value in then `S_CONFIGURATION` table.
+Return the configuration value from its `id`, which can be a Java property name or a stored value in the `S_CONFIGURATION` table.
 
 Return a specific value. Encrypted values are returned as decrypted.
 
@@ -710,7 +710,7 @@ ligoj file delete --path "/home/ligoj/icon.png"
 
 ### Hook get
 
-Download a remote file and saves it to local file.
+Download a remote file and save it to a local file.
 
 ```bash
 ligoj file get --path "/home/ligoj/icon.png"  --out "./icon2.png"
@@ -718,7 +718,7 @@ ligoj file get --path "/home/ligoj/icon.png"  --out "./icon2.png"
 
 ## Hook
 
-A [hook](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) is a command uploaded by an user, and triggered by a successfully invoked API call of Ligoj.
+A [hook](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) is a command uploaded by a user, and triggered by a successfully invoked API call of Ligoj.
 
 When this command is executed, it receives a `PAYLOAD` event as environment variable.
 
@@ -758,7 +758,7 @@ ligoj hook upsert --name "audit_role_change" --command "/home/ligoj/hooks/ligoj_
 ```
 
 **Note** 
-- For Docker image runtime, this program is executed by the container `ligoj-api`, and must be resolvable. Either this program is already packaged in the container, either it is mounted as a Docker volume to the host. Usually the mounted volume is `/home/ligoj` and points to the host path such as `/var/path/to/ligoj`. In the above hook sample, the user-level script would be `/var/path/to/ligoj/ligoj_audit.sh`.
+- For Docker image runtime, this program is executed by the container `ligoj-api`, and must be resolvable. Either this program is already packaged in the container, or it is mounted as a Docker volume to the host. Usually the mounted volume is `/home/ligoj` and points to the host path such as `/var/path/to/ligoj`. In the above hook sample, the user-level script would be `/var/path/to/ligoj/ligoj_audit.sh`.
 - `--name` The human readable hook name. Is displayed in logs and HTTP headers of synchronous executions.
 - `--command` The command to execute. Must be allowed by `ligoj.hook.path` configuration. This condition is checked at creation and execution time.
 - `--directory` The working directory where the hook is executed.
@@ -788,7 +788,7 @@ docker exec ligoj-api python3 --version
 
 ### Update hook
 
-For update, `id` or `name` can be used. However if `name` needs to be updated, provide also the `id`.
+For update, `id` or `name` can be used. However, if `name` needs to be updated, provide the `id` as well.
 
 ```bash
 ligoj hook upsert --id 4 --name "audit_role_change_new" --command "$(pwd)/docs/sample_hook_ligoj_audit.sh" --directory  /var/log --match '{"path":"system/security/role.*"}' --inject "feature:iam:node:primary"  "my-secret"
@@ -880,7 +880,7 @@ ligoj plugin list
 
 ### Install Ligoj plugins
 
-When explicit version is not provided, the latest version available from Maven Central is used. 
+When an explicit version is not provided, the latest version available from Maven Central is used. 
 
 This lookup depends on the `plugins.repository-manager.nexus.search` configuration, while the download relies on `plugins.repository-manager.nexus.artifact` configuration.
 
@@ -1121,7 +1121,7 @@ ligoj node status --id "service:id:ldap:remote1"
 
 ## Delegate node
 
-Node delegate allow users, groups or companies to manage nodes.
+Node delegates allow users, groups or companies to manage nodes.
 
 Sub nodes inherit the delegate permissions.
 
@@ -1139,12 +1139,12 @@ ligoj delegate-node list
 
 ### Create delegate node
 
-Create a delegate with subscribe, administration and creation right to a receiver for an optional node, and sub nodes.
+Create a delegate with subscribe, administration, and creation rights for a receiver on an optional node and its sub-nodes.
 
 The provided node does not need to exist yet.
 
 ```bash
-ligoj delegate-node create --node service --can-admin--can-subscribe --can-admin --can-write --receiver jdoe --receiver-type user
+ligoj delegate-node create --node service --can-subscribe --can-admin --can-write --receiver jdoe --receiver-type user
 ligoj delegate-node create --node service:id --can-subscribe --receiver internal --receiver-type company
 ligoj delegate-node create --node service:id:ldap:instance1 --can-admin --can-write --receiver group1 --receiver-type group
 ```
@@ -1325,9 +1325,9 @@ Delete a subscription from its identifier.
 ligoj subscription delete --id 302
 ```
 
-By default, only the link between Ligoj and the remote tool is removed. Optionally when Ligoj had created data with the subscription, it can also be deleted with this operation.
+By default, only the link between Ligoj and the remote tool is removed. Optionally, when Ligoj has created data with the subscription, it can also be deleted with this operation.
 
-For sample, created LDAP groups or Jenkins job created at subscription time will be deleted.
+For example, LDAP groups or a Jenkins job created at subscription time will be deleted.
 
 ```bash
 ligoj subscription delete --id 302 --with-data
@@ -1758,9 +1758,9 @@ ligoj bootstrap welcome-user --id jdupont --project project1 --name "Project 1" 
 
 *Notes*
 - `reader_password` result is provided only for new user and cannot be retrieved by Ligoj.
-- To generate another password use `--reset-reader-password` flag.
+- To generate another password, use the `--reset-reader-password` flag.
 - `reader_password` (or reset password) is used to create API tokens saved in Ligoj nodes
-- `--jenkins-api-token` and `--sonar-api-token` can be provided with this command but should be related to `reader_user` or `--jenkins-api-user` value.
+- `--jenkins-api-token` and `--sonar-api-token` can be provided with this command but should be related to the `reader_user` or `--jenkins-api-user` value.
 - All endpoints and tokens are also sourced from [configuration file](#configuration-files) and environment variables.
 
 ## Bootstrap `create-project`
@@ -1770,7 +1770,7 @@ Create new groups within a new project related to another one.
 Considering this use case :
 - Create a new project having `project-a` as key and `Project A` as name.
 - Team leader (administrator) will be `cli100.name@sample.com`. Actual username is resolved automatically from email.
-- Initial groups within this project, are `admin`, `dev` and `test`.
+- Initial groups within this project are `admin`, `dev` and `test`.
 - The parent project's key (used as context) is `project1`. This project must be  managed by the user: `ligoj-user`
 
 The corresponding command is:
@@ -1782,7 +1782,7 @@ ligoj bootstrap create-project --project project-a --name "Project A" --groups "
 --team-leader cli100.name@sample.com \
 ```
 
-*Note* When `parent-admin` is provided, this operation exploits the `run-as` feature of Ligoj to check the administrator of `parent-project`. In a such case, the session user must be a system administrator.
+*Note* When `parent-admin` is provided, this operation exploits the `run-as` feature of Ligoj to check the administrator of `parent-project`. In such a case, the session user must be a system administrator.
 
 
 ## Bootstrap `delete-project`
@@ -1793,7 +1793,7 @@ Delete a project including all groups, not only the references.
 ligoj bootstrap delete-project --project project-a --parent-admin "ligoj-user"
 ```
 
-*Note* When `parent-admin` is provided, this operation exploits the `run-as` feature of Ligoj to check the administrator of `parent-project`. In a such case, the session user must be a system administrator.
+*Note* When `parent-admin` is provided, this operation exploits the `run-as` feature of Ligoj to check the administrator of `parent-project`. In such a case, the session user must be a system administrator.
 
 ## Bootstrap create-roles
 
@@ -1896,14 +1896,14 @@ Each supported tool can be included or excluded from the bootstrap commands:
 - By default, all discovered JSON's content is considered, no exclusion. Implicit `--includes "*"`.
 - Special value `*` means all. 
 - Multiple `includes` and `excludes` values can be provided
-- `excludes` options has higher priority than `includes`.
-- When resolved endpoint is empty of null, tool is ignored
+- The `excludes` option has higher priority than `includes`.
+- When the resolved endpoint is empty or null, the tool is ignored.
 
 
 ### Constraints
 
 Checked constraints:
-- Referenced groups must be defined at root level. This constraint ensure a correct definition and avoid typo.
+- Referenced groups must be defined at root level. This constraint ensures a correct definition and avoids typos.
 - Empty permissions set are not allowed.
 - Given JSON must validate the [JSON Schema](https://json-schema.org/) [document schema.json](./schema.json).
 - [JSON Schema](https://json-schema.org/) can be merged with custom additions: `--schema "JSON Schema string, file or URL"`.
@@ -1931,17 +1931,17 @@ Supported resources are:
 
 #### Folders
 
-- Recursive folders is supported, however each folder must be unique. Not an implementation limit, but allow folder reorganization possible support.
-- Folder maximal depth is `4`, but is not an hard limit
+- Recursive folders are supported; however, each folder must be unique. This is not an implementation limit, but it makes folder reorganization possible.
+- Folder maximal depth is `4`, but it is not a hard limit
 - Folder names are encoded, special chars are supported
 - Supported folder types are `com.cloudbees.hudson.plugins.folder.Folder` and `jenkins.branch.OrganizationFolder`. Folder mode update is not supported. Other folder modes *might* work, but have not been tested.
-- There is no [permission](https://www.jenkins.io/doc/book/security/access-control/permissions/#optional-permissions) limitation, internal identifiers must be used such as `hudson.model.Item.Build`, `hudson.model.Hudson.Administer`,... :
+- There is no [permission](https://www.jenkins.io/doc/book/security/access-control/permissions/#optional-permissions) limitation; internal identifiers must be used, such as `hudson.model.Item.Build`, `hudson.model.Hudson.Administer`, etc.:
     - [Overall permissions](https://github.com/jenkinsci/jenkins/blob/master/core/src/main/java/hudson/security/Permission.java)
     - [Run permissions](https://github.com/jenkinsci/jenkins/blob/3bc62eeae933c86f6a94c940fe6f35882f1e29d5/core/src/main/java/hudson/model/Run.java#LL2593C7-L2593C7)
     - [Item permissions](https://github.com/jenkinsci/jenkins/blob/3bc62eeae933c86f6a94c940fe6f35882f1e29d5/core/src/main/java/hudson/model/Item.java#L252)
     - [SCM permissions](https://github.com/jenkinsci/jenkins/blob/3bc62eeae933c86f6a94c940fe6f35882f1e29d5/core/src/main/java/hudson/scm/SCM.java#L761)
     - [Credential permissions](https://github.com/jenkinsci/credentials-plugin/blob/b96f366e7badeedaf69724991e44409be11a07b6/src/main/java/com/cloudbees/plugins/credentials/CredentialsProvider.java#L185)
-    - Naming convention of permission is full class name, followed by field ([Permission](https://github.com/jenkinsci/jenkins/blob/master/core/src/main/java/hudson/security/Permission.java)) name converted in Camel case,`hudson.model.View.Read`
+    - The naming convention for permissions is the full class name, followed by the field ([Permission](https://github.com/jenkinsci/jenkins/blob/master/core/src/main/java/hudson/security/Permission.java)) name converted to Camel case, e.g., `hudson.model.View.Read`
 
 #### Credentials
 
@@ -1965,10 +1965,10 @@ CaC (Configuration as Code) [YAML file]($JENKINS_HOME/jenkins.yaml) management i
 - Only update mode is supported after all API calls, not creation
 - Both current and in-memory CaC files YAML structure must contain this path: `jenkins.authorizationStrategy.roleBased.roles`
 - Both current and in-memory CaC files YAML structure must contain this path: `jenkins.securityRealm.ldap.configurations`
-- Script must be able to write the backup file `$path_to_cac_file.ligoj` and will be overridden
-- An unified diff is computed and printed for current and in-memory CaC files 
+- The script must be able to write the backup file `$path_to_cac_file.ligoj`, which will be overwritten.
+- A unified diff is computed and printed for current and in-memory CaC files 
 - Backup and update are executed only if there is at least one change detected in the computed unified diff
-- By default the related sub-folders access are granted from the parent folder, related pattern is suffixed by `(/.*)?` expression. Set `recursive` to `false` to block this behavior
+- By default, the related sub-folder access is granted from the parent folder, and the related pattern is suffixed with the `(/.*)?` expression. Set `recursive` to `false` to block this behavior.
 - Roles use the folder identifier, case is insensitive
 
 ``` yml
@@ -2061,7 +2061,7 @@ Supported resources are:
 
 ### GitLab
 
-No supported resources only roles. GitLab groups and sub-groups are created accordingly to given groups and naming guidances.
+No resources are supported, only roles. GitLab groups and sub-groups are created according to the given groups and naming guidelines.
 Real Git repository projects are not managed by this CLI.
 
 #### Configuration
@@ -2213,7 +2213,7 @@ Delete mapped roles from various tools symmetrically as [`create-roles` operatio
 
 See [`--from`](#--from) for JSON loading options
 
-By default, only roles are deleted, to perform a fully cleanup see the [--with-data option](#--with-data)
+By default, only roles are deleted; to perform a full cleanup, see the [--with-data option](#--with-data)
 
 ```bash
 ligoj bootstrap delete-roles --project project-a --from conf.json \
@@ -2259,20 +2259,20 @@ Deleted contents by tools
 
 ### `--with-data`
 
-Each supported tool can be included (by default) or excluded. as described in [`create-roles` includes/excludes option documentation](#--includes-and---excludes-options). For excluded tools, no role and no data are deleted.
+Each supported tool can be included (by default) or excluded, as described in [`create-roles` includes/excludes option documentation](#--includes-and---excludes-options). For excluded tools, no role and no data are deleted.
 
-By default only roles are deleted. To also delete symmetrically the created contents `--with-data` must be set to `*` or a specific list of plugins. 
-In this case all discovered JSON's content is considered for deletion, including Jenkins' folders, Nexus repositories, etc.
+By default, only roles are deleted. To symmetrically delete the created contents, `--with-data` must be set to `*` or a specific list of plugins. 
+In this case, all discovered JSON content is considered for deletion, including Jenkins folders, Nexus repositories, etc.
 - By default, no data is deleted
 - When `--with-data` is set to `*`, all discovered JSON's content for included plugins is considered
 - When `--with-data` is set to `plugin1 plugin2`, only these plugins are considered for data deletion, only if these plugins are included
 
 ## Bootstrap roundtrip
 
-The purpose of this documentation is only for troubleshooting and understanding the full behavior of bootstrap operations :
+The purpose of this documentation is only for troubleshooting and understanding the full behavior of bootstrap operations:
 - [Bootstrap init](#bootstrap-init) : initial IDP (LDAP, ...), administrative setup. Only executed once.
-- [Bootstrap welcome-user](#bootstrap-welcome-user): initial administration user. Each administrators can execute his/her own base configuration.
-- [Bootstrap create-project](#bootstrap-create-project): create a new project into Ligoj and linked IDP
+- [Bootstrap welcome-user](#bootstrap-welcome-user): initial administration user. Each administrator can execute their own base configuration.
+- [Bootstrap create-project](#bootstrap-create-project): create a new project in Ligoj and the linked IDP
 - [Bootstrap create-roles](#bootstrap-create-roles): permissions, role mapping and containers creation for an existing project
 - [Bootstrap delete-roles](#bootstrap-delete-roles): permissions, role mapping and containers deletion from a project
 - [Bootstrap delete-project](#bootstrap-delete-project): delete a project from Ligoj and linked IDP
@@ -2294,7 +2294,7 @@ ligoj -V project delete              --id "pic-master" --with-data '*'
 
 This section covers the case of running Ligoj with interaction with HTTPS services using self-signed certificates or issued by internal Certificate Authorities.
 
-For each HTTPS websites run the following command. It requires `keytool` to be available on the host.
+For each HTTPS website, run the following command. It requires `keytool` to be available on the host.
 
 ```bash
 python plugins/ssl.py keycloack.sample.com 443 ./ligoj.jks changeit
