@@ -2,7 +2,7 @@
 
 # Description
 
-Ligoj CLI makes REST calls to a remote Ligoj instances, with parameters and error handling.
+Ligoj CLI makes REST calls to a remote Ligoj instance, with parameters and error handling.
 
 # Requirements
 
@@ -55,7 +55,7 @@ You can also:
 - use [session login](#login-with-password) command to get temporary session
 - use [token](#token) command to create durable API keys
 
-For standard actions, only `LIGOJ_ENDPOINT` is required and be set either in [configuration files](#configuration-files) file, either as environment variable either as CLI options.
+For standard actions, only `LIGOJ_ENDPOINT` is required and can be set either in the [configuration files](#configuration-files), as an environment variable, or as CLI options.
 
 For `bootstrap` actions more endpoints and credentials may be required in the [configuration files](#configuration-files) file.
 
@@ -73,13 +73,13 @@ ligoj \
 
 ## Settings
 
-Options are source in this order of priority, from the most to the least priority:
+Options are sourced in this order of priority, from the most to the least priority:
 
 1. Command line options – Overrides settings in any other location, such as the `--output` and `--profile` parameters.
 2. Environment variables – You can store values in your system's environment variables.
 3. Session file – `default` section or given profile name. The session file is located at `~/.ligoj/sessions` on Linux or macOS, and holds:
-  - Session cookies set wih [`login`](#login-with-password) command.
-  - API keys set wih [`login`](#login-with-api-key) command.
+  - Session cookies set with [`login`](#login-with-password) command.
+  - API keys set with [`login`](#login-with-api-key) command.
 4. Credentials file – `default` section or given profile name. The credentials file is located at `~/.ligoj/credentials` on Linux or macOS.
 5. Configuration file – `default` section or given profile name. The config file is located at `~/.ligoj/config` on Linux or macOS. Alternative file `~/.ligoj/cli-config` is supported.
 
@@ -126,7 +126,7 @@ The generic options are available to all actions.
 
 ### `--output`
 
-To determine the output mode af the command. 
+To determine the output mode of the command. 
 
 This option can also be specified in [configuration files](#configuration-files) as `output` or in environment variable `LIGOJ_OUTPUT`
 
@@ -154,7 +154,7 @@ To configure the verbosity.
 - `DEBUG` level displays the internal API calls `--debug` is a shortcut for this level.
 - `INFO` level displays the actions
 - `WARN` level displays the unexpected behaviors
-- `ERROR` level displays the only fatal errors
+- `ERROR` level displays only fatal errors
 
 This option can also be specified in [configuration files](#configuration-files) as `log-level` or in environment variable `LIGOJ_LOG_LEVEL`
 
@@ -219,9 +219,9 @@ ligoj --api-run-as-user ligoj-user ....
 ### `--api-local-roles`
 
 Restrict the computed roles to the local roles of the authenticated user. No plugin roles are involved.
-This flag make the authentication independent of the configured plugins: availability, miss-configuration, etc.
+This flag makes the authentication independent of the configured plugins: availability, misconfiguration, etc.
 
-Since this flag reduce the set of available roles, there is no restriction on the usage.
+Since this flag reduces the set of available roles, there is no restriction on the usage.
 
 This option can also be specified in [configuration files](#configuration-files) as `api-local-roles` or in environment variable `LIGOJ_API_LOCAL_ROLES`.
 
@@ -400,14 +400,14 @@ ligoj user delete --id ligoj-user
 
 ## System Role
 
-A system role hold the permissions (ui and api), and can be assigned to users or groups.
+A system role holds the permissions (ui and api), and can be assigned to users or groups.
 
 
 ### Create a system role 
 
 Create or update a system role.
 
-**Note** Wheras Ligoj supports per HTTP method authorizations, this feature is not yet available from this CLI action.
+**Note** Whereas Ligoj supports per HTTP method authorizations, this feature is not yet available from this CLI action.
 
 ```bash
 # Deprecated `--id` option
@@ -461,7 +461,7 @@ ligoj info status
 {"status": "UP"}
 ```
 
-Optionally, a wait for status can be defined. A regular pool to the server [status](#status) is performed until reaching `DOWN` or `UP` status.
+Optionally, a wait for status can be defined. A regular poll to the server [status](#status) is performed until reaching `DOWN` or `UP` status.
 When different from `0`, the final status is returned.
 
 ```bash
@@ -532,9 +532,9 @@ Manage API keys of current user.
 
 For `expiration` option:
 - Either a full ISO date, Corresponds to the further date the generated token can be trusted.
-- Either a duration strarting from now, and in duration format. See [pytimeparse](https://pypi.org/project/pytimeparse/)
+- Either a duration starting from now, and in duration format. See [pytimeparse](https://pypi.org/project/pytimeparse/)
 
-Expired tokens are not neither listed, neither returned even if they are not yet physically deleted.
+Expired tokens are neither listed nor returned even if they are not yet physically deleted.
 
 ```bash
 ligoj token create --id cli_init
@@ -788,7 +788,7 @@ docker exec ligoj-api python3 --version
 
 ### Update hook
 
-For update, `id` or `name` can be used. However if `name` needs to be update, provides also the `ìd`.
+For update, `id` or `name` can be used. However if `name` needs to be updated, provide also the `id`.
 
 ```bash
 ligoj hook upsert --id 4 --name "audit_role_change_new" --command "$(pwd)/docs/sample_hook_ligoj_audit.sh" --directory  /var/log --match '{"path":"system/security/role.*"}' --inject "feature:iam:node:primary"  "my-secret"
@@ -894,12 +894,12 @@ ligoj plugin install --id "plugin-req"
 
 ```log
 [INFO ] [ligoj] Plugin 'plugin-req' has been installed/updated, a restart is required
-``````
+```
 
 Two successful consecutive executions give this output:
 
 ```log
-[INFO ] [ligoj] Plugin 'plugin-id-ldap:2.0.3' is being to be installed
+[INFO ] [ligoj] Plugin 'plugin-id-ldap:2.0.3' is being installed
 [INFO ] [ligoj] Plugin 'plugin-req:1.0.1' is installed but requires a restart to be available
 ```
 
@@ -915,7 +915,7 @@ ligoj plugin restart
 null
 ```
 
-Optionally, a wait for status can be defined. A regular pool to the server [status](#status) is performed until reaching `DOWN` or `UP` status.
+Optionally, a wait for status can be defined. A regular poll to the server [status](#status) is performed until reaching `DOWN` or `UP` status.
 When different from `0`, the final status is returned.
 
 ```bash
@@ -1325,7 +1325,7 @@ Delete a subscription from its identifier.
 ligoj subscription delete --id 302
 ```
 
-By default, only the link between Ligoj and the remote tool is removed. Optionally when Ligoj had created data with the subscription, it can also be deleted with thi operation.
+By default, only the link between Ligoj and the remote tool is removed. Optionally when Ligoj had created data with the subscription, it can also be deleted with this operation.
 
 For sample, created LDAP groups or Jenkins job created at subscription time will be deleted.
 
@@ -1377,7 +1377,7 @@ ligoj subscription refresh --id 252
 
 # Plugin id
 
-Operations related to [plugin-id](https://github.com/ligoj/plugin-id) and sud-plugins.
+Operations related to [plugin-id](https://github.com/ligoj/plugin-id) and sub-plugins.
 
 
 ## Plugin `id:scope` operations
@@ -1567,7 +1567,7 @@ ligoj id:user create --id jdupont2 --firstname "Jean" --lastname "Dupont" --mail
 
 ### Delete user
 
-Delete an user. If the user does not exist, the command will not return an error.
+Delete a user. If the user does not exist, the command will not return an error.
 
 ```bash
 ligoj id:user delete --id jdupont2
@@ -1595,7 +1595,7 @@ ligoj id:user list --company "department1" --page-length 2
 ```
 ### Get user
 
-Return an user. If the user does not exist, the command will return `null`.
+Return a user. If the user does not exist, the command will return `null`.
 
 ```bash
 ligoj id:user get --id jdupont
@@ -1646,7 +1646,7 @@ ligoj id:user reset-password
 
 # Bootstrap
 
-The following commands can be executed perform several API commands following a complex workflow.
+The following commands can be executed to perform several API commands following a complex workflow.
 
 Most bootstrap arguments like `--jenkins-endpoint`, corresponding [configuration file](#configuration-files) option such as `jenkins_endpoint` is accepted, and environment variable `JENKINS_ENDPOINT` too.
 
@@ -1892,7 +1892,7 @@ options:
 
 ### `--includes` and `--excludes` options
 
-Each supported tool can be included of excluded from the bootstrap commands.:
+Each supported tool can be included or excluded from the bootstrap commands:
 - By default, all discovered JSON's content is considered, no exclusion. Implicit `--includes "*"`.
 - Special value `*` means all. 
 - Multiple `includes` and `excludes` values can be provided
@@ -1968,7 +1968,7 @@ CaC (Configuration as Code) [YAML file]($JENKINS_HOME/jenkins.yaml) management i
 - Script must be able to write the backup file `$path_to_cac_file.ligoj` and will be overridden
 - An unified diff is computed and printed for current and in-memory CaC files 
 - Backup and update are executed only if there is at least one change detected in the computed unified diff
-- By default the related sub-folders access are granted from the parent folder, related pattern is suffixed by `(/.*)?` expression. Set `recursive` to `false` to bloc this behavior
+- By default the related sub-folders access are granted from the parent folder, related pattern is suffixed by `(/.*)?` expression. Set `recursive` to `false` to block this behavior
 - Roles use the folder identifier, case is insensitive
 
 ``` yml
@@ -2076,7 +2076,7 @@ Real Git repository projects are not managed by this CLI.
 |                                    |                                  | - Role: `owner` role                                                |          |
 |                                    |                                  | - Access level: `api`                                               |          |
 |                                    |                                  | Sourced from Jenkins credential `GITLAB_API`.                       |          |
-| `--gitlab-base-group`              | `GITLAB_BASE_GROUP`              | Base group where sit created  groups                                | `/`      |
+| `--gitlab-base-group`              | `GITLAB_BASE_GROUP`              | Base group where created groups sit                                 | `/`      |
 | `--gitlab-wrapper-group`           | `GITLAB_WRAPPER_GROUP`           | Path of created wrapper group. Ignored if undefined                 | `ligoj`  |
 | `--gitlab-wrapper-group-name`      | `GITLAB_WRAPPER_GROUP_NAME`      | Name  of created wrapper group                                      |          |
 | `--gitlab_project_subgroup_prefix` | `GITLAB_PROJECT_SUBGROUP_PREFIX` | Path prefix of created groups. No wrapper if undefined              | `ligoj-` |
@@ -2095,7 +2095,7 @@ Project hierarchy for a project `project1`:
 | &nbsp;&nbsp;&nbsp;&vert;_ ligoj                                      | `${gitlab_wrapper_group}`                                  | `ligoj`         |
 | &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&vert;_ ligoj-project1-dev | `${gitlab-project-subgroup-prefix}${project_key}-${group}` | Prefix `ligoj-` |
 
-Sub-groups ares created with `project_creation_level` flag set to `noone` and with a specific avatar. See [GitLab API create-a-subgroup](https://docs.gitlab.com/ee/api/groups.html#create-a-subgroup)
+Sub-groups are created with `project_creation_level` flag set to `noone` and with a specific avatar. See [GitLab API create-a-subgroup](https://docs.gitlab.com/ee/api/groups.html#create-a-subgroup)
 
 
 ### ArgoCD
@@ -2300,10 +2300,10 @@ For each HTTPS websites run the following command. It requires `keytool` to be a
 python plugins/ssl.py keycloack.sample.com 443 ./ligoj.jks changeit
 ```
 
-When successive calls are done, the target TrustStore JKS file contains all aggregated certificates and can provided to `ligoj-ui` and/or `ligoj-api` containers.
+When successive calls are done, the target TrustStore JKS file contains all aggregated certificates and can be provided to `ligoj-ui` and/or `ligoj-api` containers.
 
 ```bash
-# Copy the trustStTrustStore file in the mounted Ligoj home directory
+# Copy the TrustStore file in the mounted Ligoj home directory
 cp ./ligoj.jks /var/lib/instance_datas/ligoj/
 
 # Start the container with the TrustStore reference
