@@ -12,40 +12,9 @@ Ligoj CLI makes REST calls to a remote Ligoj instance, with parameters and error
 - Valid [credentials](#credentials)
 
 
-## Development mode installation
+# Configuration
 
-This procedure is only for development where Ligoj CLI package is installed in *editable*.
-
-```bash
-sudo apt-get install -y build-essential zlib1g-dev libffi-dev libssl-dev libbz2-dev libreadline-dev libsqlite3-dev liblzma-dev python-tk python3-tk tk-dev
-echo '
-export PYENV_ROOT="$HOME/.pyenv"
-command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init -)"' >> ~/.bashrc
-source ~/.bashrc
-brew install pyenv-virtualenv 3.11 ligoj # See https://github.com/pyenv/pyenv-virtualenv
-pyenv install 3.11
-pyenv virtualenv 3.11 ligoj
-pyenv activate ligoj
-python --version # Should display 3.11.x
-export PYTHON_OPTS=' --proxy="10.154.154.154:3128"'
-export http_proxy="http://10.154.154.154:3128"
-export https_proxy="http://10.154.154.154:3128"
-export NO_PROXY="localhost,*.rie.gouv.fr,127.0.0.1,0.0.0.0,ligoj.$TENANT"
-pip install --upgrade pip
-pip install -U  --root-user-action=ignore pip -e . 
-
-# Build
-python -m pip install --upgrade build
-python -m build
-ruff check . --fix
-flake8 .
-```
-
-
-## Configuration
-
-### Credentials
+## Credentials
 
 Ligoj credentials are based on user/password or user/API Key.
 
@@ -124,9 +93,12 @@ sonar_api_token = secret
 
 The generic options are available to all actions.
 
-### `--output`
+### Output mode
 
-Determines the output mode of the command. 
+Determines the output mode of the command. Use the `--output` option. The following modes are available:
+
+- `json` : JSON format
+- `text` : Text format
 
 This option can also be specified in [configuration files](#configuration-files) as `output` or in environment variable `LIGOJ_OUTPUT`
 
@@ -147,9 +119,10 @@ ligoj --output text --version
 3.3.1-SNAPSHOT
 ```
 
-### `--log-level`
+### Log level
 
-To configure the verbosity.
+To configure the verbosity, use the `--log-level` option. The following levels are available:
+
 - `TRACE` level displays the in/out data. `--verbose` and `--trace` are shortcuts for this level.
 - `DEBUG` level displays the internal API calls `--debug` is a shortcut for this level.
 - `INFO` level displays the actions
@@ -167,41 +140,35 @@ ligoj --trace ....
 If you want to pipe JSON result to `jq`, use `--output json` and `--log-level ERROR` options.
 
 
-### `--insecure`
+### Insecure server connections
 
-To allow insecure server connections when using SSL.
-
-This option can also be specified in [configuration files](#configuration-files) as `insecure` or in environment variable `LIGOJ_INSECURE`
+To allow insecure server connections when using SSL, use the `--insecure` option. This option can also be specified in [configuration files](#configuration-files) as `insecure` or in environment variable `LIGOJ_INSECURE`
 
 ```bash
 ligoj --insecure ....
 ligoj --k ....
 ```
 
-### `--api-user`
+### API user
 
-Ligoj API user name
-
-This option can also be specified in [configuration files](#configuration-files) as `api-user` or in environment variable `LIGOJ_API_USER`. By default is `ligoj-admin`.
+Ligoj API user name. Use the `--api-user` option. This option can also be specified in [configuration files](#configuration-files) as `api-user` or in environment variable `LIGOJ_API_USER`. By default is `ligoj-admin`.
 
 ```bash
 ligoj --api-user ligoj-admin ....
 ```
 
-### `--api-key`
+### API key
 
-Provide an API key, which can be created here [#/api/token ("?" > "Api" > "Token")](https://localhost:8080/ligoj/#/api/token)
-
-This option can also be specified in [configuration files](#configuration-files) as `api-key` or in environment variable `LIGOJ_API_KEY`
+Provide an API key, which can be created here [#/api/token ("?" > "Api" > "Token")](https://localhost:8080/ligoj/#/api/token). Use the `--api-key` option. This option can also be specified in [configuration files](#configuration-files) as `api-key` or in environment variable `LIGOJ_API_KEY`
 
 ```bash
 ligoj --api-key secret ....
 ```
 
 
-### `--api-run-as-user`
+### API run as user
 
-Ligoj API user name for impersonation. 
+Ligoj API user name for impersonation. Use the `--api-run-as-user` option. This option can also be specified in [configuration files](#configuration-files) as `api-run-as-user` or in environment variable `LIGOJ_API_RUN_AS_USER`.
 
 Constraints are:
 - After the authentication succeeds with [--api-key](#api-key) and [--api-user](#api-user)
@@ -216,7 +183,7 @@ ligoj --api-run-as-user ligoj-user ....
 ```
 
 
-### `--api-local-roles`
+### API local roles
 
 Restrict the computed roles to the local roles of the authenticated user. No plugin roles are involved.
 This flag makes the authentication independent of the configured plugins (e.g., availability, misconfiguration, etc.).
@@ -230,19 +197,18 @@ ligoj --api-local-roles session get
 ```
 
 
-### `--profile`
+### Profile
 
-Ligoj profile name to read from [configuration files](#configuration-files),  `credentials`, `config`, and `sessions`.
-
-This option can also be specified with environment variable `LIGOJ_PROFILE`. The default is `default`.
+Ligoj profile name to read from [configuration files](#configuration-files),  `credentials`, `config`, and `sessions`. Use the `--profile` option. This option can also be specified with environment variable `LIGOJ_PROFILE`. The default is `default`.
 
 ```bash
 ligoj --profile some ....
 ```
 
-### `--from`
+### From
 
-JSON content to load. Accepted forms are:
+JSON content to load. Use the `--from` option. The following forms are available:
+
 - Path to a local JSON file
 - Remote HTTP URL
 - Inline JSON string
@@ -257,11 +223,21 @@ After the content has been retrieved, it is interpolated with [Jinja](https://py
 - The context is completed with environment variables.
 - Surrounding spaces inside `{{..}}` are ignored
 
-### `--no-color`
+### No color
 
-Disable colors in messages.
+Disable colors in messages. Use the `--no-color` option. This option can also be specified in [configuration files](#configuration-files) as `no-color` or in environment variable `LIGOJ_NO_COLOR`
 
-### `--fail-on-hook-error`
+```bash
+ligoj --no-color ....
+```
+
+### Fail on hook error
+
+Fail (exit code 1) when any hook returns a failure status (`X-Ligoj-Hook-*=FAILED`). See [hooks](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) for more details. Use the `--fail-on-hook-error` option. This option can also be specified in [configuration files](#configuration-files) as `fail-on-hook-error` or in environment variable `LIGOJ_FAIL_ON_HOOK_ERROR`
+
+```bash
+ligoj --fail-on-hook-error ....
+```
 
 Fail (exit code 1) when any hook returns a failure status (`X-Ligoj-Hook-*=FAILED`). See [hooks](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) for more details.
 
@@ -2308,4 +2284,36 @@ cp ./ligoj.jks /var/lib/instance_datas/ligoj/
 
 # Start the container with the TrustStore reference
 docker run -e CUSTOM_OPTS='-Djavax.net.ssl.trustStore=/home/ligoj/ligoj.jks' \
+```
+
+
+# Development mode installation
+
+This procedure is only for development where Ligoj CLI package is installed in *editable*.
+
+```bash
+echo '
+export PYENV_ROOT="$HOME/.pyenv"
+command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)"' >> ~/.bashrc
+source ~/.bashrc
+brew install pyenv-virtualenv 3.11 ligoj # See https://github.com/pyenv/pyenv-virtualenv
+pyenv install 3.11
+pyenv virtualenv 3.11 ligoj
+pyenv activate ligoj
+
+# Proxy configuration
+export PYTHON_OPTS=' --proxy="10.154.154.154:3128"'
+export http_proxy="http://10.154.154.154:3128"
+export https_proxy="http://10.154.154.154:3128"
+export NO_PROXY="localhost,*.rie.gouv.fr,127.0.0.1,0.0.0.0,ligoj.$TENANT"
+
+pip install --upgrade pip
+pip install -U  --root-user-action=ignore pip -e . 
+
+# Build
+python -m pip install --upgrade build
+python -m build
+ruff check . --fix
+flake8 .
 ```
