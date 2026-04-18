@@ -151,6 +151,7 @@ def configure(subparser_service):
     parser_action.add_argument("--project", "-p", help="Project key or identifier", required=False)
     parser_action = subparser_action.add_parser("create", help="Create a subscription")
     parser_action.add_argument("--node", "-n", help="Node identifier, ie. `service:id:ldap:remote1`", required=False)
+    parser_action.add_argument("--mode", "-m", help="Subscription mode", required=False, default="create")
     parser_action.add_argument("--project", "-p", help="Project key or identifier", required=False)
     parser_action.add_argument("--from", "-f", help="Parameters JSON URL or local file name")
     parser_action = subparser_action.add_parser("delete", help="Delete by its identifier")
@@ -407,7 +408,7 @@ def execute_action(service, action, _, args):
             project = args.get("project")
             node_id = args.get("node")
             subscription_parameters = utils.load_json_from_url_or_file_with_interpolation(args["from"], {"project": project, "node_id": node_id})
-            return subscription_create(project, node_id, subscription_parameters)
+            return subscription_create(project, node_id, subscription_parameters, args.get("mode"))
         if action == "delete":
             return subscription_delete(args["id"], args.get("with_data"))
         if action == "status":
@@ -1615,7 +1616,7 @@ def subscription_delete(subscription_id: int, with_data: bool | None = False):
     return call_api("DELETE", f"subscription/{subscription_id}/{str(with_data).lower()}", ignore_error=True)
 
 
-def subscription_create(project: str | int | None, node_id: str, parameters: dict | list) -> int:
+def subscription_create(project: str | int | None, node_id: str, parameters: dict | list, mode: str | None = "create") -> int:
     utils.info(f"[ligoj] Create subscription related to project '{project}' and node '{node_id}' ...")
     project_details = project_get(project)
     if not project_details:
@@ -1637,7 +1638,7 @@ def subscription_create(project: str | int | None, node_id: str, parameters: dic
             return other_subscription["id"]
 
     # Need to be created
-    return call_api("POST", "subscription", data={"mode": "create", "project": project_details["id"], "node": node_id, "parameters": parameters_as_list})
+    return call_api("POST", "subscription", data={"mode": mode, "project": project_details["id"], "node": node_id, "parameters": parameters_as_list})
 
 
 # Create the LDAP subscription if it does not exist yet
