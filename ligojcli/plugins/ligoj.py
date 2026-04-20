@@ -131,10 +131,12 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("create", help="Create or update new node")
     parser_action.add_argument("--id", "-i", help="[deprecated, use 'upsert'] Node identifier. Related plugin must be previously installed")
     parser_action.add_argument("--name", "-n", help="Node name")
+    parser_action.add_argument("--mode", "-M", help="Node's mode", choices=["all", "create", "link"], required=False, default="all")
     parser_action.add_argument("--from", "-f", help="Parameters JSON URL or local file name")
     parser_action = subparser_action.add_parser("upsert", help="Create or update new node")
     parser_action.add_argument("--id", "-i", help="Node identifier. Related plugin must be previously installed")
     parser_action.add_argument("--name", "-n", help="Node name")
+    parser_action.add_argument("--mode", "-M", help="Node's mode", choices=["all", "create", "link"], required=False, default="all")
     parser_action.add_argument("--from", "-f", help="Parameters JSON URL or local file name")
     parser_action = subparser_action.add_parser("delete", help="Delete a new node")
     parser_action.add_argument("--id", "-i", help="Node identifier", required=False)
@@ -388,8 +390,9 @@ def execute_action(service, action, _, args):
             if action == "create":
                 utils.warn("Action 'create' is deprecated, use 'upsert' instead")
             node_name = utils.not_none(args.get("name"), "node name")
+            mode = args.get("mode", "all").upper()
             node_create_definition = utils.load_json_from_url_or_file_with_interpolation(utils.not_none(args["from"], "node file/URL definition"), {"action": action, "node_name": node_name})
-            return node_upsert(args["id"], node_name, node_create_definition)
+            return node_upsert(args["id"], node_name, node_create_definition, mode)
         if action == "get":
             return node_get_by_id(args["id"], args["parameters_mode"], args["parameters_output"], args["parameters_secured"])
         if action == "list":
