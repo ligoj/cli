@@ -242,7 +242,7 @@ def configure(subparser_service):
         "--command", "-c", required=True, help="Command to execute, split by ` ` char to separate program from its arguments. Must be allowed by `ligoj.hook.path` configuration."
     )
     parser_action.add_argument("--match", "-m", required=True, help='Hook JSON structure. Currently supports only path and optionally method filtering. ie. {"path": "rest/path/to", "method": "GET"}')
-    parser_action.add_argument("--inject", help='Can relate to any configuration name supported by the "configuration get" command. Decrypted as needed.', action="append", default=[])
+    parser_action.add_argument("--inject", help='Can relate to any configuration name supported by the "configuration get" command. Decrypted as needed.', nargs="*", default=[])
     parser_action.add_argument("--timeout", "-t", default=10, type=int, help="Maximum integration time in second")
     parser_action.add_argument("--delay", default=1, type=int, help="Delay in second before execution. Use 0 for synchronous execution")
     parser_action = subparser_action.add_parser("delete", help="Update of create a hook")
@@ -488,7 +488,7 @@ def execute_action(service, action, _, args):
                 utils.not_none(args.get("directory"), "working directory"),
                 utils.not_none(args.get("command"), "hook command"),
                 utils.not_none(args.get("match"), "JSON match"),
-                list(itertools.chain.from_iterable(args.get("inject", []))),
+                args.get("inject", []),
                 args.get("timeout"),
                 args.get("delay"),
             )
@@ -516,7 +516,7 @@ def execute_action(service, action, _, args):
             return system_role_delete_by_name(utils.not_none(args.get("name"), "role id or name"))
     elif service == "user":
         if action == "upsert":
-            return system_user_upsert(utils.not_none(args.get("id"), "user id"), list(itertools.chain.from_iterable(args.get("roles", []))), args.get("api_key_name"))
+            return system_user_upsert(utils.not_none(args.get("id"), "user id"), args.get("roles", []), args.get("api_key_name"))
         if action == "list":
             return system_user_list(args.get("with_roles", False))
         if action == "get":
