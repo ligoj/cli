@@ -1222,12 +1222,12 @@ def create_system_role(role_name, api_patterns, ui_patterns):
 
 
 def system_role_get_by_name(name):
-    response = call_api("GET", f"system/security/role/name/{urllib.parse.quote(name, safe='')}")
+    response = call_api("GET", f"system/security/role/name/{urllib.parse.quote(name, safe='')}", ignore_404=True)
     return None if response is None else response.json()
 
 
 def system_role_get(role_id):
-    response = call_api("GET", f"system/security/role/{role_id}")
+    response = call_api("GET", f"system/security/role/{role_id}", ignore_404=True)
     return None if response is None else response.json()
 
 
@@ -1240,7 +1240,11 @@ def system_role_delete_by_name(name):
 
 
 def system_role_delete(role_id):
-    return call_api("DELETE", f"system/security/role/{role_id}")
+    role = system_role_get(role_id)
+    if role is None:
+        utils.debug(f"[ligoj] Role '{role_id}' does not exist")
+        return None
+    return call_api("DELETE", f"system/security/role/{role['id']}")
 
 
 def system_role_list():
@@ -1260,7 +1264,11 @@ def system_user_get(user):
 
 def system_user_delete(user):
     utils.info(f"[ligoj] Delete system user '{user}' ...")
-    return call_api("DELETE", f"system/user/{urllib.parse.quote(user, safe='')}")
+    user = system_user_get(user)
+    if user is None:
+        utils.debug(f"[ligoj] User '{user}' does not exist")
+        return None
+    return call_api("DELETE", f"system/user/{urllib.parse.quote(user['id'], safe='')}")
 
 
 def system_user_list(with_roles: bool = False):
@@ -1286,10 +1294,8 @@ def user_create(user_details):
 
 def user_get(user: str) -> dict | None:
     utils.info(f"[ligoj] Fetch user '{user}' ...")
-    response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_error=True)
-    if response is None:
-        return None
-    return response.json()
+    response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_404=True)
+    return None if response is None else response.json()
 
 
 def user_list(company: str | None = None, group: str | None = None, criteria: str | None = None, page: int | None = None, page_size: int | None = None) -> dict | None:
@@ -1494,10 +1500,11 @@ def user_delete(user):
     if not user:
         return False
     utils.info(f"[ligoj] Delete user '{user}' ...")
-    user_response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_404=True)
-    if user_response is None:
+    user = user_get(user)
+    if user is None:
         utils.info(f"[ligoj] User '{user}' does not exist")
-    return call_api("DELETE", f"service/id/user/{user}")
+        return None
+    return call_api("DELETE", f"service/id/user/{user['id']}")
 
 
 def project_create(team_leader: str, project_key: str, project_name: str, description="", context: dict | str | None = None):
