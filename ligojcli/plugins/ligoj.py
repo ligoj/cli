@@ -503,7 +503,7 @@ def execute_action(service, action, _, args):
         if action == "create":
             role_name = utils.not_none(args.get("name") or args.get("id"), "role name")
             utils.info(f"Create system role '{role_name}', api={args.get('api')}, ui={args.get('ui')} ...")
-            return create_system_role(role_name, utils.not_none(args.get("api"), "API patterns"), utils.not_none(args.get("ui"), "UI patterns"))
+            return system_role_create(role_name, utils.not_none(args.get("api"), "API patterns"), utils.not_none(args.get("ui"), "UI patterns"))
         if action == "list":
             return system_role_list()
         if action == "get":
@@ -1195,7 +1195,7 @@ def node_get_status(node_id: str):
     return None if response is None else response.json()
 
 
-def create_system_role(role_name, api_patterns, ui_patterns):
+def system_role_create(role_name, api_patterns, ui_patterns):
     utils.info(f"[ligoj] Create system role '{role_name}' ...")
     roles = call_api("GET", LIGOJ_SYSTEM_ROLE_PATH).json()["data"]
     role = next(filter(lambda x: x["name"] == role_name, roles), None)
@@ -1259,7 +1259,8 @@ def system_user_upsert(user, roles, api_key_name: str = None):
 
 def system_user_get(user):
     utils.info(f"[ligoj] Get system user '{user}' ...")
-    return call_api("GET", f"system/user/{urllib.parse.quote(user, safe='')}").json()
+    response = call_api("GET", f"system/user/{urllib.parse.quote(user, safe='')}", ignore_404=True)
+    return None if response is None else response.json()
 
 
 def system_user_delete(user):
