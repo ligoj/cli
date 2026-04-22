@@ -1,7 +1,6 @@
 #
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
-import itertools
 import json
 import re
 import time
@@ -17,9 +16,6 @@ from ligojcli.plugins import utils
 PLUGIN_NAME = "ligoj"
 DEFAULT_LIGOJ_API_USER = "ligoj-admin"
 DEFAULT_LIGOJ_ENDPOINT = "http://localhost:8080/ligoj"
-DEFAULT_PARENT_GROUP_SUFFIX = "-team"
-DEFAULT_LDAP_OU_TECHNICAL_USERS = "technical-users"
-DEFAULT_LDAP_OU_EXTERNAL_USERS = "external"
 LIGOJ_SYSTEM_ROLE_PATH = "system/security/role"
 ligoj_endpoint: str | None = None
 ligoj_api_key: str | None = None
@@ -429,24 +425,6 @@ def execute_action(service, action, _, args):
             if args.get("id", "").isnumeric():
                 return project_delete_by_id(int(args.get("id"), args.get("with_data")))
             return project_delete_by_pkey(args.get("id"), args.get("with_data"))
-    elif service == "delegate-node":
-        if action == "list":
-            return delegate_node_filter_by_node(args.get("node"))
-        if action == "create":
-            return delegate_node_create(args.get("node"), args.get("can_subscribe"), args.get("can_write"), args.get("can_admin"), args.get("receiver"), args.get("receiver_type"))
-        if action == "get":
-            return delegate_node_get_by_id(args.get("id"))
-        if action == "delete":
-            return delegate_node_delete(args["id"])
-    elif service == "delegate-org":
-        if action == "create":
-            return delegate_org_create(args["node"], args.get("can_subscribe"), args.get("can_write"), args.get("can_admin"), args.get("receiver"), args.get("receiver_type"))
-        if action == "get":
-            if args.get("id") is not None:
-                return delegate_org_get_by_id(args.get("id"))
-            return delegate_org_filter_by_resource(args.get("type"), args.get("name"))
-        if action == "delete":
-            return delegate_org_delete(args["id"])
     elif service == "configuration":
         if action == "set":
             return configuration_set(utils.not_none(args.get("id"), "configuration name"), utils.not_none(args.get("value"), "configuration value"), args.get("system", False))
@@ -523,88 +501,7 @@ def execute_action(service, action, _, args):
             return system_user_get(utils.not_none(args.get("id"), "user id"))
         if action == "delete":
             return system_user_delete(utils.not_none(args.get("id"), "user id"))
-    elif service == "id:user":
-        if action == "create":
-            return user_create(
-                {
-                    "id": args["id"],
-                    "firstName": args.get("firstname"),
-                    "lastName": args.get("lastname"),
-                    "mail": args.get("mail"),
-                    "company": utils.not_none(args.get("company"), "user company"),
-                    "groups": utils.flat_map_group(args.get("groups")),
-                    "customAttributes": json.loads(args.get("custom_attributes", "{}")),
-                }
-            )
-        if action == "get":
-            return (args.get("id") and user_get(args.get("id"))) or (args.get("mail") and user_find_by_mail(args.get("mail")))
-        if action == "list":
-            return user_list(args.get("company"), args.get("group"), args.get("criteria"), args.get("page"), args.get("page_length"))
-        if action == "add":
-            user_id = get_user_id(args, True)
-            for group in utils.flat_map_group(args.get("groups")):
-                user_add_to_group(user_id, group)
-            return False
-        if action == "remove":
-            user_id = get_user_id(args, True)
-            for group in utils.flat_map_group(args.get("groups")):
-                user_remove_from_group(user_id, group)
-            return False
-        if action == "delete":
-            return user_delete(get_user_id(args))
-        if action == "reset-password":
-            user_id = get_user_id(args, True)
-            return user_reset_password(user_id)
-    elif service == "id:group":
-        if action == "get":
-            return group_get_by_name(args["name"])
-        if action == "list":
-            return group_list()
-        if action == "create":
-            scope = utils.not_none(args.get("scope"), "scope")
-            return create_group(args["name"], scope, args.get("parent"))
-        if action == "import":
-            group_import_file = utils.load_json_from_url_or_file_with_interpolation(utils.not_none(args.get("from"), "Import file/URL"), {})
-            return group_import(group_import_file)
-        if action == "delete":
-            return group_delete(args["name"])
-    elif service == "id:scope":
-        if action == "get":
-            if args.get("id") is None and (args.get("name") is None or args.get("type") is None):
-                raise ValueError("[ligoj] When id is not provided, name and type are required")
-            if args.get("id"):
-                return get_container_scope_by_id(utils.not_none(args.get("id")))
-            return get_container_scope_by_name(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"))
-        if action == "list":
-            return list_container_scopes(utils.not_none(args.get("type"), "type"))
-        if action == "create":
-            return create_container_scope(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"), utils.not_none(args.get("dn"), "dn"))
-        if action == "delete":
-            if args.get("id") is None and (args.get("name") is None or args.get("type") is None):
-                raise ValueError("[ligoj] When scope id is not provided, scope name and scope type are required")
-            if args.get("id"):
-                return delete_container_scope_by_id(utils.not_none(args.get("id"), "id"))
-            return delete_container_scope_by_name(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"))
-    elif service == "id:ou":
-        if action == "create":
-            return create_ou(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("parent_dn"), "parent-dn"))
-        if action == "delete":
-            return delete_ou(utils.not_none(args.get("name"), "name"))
 
-    return None
-
-
-def get_user_id(args, must_exist=False):
-    if args.get("id"):
-        return args.get("id")
-    elif args.get("mail"):
-        user = user_find_by_mail(args.get("mail"))
-        if user:
-            return user["id"]
-    else:
-        raise ValueError("[ligoj] User id or mail is required")
-    if must_exist:
-        raise ValueError(f"[ligoj] User '{args.get('id') or args.get('mail')}' not found")
     return None
 
 
@@ -648,16 +545,6 @@ def call_api(method, url, **kwargs):
 
 def whoami():
     return session_get().json().get("userName")
-
-
-def get_ldap_group(component, groups_by_name, local_role_name):
-    ldap_group = groups_by_name.get(local_role_name, "")
-    if ldap_group == "":
-        raise ValueError(f"[{component}] Referenced group '{local_role_name}' has not been declared")
-    if local_role_name != unidecode(local_role_name):
-        raise ValueError(f"[{component}] Group name '{local_role_name}' cannot contain non ASCII chars")
-
-    return ldap_group
 
 
 def plugins_list(repository: str):
@@ -1068,28 +955,6 @@ def get_parameter_type(parameter: str):
     return None
 
 
-def delegate_node_get_by_id(delegate_id: int):
-    return call_api("GET", f"node/delegate/{delegate_id}")
-
-
-def delegate_node_filter_by_node(node_id: str):
-    items = call_api("GET", "node/delegate").json()["data"]
-    return list(filter(lambda x: node_id is None or node_id == "" or x["name"] == node_id, items))
-
-
-def delegate_node_delete(delegate_id: int):
-    call_api("DELETE", f"node/delegate/{delegate_id}", ignore_error=True, ignore_output=True)
-    return False
-
-
-def delegate_node_list():
-    return call_api("GET", "node/delegate").json()["data"]
-
-
-def delegate_node_create(node_id: str, can_subscribe: bool, can_write: bool, can_admin: bool, receiver: str, receiver_type: str) -> int:
-    return call_api("POST", "node/delegate", data={"name": node_id, "canSubscribe": can_subscribe, "canWrite": can_write, "canAdmin": can_admin, "receiver": receiver, "receiverType": receiver_type})
-
-
 def node_list(search: str | None, refined: str | None, mode: str | None, depth: int, parameters_mode: str | None = None, parameters_output: str | None = None, return_secured_parameters=False):
     response = call_api("GET", "node", params={"search[value]": search, "refined": refined, "mode": mode, "depth": depth})
     return node_get_parameters(response, parameters_mode, parameters_output, return_secured_parameters)
@@ -1277,235 +1142,11 @@ def system_user_list(with_roles: bool = False):
     return call_api("GET", f"system/user{'/roles' if with_roles else ''}").json()
 
 
-def user_reset_password(user):
-    utils.info(f"[ligoj] Reset password of user '{user}' ...")
-    return call_api("PUT", f"service/id/user/{urllib.parse.quote(user, safe='')}/reset", headers={"Accept": "text/plain"}).text
-
-
-def user_create(user_details):
-    user = user_details["id"]
-    utils.info(f"[ligoj] Create user '{user}' ...")
-    response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_error=True)
-    if response is not None:
-        utils.debug(f"[ligoj] User '{user}' already exists")
-        return None
-
-    return call_api("POST", "service/id/user", data=user_details)
-
-
-def user_get(user: str) -> dict | None:
-    utils.info(f"[ligoj] Fetch user '{user}' ...")
-    response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_404=True)
-    return None if response is None else response.json()
-
-
-def user_list(company: str | None = None, group: str | None = None, criteria: str | None = None, page: int | None = None, page_size: int | None = None) -> dict | None:
-    utils.info("[ligoj] Fetch user list ...")
-    params = {}
-    if company:
-        params["company"] = company
-    if group:
-        params["group"] = group
-    if criteria:
-        params["search[value]"] = criteria
-    if page:
-        params["page"] = page
-    if page_size:
-        params["length"] = page_size
-    response = call_api("GET", "service/id/user", params=params)
-    return None if response is None else response.json()
-
-
-def user_find_by_id_or_mail(id_or_mail: str, required: bool | None = True) -> dict | None:
-    user_details = user_get(id_or_mail) or user_find_by_mail(id_or_mail)
-    if user_details is None:
-        if required:
-            raise ValueError(f"[ligoj] User '{id_or_mail}' does not exist")
-        return None
-    resolved_id = user_details["id"]
-    if resolved_id != id_or_mail:
-        utils.debug(f"[ligoj] Resolved user id from '{id_or_mail}' is '{resolved_id}'")
-    return user_details
-
-
-def user_find_by_mail(mail: str) -> dict | None:
-    utils.info(f"[ligoj] Fetch user by mail '{mail}' ...")
-    items = call_api("GET", "service/id/user", ignore_error=True, params={"search[value]": mail}).json()["data"]
-    return next(filter(lambda x: "mails" in x and mail in x["mails"], items), None)
-
-
-def group_import(csv_file):
-    utils.info("[ligoj] Import groups ...")
-    return call_api("POST", "service/id/group/batch", data={"csv-file": csv_file, "encoding": "UTF-8", "columns": ["name", "scope", "parent", "department", "owner", "assistant"]}).json()
-
-
-def get_container_scope_id(name_or_id: str | int, container_type: str | None, required: bool = True) -> int:
-    if isinstance(name_or_id, int):
-        return name_or_id
-    if isinstance(name_or_id, str) and name_or_id.isdigit():
-        return int(name_or_id)
-    if not container_type:
-        raise ValueError("[ligoj] Scope type is required when scope name is provided instead of scope identifier")
-    utils.info(f"[ligoj] Fetch container scope '{name_or_id}' [{container_type}] ...")
-    response = call_api("GET", f"service/id/container-scope/name/{urllib.parse.quote(name_or_id, safe='')}/{container_type}", ignore_error=True)
-    if not response:
-        if required:
-            raise ValueError(f"[ligoj] Scope '{name_or_id}' not found in type '{container_type}'")
-        return None
-    return response.json()["id"]
-
-
-def get_container_scope_by_id(id: int):
-    utils.info(f"[ligoj] Fetch container scope '{id}' ...")
-    return call_api("GET", f"service/id/container-scope/{id}").json()
-
-
-def get_container_scope_by_name(name: str, container_type: str):
-    utils.info(f"[ligoj] Fetch container scope '{name}' [{container_type}] ...")
-    return call_api("GET", f"service/id/container-scope/name/{urllib.parse.quote(name, safe='')}/{container_type}").json()
-
-
-def list_container_scopes(container_type: str):
-    utils.info(f"[ligoj] Fetch container scopes [{container_type}] ...")
-    return call_api("GET", f"service/id/container-scope/{container_type}").json()
-
-
-def delete_container_scope_by_id(id: int):
-    utils.info(f"[ligoj] Delete container scope '{id}' ...")
-    return call_api("DELETE", f"service/id/container-scope/{id}")
-
-
-def delete_container_scope_by_name(name: str, container_type: str):
-    utils.info(f"[ligoj] Delete container scope '{name}' [{container_type}] ...")
-    container_scope = get_container_scope_id(name, container_type, False)
-    if container_scope is None:
-        return None
-    return call_api("DELETE", f"service/id/container-scope/{container_scope}").json()
-
-
-def create_container_scope(name: str, container_type: str, dn: str) -> int:
-    utils.info(f"[ligoj] Create container scope '{name}'[{container_type}] associated to DN '{dn}' ...")
-    container_response = call_api("GET", f"service/id/container-scope/name/{urllib.parse.quote(name, safe='')}/{container_type}", ignore_error=True)
-    if container_response is not None:
-        existing_id = container_response.json()["id"]
-        if container_response.json()["dn"] == dn:
-            utils.debug(f"[ligoj] Container scope '{name}' already exists with id '{existing_id}' with identical DN")
-        else:
-            # Update DN
-            utils.debug(f"[ligoj] Container scope '{name}' already exists with id '{existing_id}', update it's DN from '{container_response.json()['dn']}' to '{dn}' ...")
-            call_api("PUT", "service/id/container-scope", data={"id": existing_id, "dn": dn, "name": name, "type": container_type})
-        return existing_id
-
-    return call_api("POST", "service/id/container-scope", data={"dn": dn, "name": name, "type": container_type}).json()
-
-
-def create_company(name: str | int, container_scope: str | int, **kwargs):
-    utils.info(f"[ligoj] Create company '{name}' in scope id '{container_scope}' ...")
-    container_response = call_api("GET", f"service/id/company/{urllib.parse.quote(name, safe='')}", ignore_error=True)
-    if container_response:
-        utils.debug(f"[ligoj] Company '{name}' already exists'")
-        return
-
-    return call_api("POST", "service/id/company", data=kwargs.get("data", {}) | {"name": name, "scope": container_scope}, ignore_error=kwargs.get("ignore_error", False))
-
-
-def create_ou(name: str, parent_dn: str, **kwargs):
-    utils.info(f"[ligoj] Create LDAP OU'{name}' in parent DN '{parent_dn}' ...")
-    container_response = call_api("GET", f"service/id/company/{urllib.parse.quote(name, safe='')}", ignore_error=True)
-    if container_response:
-        utils.debug(f"[ligoj] OU '{name}' already exists'")
-        return container_response
-
-    container_scope_id = create_container_scope(f"temporary-scope-{name}", "company", parent_dn)
-    try:
-        ou_response = call_api("POST", "service/id/company", data={"name": name, "scope": container_scope_id}, ignore_error=kwargs.get("ignore_error", False))
-    finally:
-        delete_container_scope_by_id(container_scope_id)
-    return ou_response
-
-
-def delete_ou(name: str):
-    utils.info(f"[ligoj] Delete LDAP OU '{name}' ...")
-    return call_api("DELETE", "service/id/company", data={"name": name})
-
-
-def create_group(name: str, container_scope_name_or_id: str | int, parent_name: str | None = None):
-    utils.info(f"[ligoj] Create group '{'' if parent_name is None else f'{parent_name}/'}/{name}' in scope '{container_scope_name_or_id}' ...")
-    if unidecode(name) != name:
-        raise ValueError(f"[ligoj] Group name '{name}' cannot contain non ASCII chars")
-    container_scope_id = get_container_scope_id(container_scope_name_or_id, "group")
-    container_response = call_api("GET", f"service/id/group/{urllib.parse.quote(name, safe='')}", ignore_error=True)
-    if container_response is not None:
-        utils.debug(f"[ligoj] Group '{name}' already exists'")
-        return container_response
-
-    return call_api("POST", "service/id/group", data={"name": name, "scope": container_scope_id, "parent": parent_name})
-
-
 def project_get(project_key_or_id, headers=None):
     response = call_api("GET", f"project/{project_key_or_id}", ignore_error=True, ignore_output=True, headers=headers)
     if response is None:
         return None
     return response.json()
-
-
-def group_get_by_name(group):
-    if unidecode(group) != group:
-        raise ValueError(f"[ligoj] Group name '{group}' cannot contain non ASCII chars")
-
-    response = call_api("GET", f"service/id/group/{urllib.parse.quote(group, safe='')}", ignore_error=True)
-    return None if response is None else response.json()
-
-
-def group_delete(group: str):
-    utils.info(f"[ligoj] Delete group '{group}' ...")
-    group_result = group_get_by_name(group)
-    if group_result is None:
-        utils.debug(f"[ligoj] Group '{group}' does not exist")
-        return None
-    return call_api("DELETE", f"service/id/group/{group_result['id']}")
-
-
-def group_list():
-    response = call_api("GET", "service/id/group", ignore_error=True)
-    return None if response is None else response.json()
-
-
-def user_add_to_group(user, group):
-    utils.info(f"[ligoj] Add user '{user}' to group '{group}' ...")
-    user_response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_error=True)
-    if user_response is None:
-        raise ValueError(f"[ligoj] User '{user}' does not exist")
-
-    user_details = user_response.json()
-    if group not in user_details["groups"]:
-        return call_api("PUT", f"service/id/user/{urllib.parse.quote(user, safe='')}/group/{urllib.parse.quote(group, safe='')}")
-    utils.info(f"[ligoj] User '{user}' is already in group '{group}'")
-    return None
-
-
-def user_remove_from_group(user, group):
-    utils.info(f"[ligoj] Remove user '{user}' from group '{group}' ...")
-    user_response = call_api("GET", f"service/id/user/{urllib.parse.quote(user, safe='')}", ignore_error=True)
-    if user_response is None:
-        raise ValueError(f"[ligoj] User '{user}' does not exist")
-
-    user_details = user_response.json()
-    if group in user_details["groups"]:
-        return call_api("DELETE", f"service/id/user/{urllib.parse.quote(user, safe='')}/group/{urllib.parse.quote(group, safe='')}")
-    utils.info(f"[ligoj] User '{user}' is not in group '{group}'")
-    return None
-
-
-def user_delete(user):
-    if not user:
-        return False
-    utils.info(f"[ligoj] Delete user '{user}' ...")
-    user = user_get(user)
-    if user is None:
-        utils.info(f"[ligoj] User '{user}' does not exist")
-        return None
-    return call_api("DELETE", f"service/id/user/{user['id']}")
 
 
 def project_create(team_leader: str, project_key: str, project_name: str, description="", context: dict | str | None = None):
@@ -1541,42 +1182,6 @@ def project_delete_internal(project_id: int, with_data: bool = False):
 
 def project_list(search=str | None):
     return call_api("GET", "project", params={"search[value]": search}).json()
-
-
-def delegate_org_create(managed_type, managed_id, receiver_type, receiver_id, admin_privilege, write_privilege):
-    utils.info(
-        f"[ligoj] Create delegate to '{receiver_type}' '{receiver_id}' to manage '{managed_type}' '{managed_id}' with admin_privilege={admin_privilege} and write_privilege={write_privilege}  ..."
-    )
-    delegates = call_api("GET", f"security/delegate?type={managed_type}&q={urllib.parse.quote(receiver_id, safe='')}").json()["data"]
-    if any(filter(lambda x: x["receiverType"] == receiver_type and x["name"] == managed_id, delegates)):
-        utils.debug(f"[ligoj] Delegate already exists for '{receiver_id}'  ...")
-    else:
-        call_api(
-            "POST",
-            "security/delegate",
-            data={
-                "receiver": receiver_id,
-                "receiverType": receiver_type,
-                "type": managed_type,
-                "name": managed_id,
-                "canAdmin": admin_privilege,
-                "canWrite": write_privilege,
-            },
-        )
-
-
-def delegate_org_get_by_id(delegate_id: int):
-    return call_api("GET", f"security/delegate/{delegate_id}").json()
-
-
-def delegate_org_filter_by_resource(resource_type: str, resource_id: str | None):
-    items = call_api("GET", "security/delegate", params={"type": resource_type}).json()["data"]
-    return list(filter(lambda x: resource_id is None or resource_id == "" or x["name"] == resource_id, items))
-
-
-def delegate_org_delete(delegate_id: int):
-    call_api("DELETE", f"security/delegate/{delegate_id}", ignore_error=True, ignore_output=True)
-    return False
 
 
 def subscription_get_by_id(subscription_id: int, with_details: bool):
@@ -1650,27 +1255,3 @@ def subscription_create(project: str | int | None, node_id: str, parameters: dic
 
     # Need to be created
     return call_api("POST", "subscription", data={"mode": mode, "project": project_details["id"], "node": node_id, "parameters": parameters_as_list})
-
-
-# Create the LDAP subscription if it does not exist yet
-def subscription_create_id_group(project_id: int, project_key: str, ldap_node: str, group, parent_group=None):
-    group_details = group_get_by_name(group)
-    if group_details is not None:
-        utils.info(f"[ligoj] Group '{group}' already exists, ignore subscription request to project '{project_key}'")
-        return False
-
-    utils.info(f"[ligoj] Group '{group}' does not already exist, create subscription to project '{project_key}'({project_id}) to node '{ldap_node}' ...")
-    parameters = [{"parameter": "service:id:group", "text": group}, {"parameter": "service:id:ou", "text": project_key}]
-    if parent_group is not None:
-        parameters.append({"parameter": "service:id:parent-group", "text": parent_group})
-
-    return bool(subscription_create(project_id, ldap_node, parameters))
-
-
-def ldap_concat(prefix1: str, prefix2: str, base_dn: str) -> str:
-    result = base_dn
-    if prefix2 is not None and prefix2 != "":
-        result = f"{prefix2},{result}"
-    if prefix1 is not None and prefix1 != "":
-        result = f"{prefix1},{result}"
-    return result

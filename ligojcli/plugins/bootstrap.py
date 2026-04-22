@@ -7,11 +7,15 @@ import dns.resolver
 from jsonmerge import merge
 from jsonschema import validate
 
-from ligojcli.plugins import alfresco, argocd, gitlab, jenkins, ligoj, nexus, sonarqube, utils
+from ligojcli.plugins import alfresco, argocd, gitlab, jenkins, ligoj, nexus, sonarqube, id, utils
 
 includes: list[str] = []
 excludes: list[str] = []
 with_data: list[str] = []
+
+DEFAULT_LDAP_OU_EXTERNAL_USERS = "external"
+DEFAULT_LDAP_OU_TECHNICAL_USERS = "technical-users"
+DEFAULT_PARENT_GROUP_SUFFIX = "-team"
 
 
 def configure(subparser_service):
@@ -35,7 +39,7 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("welcome-user", help="Create an new project for given administrator")
     parser_action.add_argument("--id", "-i", help="Username to create as administrator of project", default=False)
     parser_action.add_argument("--verify-project-with-dns", help="Verify the project name matches with the given DNS record format", required=False)
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=ligoj.DEFAULT_PARENT_GROUP_SUFFIX)
+    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
     parser_action.add_argument("--project", "-p", help="New project's key")
     parser_action.add_argument("--name", help="New project's name, default is derived from `project`", required=False)
     parser_action.add_argument("--sonar-create-node", help="Also create a SonarQube node in Ligoj to the given endpoint", required=False, action="store_true")
@@ -52,7 +56,7 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("create-project", help="Bundle of API calls for new project")
     parser_action.add_argument("--project", "-p", help="New project's key")
     parser_action.add_argument("--name", help="New project's name, default is derived from `project`", required=False)
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=ligoj.DEFAULT_PARENT_GROUP_SUFFIX)
+    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
     parser_action.add_argument("--groups", help="Primary identity `plugin-id` is used to create initial project's groups. Final group name is based on 'group-suffix'", nargs="*", default=["admin"])
     parser_action.add_argument("--parent-project", help="When defined, a context is put to the new project related to this parent project", required=False)
     parser_action.add_argument("--parent-admin", help="Username of checked user being one of the administrators of parent project. Default is session user", required=False)
@@ -66,7 +70,7 @@ def configure(subparser_service):
     # bootstrap create-nested-project
     parser_action = subparser_action.add_parser("create-nested-project", help="Bundle of API calls for groups inside a project")
     parser_action.add_argument("--project", "-p", help="New project's key")
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=ligoj.DEFAULT_PARENT_GROUP_SUFFIX)
+    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
     parser_action.add_argument("--groups", help="Group names to create. Final group name is based on 'group-suffix'", nargs="*", default=["admin"])
     parser_action.add_argument("--parent-project", help="When defined, a context is put to the new project related to this parent project", required=False)
     parser_action.add_argument("--parent-admin", help="Username of checked user being one of the administrators of parent project. Default is session user", required=False)
@@ -77,7 +81,7 @@ def configure(subparser_service):
     # bootstrap create-roles
     parser_action = subparser_action.add_parser("create-roles", help="Create role mappings and configurations in supported tools")
     parser_action.add_argument("--project", "-p", help="Associated project key")
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=ligoj.DEFAULT_PARENT_GROUP_SUFFIX)
+    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
     parser_action.add_argument("--groups", help="Group names to create. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file", nargs="*", default=[])
     parser_action.add_argument("--from", "-f", help="Configuration JSON URL or local file name")
     parser_action.add_argument("--schema", help="Optional JSON Schema definition applied to configuration, JSON, file or URL", required=False)
@@ -108,7 +112,7 @@ def configure(subparser_service):
     # bootstrap delete-roles
     parser_action = subparser_action.add_parser("delete-roles", help="Delete role mappings and configurations from supported tools")
     parser_action.add_argument("--project", "-p", help="Associated project key")
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in deleted groups", default=ligoj.DEFAULT_PARENT_GROUP_SUFFIX)
+    parser_action.add_argument("--group-suffix", help="Suffix added to project name in deleted groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
     parser_action.add_argument("--groups", help="Group names to delete. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file", nargs="*", default=[])
     parser_action.add_argument("--from", "-f", help="Configuration JSON URL or local file name")
     parser_action.add_argument("--schema", help="Optional JSON Schema definition applied to configuration, JSON, file or URL", required=False)
@@ -328,23 +332,23 @@ def bootstrap_init(
     technical_groups: list[str],
 ):
     # Companies
-    scope_unassigned_company = ligoj.create_container_scope("Unassigned", "company", ligoj.ldap_concat(users_base_dn, "", base_dn))
-    ligoj.create_container_scope("Internal", "company", ligoj.ldap_concat(internal_users_base_dn, users_base_dn, base_dn))
-    ligoj.create_container_scope("External", "company", ligoj.ldap_concat(external_users_base_dn, users_base_dn, base_dn))
-    ligoj.create_container_scope("Technical", "company", ligoj.ldap_concat(technical_users_base_dn, users_base_dn, base_dn))
-    ligoj.create_company(ligoj.DEFAULT_LDAP_OU_TECHNICAL_USERS, scope_unassigned_company)
-    ligoj.create_company(ligoj.DEFAULT_LDAP_OU_EXTERNAL_USERS, scope_unassigned_company)
+    scope_unassigned_company = id.container_scope_create("Unassigned", "company", id.ldap_concat(users_base_dn, "", base_dn))
+    id.container_scope_create("Internal", "company", id.ldap_concat(internal_users_base_dn, users_base_dn, base_dn))
+    id.container_scope_create("External", "company", id.ldap_concat(external_users_base_dn, users_base_dn, base_dn))
+    id.container_scope_create("Technical", "company", id.ldap_concat(technical_users_base_dn, users_base_dn, base_dn))
+    id.company_create(DEFAULT_LDAP_OU_TECHNICAL_USERS, scope_unassigned_company)
+    id.company_create(DEFAULT_LDAP_OU_EXTERNAL_USERS, scope_unassigned_company)
 
     # Groups
-    scope_unassigned_group = ligoj.create_container_scope("Unassigned", "group", ligoj.ldap_concat(groups_base_dn, "", base_dn))
-    ligoj.create_container_scope("Project", "group", ligoj.ldap_concat(projects_base_dn, groups_base_dn, base_dn))
+    scope_unassigned_group = id.container_scope_create("Unassigned", "group", id.ldap_concat(groups_base_dn, "", base_dn))
+    id.container_scope_create("Project", "group", id.ldap_concat(projects_base_dn, groups_base_dn, base_dn))
 
     # Cross instances administrator access
     if technical_groups_base_dn and not technical_groups.empty():
-        scope_technical_group = ligoj.create_container_scope("Technical", "group", ligoj.ldap_concat(technical_groups_base_dn, groups_base_dn, base_dn))
-        ligoj.create_ou("technical-groups", scope_unassigned_group, "group")
+        scope_technical_group = id.container_scope_create("Technical", "group", id.ldap_concat(technical_groups_base_dn, groups_base_dn, base_dn))
+        id.ou_create("technical-groups", scope_unassigned_group, "group")
         for technical_group in technical_groups:
-            ligoj.create_group(technical_group, scope_technical_group)
+            id.group_create(technical_group, scope_technical_group)
 
 
 ##
@@ -376,7 +380,7 @@ def bootstrap_welcome_user(
     reader_custom_attributes: dict,
 ):
     # Check the user exists in directory
-    user_details = ligoj.user_find_by_id_or_mail(admin_user)
+    user_details = id.user_find_by_id_or_mail(admin_user)
     admin_user = user_details["id"]
 
     # Check DNS record
@@ -403,19 +407,19 @@ def bootstrap_welcome_user(
 
     # Create technical script admin user
     ligoj_user_script = f"{project_key}-script"
-    ligoj.user_create(
+    id.user_create(
         {
             "id": ligoj_user_script,
             "firstName": "Jenkins script",
             "lastName": project_key,
             "mail": f"{ligoj_user_script}@localhost",
-            "company": ligoj.DEFAULT_LDAP_OU_TECHNICAL_USERS,
+            "company": DEFAULT_LDAP_OU_TECHNICAL_USERS,
             "groups": ["full-read"],
             "customAttributes": script_custom_attributes and json.loads(script_custom_attributes) or None,
         }
     )
     role_name = f"ADMIN_{project_key.upper()}"
-    role = ligoj.create_system_role(role_name, [".*"], [".*"])
+    role = ligoj.system_role_create(role_name, [".*"], [".*"])
     user_api_key = ligoj.system_user_upsert(ligoj_user_script, [role], f"cli-{utils.now_str}")
     if user_api_key is None:
         utils.info(f"[ligoj] User '{ligoj_user_script}' has been created with api_key")
@@ -425,13 +429,13 @@ def bootstrap_welcome_user(
 
     # Create technical LDAP reader user
     ligoj_user_reader = f"{project_key}-reader"
-    ligoj_user_reader_password = ligoj.user_create(
+    ligoj_user_reader_password = id.user_create(
         {
             "id": ligoj_user_reader,
             "firstName": "Reader",
             "lastName": project_key,
             "mail": f"{ligoj_user_reader}@localhost",
-            "company": ligoj.DEFAULT_LDAP_OU_TECHNICAL_USERS,
+            "company": DEFAULT_LDAP_OU_TECHNICAL_USERS,
             "groups": [],
             "returnGeneratePassword": True,
             "customAttributes": json.loads(reader_custom_attributes) if reader_custom_attributes else None,
@@ -439,7 +443,7 @@ def bootstrap_welcome_user(
     )
     if ligoj_user_reader_password is None:
         if reset_reader_password:
-            ligoj_user_reader_password = ligoj.user_reset_password(ligoj_user_reader)
+            ligoj_user_reader_password = id.user_reset_password(ligoj_user_reader)
             utils.info(f"[ligoj] User '{ligoj_user_reader}' was already created with password, and reset to a new one")
         else:
             utils.info(f"[ligoj] User '{ligoj_user_reader}' was already created with password (cannot be retrieved again)")
@@ -456,25 +460,25 @@ def bootstrap_welcome_user(
 
     # Create LDAP parent group
     group = f"{project_key}{group_suffix}"
-    ligoj.subscription_create_id_group(project_id, project_key, ldap_node, group)
-    ligoj.user_add_to_group(admin_user, group)
-    ligoj.user_add_to_group(ligoj_user_script, group)
+    id.subscription_create_id_group(project_id, project_key, ldap_node, group)
+    id.user_add_to_group(admin_user, group)
+    id.user_add_to_group(ligoj_user_script, group)
 
     # Create LDAP admin group inside the project
     group_admin = f"{group}-admin"
-    ligoj.subscription_create_id_group(project_id, project_key, ldap_node, group_admin, group)
-    ligoj.user_add_to_group(admin_user, group_admin)
-    ligoj.user_add_to_group(ligoj_user_script, group_admin)
+    id.subscription_create_id_group(project_id, project_key, ldap_node, group_admin, group)
+    id.user_add_to_group(admin_user, group_admin)
+    id.user_add_to_group(ligoj_user_script, group_admin)
 
     # Create LDAP reader group inside the project
     group_readers = f"{group}-readers"
-    ligoj.subscription_create_id_group(project_id, project_key, ldap_node, group_readers, group)
-    ligoj.user_add_to_group(admin_user, group_readers)
-    ligoj.user_add_to_group(ligoj_user_script, group_readers)
+    id.subscription_create_id_group(project_id, project_key, ldap_node, group_readers, group)
+    id.user_add_to_group(admin_user, group_readers)
+    id.user_add_to_group(ligoj_user_script, group_readers)
 
     # Create A+W delegate to admin group to manage the parent group
-    ligoj.delegate_org_create("group", group, "group", group_admin, True, True)
-    ligoj.delegate_org_create("group", group, "group", group_readers, False, False)
+    id.delegate_org_create("group", group, "group", group_admin, True, True)
+    id.delegate_org_create("group", group, "group", group_readers, False, False)
 
     # Create Ligoj nodes related to supported tool
     node_base_id = project_key.replace(":", "-").lower()
@@ -526,16 +530,16 @@ def bootstrap_create_project(action: str, project_key: str, project_name: str | 
     else:
         utils.info(f"[ligoj] Validate parent project {parent_project} ... ")
         headers = None
-        team_leader_details = ligoj.user_find_by_id_or_mail(team_leader)
+        team_leader_details = id.user_find_by_id_or_mail(team_leader)
         team_leader = team_leader_details["id"]
         if parent_admin:
             # Use run-as capability
             if parent_admin != team_leader:
-                parent_admin_details = ligoj.user_find_by_id_or_mail(parent_admin)
+                parent_admin_details = id.user_find_by_id_or_mail(parent_admin)
                 parent_admin = parent_admin_details["id"]
             headers = {"x-api-run-as-user": parent_admin}
 
-        parent_project_details = ligoj.project_get(parent_project, headers=headers)
+        parent_project_details = id.project_get(parent_project, headers=headers)
         if parent_project_details is None:
             raise ValueError(f"[ligoj] Project '{parent_project}' does not exists or not visible to user {team_leader}")
         if parent_project_details["manageSubscriptions"] is not True:
@@ -567,19 +571,19 @@ def bootstrap_create_project(action: str, project_key: str, project_name: str | 
     if parent_project is not None:
         # Create LDAP parent group for this new project
         expected_groups = expected_groups + 1
-        if ligoj.subscription_create_id_group(project_id, project_key, ldap_node, parent_group):
+        if id.subscription_create_id_group(project_id, project_key, ldap_node, parent_group):
             created_groups = created_groups + 1
 
         # Create LDAP admin group inside the project
         group_admin = f"{parent_group}-admin"
         expected_groups = expected_groups + 1
-        if ligoj.subscription_create_id_group(project_id, project_key, ldap_node, group_admin, parent_group):
+        if id.subscription_create_id_group(project_id, project_key, ldap_node, group_admin, parent_group):
             created_groups = created_groups + 1
 
-        ligoj.user_add_to_group(team_leader, group_admin)
+        id.user_add_to_group(team_leader, group_admin)
 
         # Create A+W delegate to admin group to manage the parent group
-        ligoj.delegate_org_create("group", parent_group, "group", group_admin, True, True)
+        id.delegate_org_create("group", parent_group, "group", group_admin, True, True)
 
     for group in groups:
         if group.startswith(f"{parent_group}-"):
@@ -593,7 +597,7 @@ def bootstrap_create_project(action: str, project_key: str, project_name: str | 
             ldap_group = f"{parent_group}-{group}"
         if base_group != "admin":
             expected_groups = expected_groups + 1
-            if ligoj.subscription_create_id_group(project_id, project_key, ldap_node, ldap_group, parent_group):
+            if id.subscription_create_id_group(project_id, project_key, ldap_node, ldap_group, parent_group):
                 created_groups = created_groups + 1
 
     utils.info(f"[ligoj] {created_groups}/{expected_groups} groups have been created")
@@ -620,7 +624,7 @@ def bootstrap_delete_project(project_key: str, parent_admin: str | None, on_beha
 
     if on_behalf_of:
         # Resolve the project using the "on_behalf" owner
-        on_behalf_of = ligoj.user_find_by_id_or_mail(on_behalf_of)
+        on_behalf_of = id.user_find_by_id_or_mail(on_behalf_of)
         headers = {"x-api-run-as-user": on_behalf_of}
         project_details = ligoj.project_get(project_key, headers=headers)
 
@@ -629,7 +633,7 @@ def bootstrap_delete_project(project_key: str, parent_admin: str | None, on_beha
 
     if project_details and parent_admin:
         # Resolve the project using the "parent_admin" owner
-        parent_admin = ligoj.user_find_by_id_or_mail(parent_admin)
+        parent_admin = id.user_find_by_id_or_mail(parent_admin)
 
         context = project_details.get("context")
         utils.debug(f"[ligoj] Project context {context}, typeof: {type(context)}")
