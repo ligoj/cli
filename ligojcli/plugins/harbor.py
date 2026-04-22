@@ -156,11 +156,11 @@ def project_member_remove(project_name_or_id: str, group_name: str):
             member_id = member["id"]
             break
 
-    if not member_id:
+    if member_id:
+        call_harbor_api("DELETE", f"projects/{project_name_or_id}/members/{member_id}")
+    else:
         utils.warn(f"[harbor] Member group '{group_name}' not found in project '{project_name_or_id}'")
-        return False
 
-    call_harbor_api("DELETE", f"projects/{project_name_or_id}/members/{member_id}")
     return False
 
 
