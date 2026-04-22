@@ -333,6 +333,17 @@ def get_config(args, name: str, env_variable_name: str, default: str | None) -> 
     return cleanup_ini_value(value)
 
 
+def get_config_list(args, name: str, env_variable_name: str, default: list = []) -> list:
+    value = args.get(name)
+    if value is None:
+        value = os.environ.get(env_variable_name)
+        if value is None or isinstance(value, str) and len(value) == 0:
+            value = ini_config.get(ini_profile, name, fallback=default)
+    if value is None or isinstance(value, str) and len(value) == 0:
+        return default
+    return [e.strip() for e in value.split(",")]
+
+
 def is_true(value: str | bool | None) -> bool:
     return value == "True" or value == "true" or value == "1" or value is True
 

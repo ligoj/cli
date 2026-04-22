@@ -70,8 +70,8 @@ def configure(subparser_service):
     parser_action.add_argument("--save", "-s", help="When set, token is instead output in credentials file", default=False, action="store_true")
     parser_action = subparser_action.add_parser("delete", help="Delete a token")
     parser_action.add_argument("--id", "-i", help="Token name", required=False, default="")
-    parser_action = subparser_action.add_parser("purge", help="Purge all expired tokens of principal user")
-    parser_action = subparser_action.add_parser("purge-all", help="Purge all expired tokens. Only available for administrators")
+    subparser_action.add_parser("purge", help="Purge all expired tokens of principal user")
+    subparser_action.add_parser("purge-all", help="Purge all expired tokens. Only available for administrators")
 
     # role
     subparser_action = subparser_service.add_parser("role", help="System role operations").add_subparsers(title="action", help="Action", dest="action")
@@ -90,7 +90,7 @@ def configure(subparser_service):
 
     # plugin
     subparser_action = subparser_service.add_parser("plugin", help="Plugins operations").add_subparsers(title="action", help="Action", dest="action")
-    parser_action = subparser_action.add_parser("list", help="List installed plugin")
+    subparser_action.add_parser("list", help="List installed plugin")
     parser_action = subparser_action.add_parser("install", help="Install plugin")
     parser_action.add_argument("--id", "-i", help="Maven artifact-id of the plugin")
     parser_action.add_argument("--version", "-v", help="Maven artifact-id of the plugin. 'LATEST' to check the repository.", required=False)
@@ -222,7 +222,7 @@ def configure(subparser_service):
 
     # cache
     subparser_action = subparser_service.add_parser("cache", help="Cache related operations").add_subparsers(title="action", help="Action", dest="action")
-    parser_action = subparser_action.add_parser("list", help="Return caches")
+    subparser_action.add_parser("list", help="Return caches")
     parser_action = subparser_action.add_parser("get", help="Return configuration value or values")
     parser_action.add_argument("--id", "-i", help="Cache name to retrieve")
     parser_action = subparser_action.add_parser("invalidate", help="Invalidate one or all caches")
@@ -302,7 +302,7 @@ def configure(subparser_service):
     parser_action.add_argument("--from", "-f", help="Import URL or local file name", required=True)
     parser_action = subparser_action.add_parser("get", help="Get group by name")
     parser_action.add_argument("--name", "-n", help="Group name", required=True)
-    parser_action = subparser_action.add_parser("list", help="List groups")
+    subparser_action.add_parser("list", help="List groups")
     parser_action = subparser_action.add_parser("delete", help="Delete a group")
     parser_action.add_argument("--name", "-n", help="Group name", required=True)
 

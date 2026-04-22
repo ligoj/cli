@@ -161,6 +161,7 @@ def execute_action(service, action, _operation, args):
                 utils.get_config(args, "internal_users_base_dn", "LIGOJ_LDAP_INTERNAL_USERS_BASE_DN", None),
                 utils.get_config(args, "technical_users_base_dn", "LIGOJ_LDAP_TECHNICAL_USERS_BASE_DN", None),
                 utils.get_config(args, "external_users_base_dn", "LIGOJ_LDAP_EXTERNAL_USERS_BASE_DN", None),
+                utils.get_config_list(args, "technical_groups", "LIGOJ_LDAP_TECHNICAL_GROUPS", []),
             )
         if action == "welcome-user":
             if args.get("sonar_create_node"):

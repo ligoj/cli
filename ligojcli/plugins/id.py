@@ -184,7 +184,7 @@ def execute_action(service, action, _, args):
             if args.get("id") is None and (args.get("name") is None or args.get("type") is None):
                 raise ValueError("[ligoj] When id is not provided, name and type are required")
             if args.get("id"):
-                return container_scope_get_by_id(utils.not_none(args.get("id")))
+                return container_scope_get_by_id(utils.not_none(args.get("id"), "id"))
             return container_scope_get_by_name(utils.not_none(args.get("name"), "name"), utils.not_none(args.get("type"), "type"))
         if action == "list":
             return container_scope_list(utils.not_none(args.get("type"), "type"))
