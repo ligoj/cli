@@ -1367,7 +1367,7 @@ Create a container scope
 
 ```bash
 ligoj id:scope create --id "Unassigned" --type "group" --dn "ou=groups,dc=example,dc=com"
-ligoj id:scope create --id "Projects" --type "group" --dn "ou=projects,ou=groups,dc=example,dc=com"
+ligoj id:scope create --id "Projects" --type "group" --dn "ou=project,ou=groups,dc=example,dc=com"
 ligoj id:scope create --id "Tools" --type "group" --dn "ou=tools,ou=groups,dc=example,dc=com"
 ligoj id:scope create --id "Unassigned" --type "company" --dn "ou=people,dc=example,dc=com"
 ligoj id:scope create --id "Internal" --type "company" --dn "ou=internal,ou=people,dc=example,dc=com"
@@ -1401,7 +1401,7 @@ ligoj id:scope list --type "group"
   "recordsTotal": 4, "recordsFiltered": 3, 
   "data": [
     {"id": 5, "name": "Unassigned", "dn": "ou=groups,dc=sample,dc=com", "type": "group", "locked": false}, 
-    {"id": 6, "name": "Project", "dn": "ou=projects,ou=groups,dc=sample,dc=com", "type": "group", "locked": false}, 
+    {"id": 6, "name": "Project", "dn": "ou=project,ou=groups,dc=sample,dc=com", "type": "group", "locked": false}, 
     {"id": 7, "name": "Technical", "dn": "ou=tools,ou=groups,dc=sample,dc=com", "type": "group", "locked": false}
   ]
 }
@@ -1649,7 +1649,7 @@ Hierarchy tree sample for base DN `dc=sample,dc=com`
 | `  ou=technical-users,ou=people`                                                     | `Technical`  | `company`  |
 | `  ou=external,ou=people`                                                            | `External`   | `company`  |
 | `ou=groups`                                                                          | `Unassigned` | `group`    |
-| `  ou=projects,ou=groups`                                                            | `Project`    | `group`    |
+| `  ou=project,ou=groups`                                                             | `Project`    | `group`    |
 | `  ou=tools,ou=groups`                                                               | `Technical`  | `group`    |
 | `    cn=jenkins-administrators,ou=tools,ou=groups`                                   | (inherited)  | `group`    |
 | `    cn=nexus-administrators,ou=tools,ou=groups`                                     | (inherited)  | `group`    |
@@ -1660,7 +1660,7 @@ Hierarchy tree sample for base DN `dc=sample,dc=com`
 ### Via `ligoj bootstrap init`
 
 ```bash
-ligoj bootstrap init --base-dn="dc=sample,dc=com" --users-base-dn "ou=people" --internal-users-base-dn "" --technical-users-base-dn "ou=technical-users" --external-users-base-dn "ou=external" --groups-base-dn "ou=groups" --technical-groups-base-dn "ou=tools" --projects-base-dn "ou=projects" --technical-groups "sonar-administrators" "jenkins-administrators" "nexus-administrators"
+ligoj bootstrap init --base-dn="dc=sample,dc=com" --users-base-dn "ou=people" --internal-users-base-dn "" --technical-users-base-dn "ou=technical-users" --external-users-base-dn "ou=external" --groups-base-dn "ou=groups" --technical-groups-base-dn "ou=tools" --projects-base-dn "ou=project" --technical-groups "sonar-administrators" "jenkins-administrators" "nexus-administrators"
 ```
 
 ### Via `ligoj id` commands
@@ -1687,7 +1687,7 @@ ligoj id:ou create --name "tools" --parent-dn "ou=groups,dc=sample,dc=com"
 
 ### Scope functionals for groups
 ligoj id:scope create --name "Unassigned" --type "group" --dn "ou=groups,dc=sample,dc=com"
-ligoj id:scope create --name "Project" --type "group" --dn "ou=projects,ou=groups,dc=sample,dc=com"
+ligoj id:scope create --name "Project" --type "group" --dn "ou=project,ou=groups,dc=sample,dc=com"
 ligoj id:scope create --name "Technical" --type "group" --dn "ou=tools,ou=groups,dc=sample,dc=com"
 
 ### Technical groups and sub-groups
