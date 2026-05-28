@@ -296,7 +296,7 @@ ligoj session get
     "digestVersion": "rRXmeWPgn+...==",
     "plugins": ["feature:welcome:data-rbac"]
   }, 
-  "userSettings": {"restricted-hash--": "#/home/project/1/subscription/1002", "security-agreement": "1"}, 
+  "userSettings": {"security-agreement": "1"}, 
   "uiAuthorizations": ["^id/container/group.*", "^id/user.*", "^id/delegate.*", "^message.*", "^id$", "^home.*", "^id/container/company.*", "^api.*", "^id/home.*", ".*"], 
   "apiAuthorizations": [{"pattern": ".*", "method": "DELETE"}], "roles": ["ADMIN", "USER"], "userName": "ligoj-admin"
 }
