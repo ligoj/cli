@@ -663,7 +663,7 @@ A [file](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) is a remote fil
 Related path must be authorized by the configuration value `ligoj.file.path`. This check is performed at upload and download times.
 
 ```bash
-ligoj configuration set --id "ligoj.file.path" --value "^/home/files/.*,^/home/hooks/.*,^/home/ligoj/META-INF/resources/webjars/.*,^/home/ligoj/statics/themes/.*"
+ligoj configuration set --id "ligoj.file.path" --value "^/home/files/.*,^/home/hooks/.*,^/home/ligoj/META-INF/resources/webjars/.*,^/home/ligoj/statics/.*"
 ```
 
 ### Create or update file
@@ -671,11 +671,11 @@ ligoj configuration set --id "ligoj.file.path" --value "^/home/files/.*,^/home/h
 Upload a local file to a remote file.
 
 ```bash
-ligoj file put --from https://path/to/icon.png --path "/home/ligoj/icon.png"
-ligoj file put --from docs/ui/logo.png --path "/home/ligoj/META-INF/resources/webjars/home/img/logo.png"
-ligoj file put --from docs/ui/bg1.jpg  --path "/home/ligoj/statics/themes/bootstrap-material-design/img/bg1.jpg"
-ligoj file put --from docs/ui/logo.png --path "/home/ligoj/statics/favicon.ico"
-ligoj file put --from docs/ui/logo.png --path "/home/ligoj/statics/themes/bootstrap-material-design/ico/favicon.ico"
+# Served by UI container, this file will be available from the URL: '/some/icon.png'
+ligoj file put --from https://path/to/icon.png --path "/home/ligoj/statics/some/icon.png"
+
+# Served by API container, this file will be available from the URL: '/home/img/logo.svg'
+ligoj file put --from docs/ui/logo.svg --path "/home/ligoj/META-INF/resources/webjars/home/img/logo.svg"
 ```
 
 ### Delete file
