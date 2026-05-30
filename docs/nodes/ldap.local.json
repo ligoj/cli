@@ -41,7 +41,7 @@
     },
     {
         "parameter": "service:id:ldap:password",
-        "text": "u-=*HKum+Nwz?yYk4Jej"
+        "text": "secret"
     },
     {
         "parameter": "service:id:ldap:people-class",
