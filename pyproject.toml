@@ -24,12 +24,12 @@ classifiers = [
 ]
 dependencies = [
     "colorama==0.4.6",
-    "requests==2.32.4",
+    "requests==2.34.2",
     "dnspython==2.7.0",
-    "pyyaml==6.0.2",
+    "pyyaml==6.0.3",
     "configparser==7.2.0",
     "unidecode==1.4.0",
-    "jsonschema==4.25.0",
+    "jsonschema==4.26.0",
     "jsonmerge==1.9.2",
     "Jinja2==3.1.6",
     "pytimeparse==1.1.8"
