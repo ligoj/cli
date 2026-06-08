@@ -1134,7 +1134,7 @@ def system_user_delete(user):
     if user is None:
         utils.debug(f"[ligoj] User '{user}' does not exist")
         return None
-    return call_api("DELETE", f"system/user/{urllib.parse.quote(user['id'], safe='')}")
+    return call_api("DELETE", f"system/user/{urllib.parse.quote(user['login'], safe='')}")
 
 
 def system_user_list(with_roles: bool = False):
