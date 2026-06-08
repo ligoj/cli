@@ -6,10 +6,10 @@ Publishing uses [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishe
 
 Two targets are used:
 
-| Target       | Index                       | GitHub Environment | Purpose              |
-| ------------ | --------------------------- | ------------------ | -------------------- |
-| **Dev**      | https://test.pypi.org       | `dev`              | Validate end-to-end  |
-| **Release**  | https://pypi.org            | `release`          | Final public release |
+| Target      | Index                 | GitHub Environment | Purpose              |
+| ----------- | --------------------- | ------------------ | -------------------- |
+| **Dev**     | https://test.pypi.org | `dev`              | Validate end-to-end  |
+| **Release** | https://pypi.org      | `release`          | Final public release |
 
 ---
 
@@ -66,7 +66,7 @@ needs:
       ```bash
       git add pyproject.toml
       git commit -m "chore(release): v<X.Y.Z>"
-      git push origin master
+      git push origin main
       ```
 
 ---
@@ -78,7 +78,7 @@ cutting the real release.
 
 1. Trigger the workflow against the `dev` environment:
    - GitHub UI → *Actions* → **deploy** → *Run workflow*
-   - Branch: `master`, input `environment: dev`.
+   - Branch: `main`, input `environment: dev`.
    - Or via CLI:
      ```bash
      gh workflow run deploy.yml -f environment=dev --ref master

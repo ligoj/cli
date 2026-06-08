@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=70.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -29,7 +29,7 @@ dependencies = [
     "pyyaml==6.0.2",
     "configparser==7.2.0",
     "unidecode==1.4.0",
-    "jsonschema===4.25.0",
+    "jsonschema==4.25.0",
     "jsonmerge==1.9.2",
     "Jinja2==3.1.6",
     "pytimeparse==1.1.8"
