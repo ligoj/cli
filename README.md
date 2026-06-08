@@ -7,9 +7,35 @@ Ligoj CLI makes REST calls to a remote Ligoj instance, with parameters and error
 # Requirements
 
 - Python 3.11+
-- Connectivity and API keys to target endpoints `Ligoj`, `Nexus`, `Jenkins`, `SonarQube`
-- `pip`
+- Connectivity and API keys to the target endpoints: `Ligoj` (required) and, for `bootstrap` actions, `Nexus`, `Jenkins`, `SonarQube`
 - Valid [credentials](#credentials)
+
+# Installation
+
+Ligoj CLI is published on [PyPI](https://pypi.org/project/ligoj-cli/) as `ligoj-cli` and provides the `ligoj` command.
+
+Install it as an isolated tool with [`uv`](https://docs.astral.sh/uv/) (recommended):
+
+```bash
+uv tool install ligoj-cli
+ligoj --version
+```
+
+Alternatively, use `pipx` or `pip`:
+
+```bash
+pipx install ligoj-cli
+# or
+pip install ligoj-cli
+```
+
+To try the latest pre-release published on [TestPyPI](https://test.pypi.org/project/ligoj-cli/):
+
+```bash
+pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ ligoj-cli
+```
+
+For local development from a checkout, see [Development](#development).
 
 
 # Configuration
@@ -2287,33 +2313,76 @@ docker run -e CUSTOM_OPTS='-Djavax.net.ssl.trustStore=/home/ligoj/ligoj.jks' \
 ```
 
 
-# Development mode installation
+# Development
 
-This procedure is only for development where Ligoj CLI package is installed in *editable*.
+Local development uses [`uv`](https://docs.astral.sh/uv/) and the provided [`Makefile`](Makefile).
+`uv` creates the virtual environment and installs the exact runtime and dev dependencies declared
+in [`pyproject.toml`](pyproject.toml) — no manual `venv` / `pip` steps are required.
 
 ```bash
-echo '
-export PYENV_ROOT="$HOME/.pyenv"
-command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init -)"' >> ~/.bashrc
-source ~/.bashrc
-brew install pyenv-virtualenv 3.11 ligoj # See https://github.com/pyenv/pyenv-virtualenv
-pyenv install 3.11
-pyenv virtualenv 3.11 ligoj
-pyenv activate ligoj
+# 1. Install uv — see https://docs.astral.sh/uv/getting-started/installation/
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Proxy configuration
-export PYTHON_OPTS=' --proxy="10.154.154.154:3128"'
-export http_proxy="http://10.154.154.154:3128"
-export https_proxy="http://10.154.154.154:3128"
-export NO_PROXY="localhost,*.rie.gouv.fr,127.0.0.1,0.0.0.0,ligoj.$TENANT"
+# 2. Create the virtual environment and install all dependencies
+make init                     # uv sync
 
-pip install --upgrade pip
-pip install -U  --root-user-action=ignore pip -e . 
-
-# Build
-python -m pip install --upgrade build
-python -m build
-ruff check . --fix
-flake8 .
+# 3. Run the CLI from the source tree
+make run ARGS="--version"     # or: uv run ligoj --version
 ```
+
+Common tasks (run `make help` to list them all):
+
+| Command       | Description                                    |
+| ------------- | ---------------------------------------------- |
+| `make init`   | Create the venv and install all dependencies   |
+| `make run`    | Run the CLI, e.g. `make run ARGS="info status"`|
+| `make format` | Auto-format and apply safe fixes with `ruff`   |
+| `make lint`   | Static analysis with `ruff` and `flake8`       |
+| `make build`  | Build the sdist and wheel into `dist/`         |
+| `make check`  | Validate the built distributions with `twine`  |
+| `make clean`  | Remove build artifacts and caches              |
+
+# Releasing
+
+Publishing is fully automated through GitHub Actions using
+[PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no API token).
+See [RELEASE.md](RELEASE.md) for the complete checklist.
+
+| Stage            | Index                                                | Trigger                              | Workflow |
+| ---------------- | ---------------------------------------------------- | ------------------------------------ | -------- |
+| **Test publish** | [TestPyPI](https://test.pypi.org/project/ligoj-cli/) | Push to the `develop` branch         | [deploy-test.yml](.github/workflows/deploy-test.yml) |
+| **Release**      | [PyPI](https://pypi.org/project/ligoj-cli/)          | Publish a GitHub Release (tag `v*`)  | [deploy.yml](.github/workflows/deploy.yml) |
+
+## Test publish (TestPyPI)
+
+Every push to `develop` builds the package, appends a unique `.dev<run-number>` suffix to the
+version, and uploads it to TestPyPI. Use it to validate the package end-to-end before a real release.
+
+```bash
+git switch develop
+git push origin develop
+```
+
+Then smoke-test the published build in a throwaway environment:
+
+```bash
+pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ ligoj-cli
+ligoj --version
+```
+
+## Release (PyPI)
+
+A release is triggered by **publishing a GitHub Release** — pushing a tag alone does **not** publish.
+
+1. Bump `version` in [pyproject.toml](pyproject.toml) following [SemVer](https://semver.org/),
+   then commit and land it on `master`.
+2. Build and validate locally (optional but recommended):
+   ```bash
+   make check
+   ```
+3. Create and publish the release. This creates the `vX.Y.Z` tag and fires
+   [deploy.yml](.github/workflows/deploy.yml):
+   ```bash
+   gh release create vX.Y.Z --target master --generate-notes
+   ```
+4. Verify on [PyPI](https://pypi.org/project/ligoj-cli/).
