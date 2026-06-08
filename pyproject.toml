@@ -7,7 +7,7 @@ packages = ["ligojcli", "ligojcli.plugins"]
 
 [project]
 name = "ligoj-cli"
-version = "1.0.1"
+version = "1.0.2"
 description = "Ligoj CLI"
 readme = "README.md"
 license = "MIT"
