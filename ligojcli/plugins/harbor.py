@@ -20,31 +20,57 @@ ROLE_MAPPING = {"Project Admin": 1, "Developer": 2, "Guest": 3, "Maintainer": 4,
 
 def configure(subparser_service):
     # harbor
-    subparser_action = subparser_service.add_parser("harbor", help="Harbor operations").add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser(
+        "harbor", help="Harbor operations"
+    ).add_subparsers(title="action", help="Action", dest="action")
 
     # harbor project
-    parser_action = subparser_action.add_parser("project", help="Project operations").add_subparsers(title="sub-action", help="Sub Action", dest="sub_action")
+    parser_action = subparser_action.add_parser(
+        "project", help="Project operations"
+    ).add_subparsers(title="sub-action", help="Sub Action", dest="sub_action")
     subparser_action_project = parser_action.add_parser("create", help="Create a new project")
     subparser_action_project.add_argument("--name", "-n", help="Project name", required=True)
-    subparser_action_project.add_argument("--public", "-p", help="Public project", action="store_true", default=False)
+    subparser_action_project.add_argument(
+        "--public", "-p", help="Public project", action="store_true", default=False
+    )
     subparser_action_project = parser_action.add_parser("delete", help="Delete a project")
-    subparser_action_project.add_argument("--id", "-i", help="Project identifier or name", required=True)
+    subparser_action_project.add_argument(
+        "--id", "-i", help="Project identifier or name", required=True
+    )
     subparser_action_project = parser_action.add_parser("get", help="Get a project")
-    subparser_action_project.add_argument("--id", "-i", help="Project identifier or name", required=True)
+    subparser_action_project.add_argument(
+        "--id", "-i", help="Project identifier or name", required=True
+    )
     subparser_action_project = parser_action.add_parser("list", help="List projects")
     subparser_action_project.add_argument("--search", "-s", help="Search criteria", required=False)
 
     # harbor member
-    parser_action = subparser_action.add_parser("member", help="Member operations").add_subparsers(title="sub-action", help="Sub Action", dest="sub_action")
+    parser_action = subparser_action.add_parser("member", help="Member operations").add_subparsers(
+        title="sub-action", help="Sub Action", dest="sub_action"
+    )
     subparser_action_member = parser_action.add_parser("add", help="Add a member to a project")
-    subparser_action_member.add_argument("--project", "-p", help="Project identifier or name", required=True)
+    subparser_action_member.add_argument(
+        "--project", "-p", help="Project identifier or name", required=True
+    )
     subparser_action_member.add_argument("--group", "-g", help="Group name", required=True)
-    subparser_action_member.add_argument("--role", "-r", help="Role name", choices=["Project Admin", "Maintainer", "Developer", "Guest", "Limited Guest"], required=True)
-    subparser_action_member = parser_action.add_parser("remove", help="Remove a member from a project")
-    subparser_action_member.add_argument("--project", "-p", help="Project identifier or name", required=True)
+    subparser_action_member.add_argument(
+        "--role",
+        "-r",
+        help="Role name",
+        choices=["Project Admin", "Maintainer", "Developer", "Guest", "Limited Guest"],
+        required=True,
+    )
+    subparser_action_member = parser_action.add_parser(
+        "remove", help="Remove a member from a project"
+    )
+    subparser_action_member.add_argument(
+        "--project", "-p", help="Project identifier or name", required=True
+    )
     subparser_action_member.add_argument("--group", "-g", help="Group name", required=True)
     subparser_action_member = parser_action.add_parser("list", help="List members of a project")
-    subparser_action_member.add_argument("--project", "-p", help="Project identifier or name", required=True)
+    subparser_action_member.add_argument(
+        "--project", "-p", help="Project identifier or name", required=True
+    )
 
 
 def parse_remote_args(args):
@@ -85,7 +111,9 @@ def call_harbor_api(method, url, **kwargs):
     if not harbor_endpoint:
         raise ValueError("[harbor] Harbor endpoint is not configured")
 
-    response = utils.call_rest_api(method, "harbor", harbor_endpoint, url, (harbor_user, harbor_password), kwargs)
+    response = utils.call_rest_api(
+        method, "harbor", harbor_endpoint, url, (harbor_user, harbor_password), kwargs
+    )
 
     if response is None:
         return None
@@ -134,11 +162,15 @@ def project_list(search: str | None = None):
 
 
 def project_member_add(project_name_or_id: str, group_name: str, role_name: str):
-    utils.info(f"[harbor] Add member group '{group_name}' to project '{project_name_or_id}' as '{role_name}' ...")
+    utils.info(
+        f"[harbor] Add member group '{group_name}' to project '{project_name_or_id}' as '{role_name}' ..."
+    )
 
     role_id = ROLE_MAPPING.get(role_name)
     if not role_id:
-        raise ValueError(f"[harbor] Invalid role '{role_name}'. Valid roles are: {list(ROLE_MAPPING.keys())}")
+        raise ValueError(
+            f"[harbor] Invalid role '{role_name}'. Valid roles are: {list(ROLE_MAPPING.keys())}"
+        )
 
     data = {"role_id": role_id, "member_group": {"group_name": group_name, "group_type": 1}}
 
@@ -147,19 +179,27 @@ def project_member_add(project_name_or_id: str, group_name: str, role_name: str)
 
 
 def project_member_remove(project_name_or_id: str, group_name: str):
-    utils.info(f"[harbor] Remove member group '{group_name}' from project '{project_name_or_id}' ...")
+    utils.info(
+        f"[harbor] Remove member group '{group_name}' from project '{project_name_or_id}' ..."
+    )
 
     members = project_member_list(project_name_or_id)
     member_id = None
     for member in members:
-        if "entity_name" in member and member["entity_name"] == group_name and member["entity_type"] == "g":
+        if (
+            "entity_name" in member
+            and member["entity_name"] == group_name
+            and member["entity_type"] == "g"
+        ):
             member_id = member["id"]
             break
 
     if member_id:
         call_harbor_api("DELETE", f"projects/{project_name_or_id}/members/{member_id}")
     else:
-        utils.warn(f"[harbor] Member group '{group_name}' not found in project '{project_name_or_id}'")
+        utils.warn(
+            f"[harbor] Member group '{group_name}' not found in project '{project_name_or_id}'"
+        )
 
     return False
 

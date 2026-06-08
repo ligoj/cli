@@ -4,7 +4,14 @@
 from ligojcli.plugins import ligoj, utils
 
 PLUGIN_NAME = "sonar"
-SONAR_PERMISSIONS_PROJECT = ["codeviewer", "issueadmin", "securityhotspotadmin", "scan", "user", "admin"]
+SONAR_PERMISSIONS_PROJECT = [
+    "codeviewer",
+    "issueadmin",
+    "securityhotspotadmin",
+    "scan",
+    "user",
+    "admin",
+]
 SONAR_PERMISSIONS_GLOBAL = ["admin", "profileadmin", "gateadmin", "scan", "provisioning"]
 
 sonar_endpoint: str | None = None
@@ -12,8 +19,12 @@ sonar_api_token: str | None = None
 
 
 def configure(subparser_service):
-    subparser_action = subparser_service.add_parser("sonar", help="SonarQube related operations").add_subparsers(title="action", help="Action", dest="action")
-    subparser_service2 = subparser_action.add_parser("project", help="Project operations").add_subparsers(title="action", help="Action", dest="operation")
+    subparser_action = subparser_service.add_parser(
+        "sonar", help="SonarQube related operations"
+    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_service2 = subparser_action.add_parser(
+        "project", help="Project operations"
+    ).add_subparsers(title="action", help="Action", dest="operation")
     subparser_service2.add_parser("list", help="List projects")
     parser_action = subparser_service2.add_parser("get", help="Get project")
     parser_action.add_argument("--name", help="Project name")
@@ -23,7 +34,9 @@ def configure(subparser_service):
     parser_action.add_argument("--visibility", help="Visibility")
     parser_action = subparser_service2.add_parser("delete", help="Delete project")
     parser_action.add_argument("--name", help="Project name")
-    subparser_service2 = subparser_action.add_parser("session", help="Session operations").add_subparsers(title="action", help="Action", dest="operation")
+    subparser_service2 = subparser_action.add_parser(
+        "session", help="Session operations"
+    ).add_subparsers(title="action", help="Action", dest="operation")
     parser_action = subparser_service2.add_parser("login", help="Login")
     parser_action.add_argument("--user", help="User")
     parser_action.add_argument("--password", help="Password")
@@ -40,7 +53,9 @@ def execute_action(service, action, operation, args):
     if service == "sonar":
         parse_remote_args(args)
         if action == "project" and operation == "upsert":
-            return sonar_create_project(args.get("name"), args.get("description"), args.get("visibility"))
+            return sonar_create_project(
+                args.get("name"), args.get("description"), args.get("visibility")
+            )
         if action == "project" and operation == "list":
             return sonar_list_projects()
         if action == "project" and operation == "get":
@@ -50,7 +65,9 @@ def execute_action(service, action, operation, args):
         if action == "session" and operation == "login":
             return sonar_login(args.get("user"), args.get("password"))
         if action == "session" and operation == "create-token":
-            return sonar_create_user_token(args.get("user"), args.get("name"), args.get("target-user"), args.get("password"))
+            return sonar_create_user_token(
+                args.get("user"), args.get("name"), args.get("target-user"), args.get("password")
+            )
     return None
 
 
@@ -63,12 +80,16 @@ def parse_remote_args(args):
 
 
 def call_sonar_api(method, url, **kwargs):
-    return utils.call_rest_api(method, "sonar", f"{sonar_endpoint}/api/", url, (sonar_api_token, ""), kwargs)
+    return utils.call_rest_api(
+        method, "sonar", f"{sonar_endpoint}/api/", url, (sonar_api_token, ""), kwargs
+    )
 
 
 def sonar_login(user, password):
     utils.info(f"[sonar] Login of user '{user}' ...")
-    return call_sonar_api("POST", "authentication/login", params={"login": user, "password": password}).json()
+    return call_sonar_api(
+        "POST", "authentication/login", params={"login": user, "password": password}
+    ).json()
 
 
 def sonar_create_user_token(user: str, name: str, login: str = None, password: str = None) -> str:
@@ -83,17 +104,19 @@ def sonar_create_user_token(user: str, name: str, login: str = None, password: s
             "api/user_tokens/generate",
             (login, "password"),
             {"params": {"login": user, "name": name, "type": "USER_TOKEN"}},
-        ).json()[
-            "data"
-        ]["tokenValue"]
+        ).json()["data"]["tokenValue"]
 
     # API Token mode
-    return call_sonar_api("POST", "user_tokens/generate", params={"login": user, "name": name, "type": "USER_TOKEN"}).json()
+    return call_sonar_api(
+        "POST", "user_tokens/generate", params={"login": user, "name": name, "type": "USER_TOKEN"}
+    ).json()
 
 
 def sonar_create_user(user):
     utils.info(f"[sonar] Create user '{user}' ...")
-    return call_sonar_api("POST", "users/create", params={"login": user, "name": user, "local": False}).json()
+    return call_sonar_api(
+        "POST", "users/create", params={"login": user, "name": user, "local": False}
+    ).json()
 
 
 def sonar_create_group(name):
@@ -125,11 +148,19 @@ def sonar_create_project(name, key, visibility):
         if current_key != key:
             # Update to the new key
             utils.debug(f"[sonar] Update project {name}'s key from {current_key} to {key} ...")
-            call_sonar_api("POST", "projects/update_key", params={"name": name, "from": current_key, "to": key})
+            call_sonar_api(
+                "POST", "projects/update_key", params={"name": name, "from": current_key, "to": key}
+            )
         if current_visibility != visibility:
             # Update to the new visibility
-            utils.debug(f"[sonar] Update project {name}'s visibility from {current_visibility} to {visibility} ...")
-            call_sonar_api("POST", "projects/update_visibility", params={"name": name, "visibility": visibility})
+            utils.debug(
+                f"[sonar] Update project {name}'s visibility from {current_visibility} to {visibility} ..."
+            )
+            call_sonar_api(
+                "POST",
+                "projects/update_visibility",
+                params={"name": name, "visibility": visibility},
+            )
 
 
 def sonar_delete_project(name):
@@ -161,7 +192,9 @@ def sonar_list_projects():
 
 def sonar_get_template(name):
     utils.info(f"[sonar] Fetch template '{name}' ...")
-    items = call_sonar_api("GET", "permissions/search_templates", params={"q": name}).json()["permissionTemplates"]
+    items = call_sonar_api("GET", "permissions/search_templates", params={"q": name}).json()[
+        "permissionTemplates"
+    ]
     return next(filter(lambda x: x["name"] == name, items), None)
 
 
@@ -169,7 +202,11 @@ def sonar_create_template(name, project_key_pattern):
     utils.info(f"[sonar] Create template '{name}' ...")
     details = sonar_get_template(name)
     if details is None:
-        call_sonar_api("POST", "permissions/create_template", params={"name": name, "projectKeyPattern": project_key_pattern})
+        call_sonar_api(
+            "POST",
+            "permissions/create_template",
+            params={"name": name, "projectKeyPattern": project_key_pattern},
+        )
     else:
         utils.debug(f"[sonar] Template {name} already exists")
 
@@ -187,11 +224,20 @@ def sonar_create_roles(groups_by_name: dict[str, str], definition):
     utils.info("[sonar] Create SonarQube roles for project...")
 
     # Global roles
-    sonar_create_roles_scope(groups_by_name, definition, "add_group", "remove_group", {}, SONAR_PERMISSIONS_GLOBAL)
+    sonar_create_roles_scope(
+        groups_by_name, definition, "add_group", "remove_group", {}, SONAR_PERMISSIONS_GLOBAL
+    )
 
     if utils.ADD_GLOBAL_ROLES:
         # Also add global administrator
-        sonar_set_permissions("sonar-administrators", ["admin"], "add_group", "remove_group", {}, SONAR_PERMISSIONS_GLOBAL)
+        sonar_set_permissions(
+            "sonar-administrators",
+            ["admin"],
+            "add_group",
+            "remove_group",
+            {},
+            SONAR_PERMISSIONS_GLOBAL,
+        )
 
     # Template roles
     for sonar_template in definition.get("templates", []):
@@ -200,9 +246,18 @@ def sonar_create_roles(groups_by_name: dict[str, str], definition):
         if sonar_template_name == "":
             raise ValueError("[sonar] Missing SonarQube template name")
         if project_key_pattern == "":
-            raise ValueError(f"[sonar] Missing SonarQube project pattern in template {sonar_template_name}")
+            raise ValueError(
+                f"[sonar] Missing SonarQube project pattern in template {sonar_template_name}"
+            )
         sonar_create_template(sonar_template_name, project_key_pattern)
-        sonar_create_roles_scope(groups_by_name, sonar_template, "add_group_to_template", "remove_group_from_template", {"templateName": sonar_template_name}, SONAR_PERMISSIONS_PROJECT)
+        sonar_create_roles_scope(
+            groups_by_name,
+            sonar_template,
+            "add_group_to_template",
+            "remove_group_from_template",
+            {"templateName": sonar_template_name},
+            SONAR_PERMISSIONS_PROJECT,
+        )
 
     for sonar_project in definition.get("projects", []):
         sonar_project_name = sonar_project.get("name", "")
@@ -211,11 +266,22 @@ def sonar_create_roles(groups_by_name: dict[str, str], definition):
         if sonar_project_name == "":
             raise ValueError("[sonar] Missing SonarQube project name")
         if sonar_project_key == "":
-            raise ValueError(f"[sonar] Missing SonarQube project key in project '{sonar_project_name}'")
+            raise ValueError(
+                f"[sonar] Missing SonarQube project key in project '{sonar_project_name}'"
+            )
         if sonar_visibility not in ["public", "private"]:
-            raise ValueError("[sonar] Invalid SonarQube project visibility in project '{sonar_project_name}'")
+            raise ValueError(
+                "[sonar] Invalid SonarQube project visibility in project '{sonar_project_name}'"
+            )
         sonar_create_project(sonar_project_name, sonar_project_key, sonar_visibility)
-        sonar_create_roles_scope(groups_by_name, sonar_project, "add_group", "remove_group", {"projectKey": sonar_project_key}, SONAR_PERMISSIONS_PROJECT)
+        sonar_create_roles_scope(
+            groups_by_name,
+            sonar_project,
+            "add_group",
+            "remove_group",
+            {"projectKey": sonar_project_key},
+            SONAR_PERMISSIONS_PROJECT,
+        )
 
 
 def sonar_delete_roles(groups_by_name: dict[str, str], definition, with_data: bool):
@@ -237,7 +303,14 @@ def sonar_delete_roles(groups_by_name: dict[str, str], definition, with_data: bo
     sonar_delete_groups(groups_by_name)
 
 
-def sonar_create_roles_scope(groups_by_name: dict[str, str], definition, permission_add_path, permission_remove_path, target, all_permissions):
+def sonar_create_roles_scope(
+    groups_by_name: dict[str, str],
+    definition,
+    permission_add_path,
+    permission_remove_path,
+    target,
+    all_permissions,
+):
     for sonar_group in definition.get("roles", {}).keys():
         ldap_group = ligoj.get_ldap_group("sonar", groups_by_name, sonar_group)
         role_definition = definition["roles"][sonar_group]
@@ -245,7 +318,14 @@ def sonar_create_roles_scope(groups_by_name: dict[str, str], definition, permiss
         if len(permissions) == 0:
             raise ValueError(f"[sonar] Missing SonarQube permissions in role '{sonar_group}'")
         sonar_create_group(ldap_group)
-        sonar_set_permissions(ldap_group, permissions, permission_add_path, permission_remove_path, target, all_permissions)
+        sonar_set_permissions(
+            ldap_group,
+            permissions,
+            permission_add_path,
+            permission_remove_path,
+            target,
+            all_permissions,
+        )
 
 
 def sonar_delete_roles_scope(groups_by_name: dict[str, str], definition, permission_path, target):
@@ -263,19 +343,36 @@ def sonar_delete_groups(groups_by_name: dict[str, str]):
         sonar_delete_group(ldap_group)
 
 
-def sonar_set_permissions(group, permissions, permission_add_path, permission_remove_path, target, all_permissions):
+def sonar_set_permissions(
+    group, permissions, permission_add_path, permission_remove_path, target, all_permissions
+):
     for permission in permissions:
         utils.info(f"[sonar] Add permission '{permission}' to group '{group}' ...")
-        call_sonar_api("POST", f"permissions/{permission_add_path}", params={"groupName": group, "permission": permission} | target, ignore_error=True)
+        call_sonar_api(
+            "POST",
+            f"permissions/{permission_add_path}",
+            params={"groupName": group, "permission": permission} | target,
+            ignore_error=True,
+        )
     for permission in list(filter(lambda p: p not in permissions, all_permissions)):
         utils.trace(f"[sonar] Remove permission '{permission}' from group '{group}' ...")
-        call_sonar_api("POST", f"permissions/{permission_remove_path}", params={"groupName": group, "permission": permission} | target, ignore_error=True)
+        call_sonar_api(
+            "POST",
+            f"permissions/{permission_remove_path}",
+            params={"groupName": group, "permission": permission} | target,
+            ignore_error=True,
+        )
 
 
 def sonar_delete_permissions(group, permissions, permission_path, target):
     for permission in permissions:
         utils.info(f"[sonar] Delete permission '{permission}' from group '{group}' ...")
-        call_sonar_api("POST", f"permissions/{permission_path}", params={"groupName": group, "permission": permission} | target, ignore_error=True)
+        call_sonar_api(
+            "POST",
+            f"permissions/{permission_path}",
+            params={"groupName": group, "permission": permission} | target,
+            ignore_error=True,
+        )
 
 
 def welcome_user(node_base_id, ligoj_user_reader, ligoj_user_reader_password):
@@ -287,9 +384,22 @@ def welcome_user(node_base_id, ligoj_user_reader, ligoj_user_reader_password):
     if not ligoj_user_reader_password and not sonar_api_token:
         node = ligoj.node_get_by_id(node_id, "ALL", "map", True)
         if not node:
-            raise ValueError("[ligoj] No available user reader password, regenerate one with '--reset-reader-password' or provide '--sonar-api-token', cannot update/create SonarQube like from Ligoj")
+            raise ValueError(
+                "[ligoj] No available user reader password, regenerate one with '--reset-reader-password' or provide '--sonar-api-token', cannot update/create SonarQube like from Ligoj"
+            )
     if node:
         sonar_api_token = node["parameters"]["service:qa:sonarqube:password"]
     elif not sonar_api_token:
-        sonar_api_token = sonar_create_user_token(ligoj_user_reader, "ligoj", ligoj_user_reader, ligoj_user_reader_password)
-    ligoj.node_upsert(node_id, node_name, {"service:qa:sonarqube:url": sonar_endpoint, "service:qa:sonarqube:user": ligoj_user_reader, "service:qa:sonarqube:password": sonar_api_token}, "LINK")
+        sonar_api_token = sonar_create_user_token(
+            ligoj_user_reader, "ligoj", ligoj_user_reader, ligoj_user_reader_password
+        )
+    ligoj.node_upsert(
+        node_id,
+        node_name,
+        {
+            "service:qa:sonarqube:url": sonar_endpoint,
+            "service:qa:sonarqube:user": ligoj_user_reader,
+            "service:qa:sonarqube:password": sonar_api_token,
+        },
+        "LINK",
+    )

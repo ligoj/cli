@@ -18,8 +18,12 @@ argocd_password: str | None = None
 def configure(subparser_service):
 
     # argocd
-    subparser_action = subparser_service.add_parser("argocd", help="Argo CD related operations").add_subparsers(title="action", help="Action", dest="action")
-    subparser_service2 = subparser_action.add_parser("project", help="Project operations").add_subparsers(title="action", help="Action", dest="operation")
+    subparser_action = subparser_service.add_parser(
+        "argocd", help="Argo CD related operations"
+    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_service2 = subparser_action.add_parser(
+        "project", help="Project operations"
+    ).add_subparsers(title="action", help="Action", dest="operation")
     subparser_service2.add_parser("list", help="List projects")
     parser_action = subparser_service2.add_parser("upsert", help="Create or update a project")
     parser_action.add_argument("--name", "-i", help="Project name")
@@ -74,7 +78,11 @@ def argocd_upsert_project(name, description: str | None = None):
     if not description:
         description = name
     if project_details is None:
-        call_argocd_api("POST", "projects", data={"project": {"metadata": {"name": name}, "spec": {"description": description}}})
+        call_argocd_api(
+            "POST",
+            "projects",
+            data={"project": {"metadata": {"name": name}, "spec": {"description": description}}},
+        )
         return argocd_get_project(name)
 
     utils.info(f"[argocd] Project '{name}' already exists")
@@ -93,7 +101,14 @@ def argocd_upsert_project(name, description: str | None = None):
 
 def argocd_login(user, password):
     utils.info(f"[argocd] Login of user '{user}' ...")
-    return utils.call_rest_api("POST", "argocd", f"{argocd_endpoint}/api/v1", "session", None, {"username": user, "password": password}).json()["token"]
+    return utils.call_rest_api(
+        "POST",
+        "argocd",
+        f"{argocd_endpoint}/api/v1",
+        "session",
+        None,
+        {"username": user, "password": password},
+    ).json()["token"]
 
 
 def call_argocd_api(method, url, **kwargs):
@@ -102,7 +117,18 @@ def call_argocd_api(method, url, **kwargs):
         if not argocd_user or not argocd_password:
             raise ValueError("[argocd] No token and no user/password provided")
         argocd_token = argocd_login(argocd_user, argocd_password)
-    return utils.call_rest_api(method, "argocd", f"{argocd_endpoint}/api/v1", url, None, kwargs | {"headers": {"Content-Type": "application/json"}, "cookies": {"argocd.token": argocd_token}})
+    return utils.call_rest_api(
+        method,
+        "argocd",
+        f"{argocd_endpoint}/api/v1",
+        url,
+        None,
+        kwargs
+        | {
+            "headers": {"Content-Type": "application/json"},
+            "cookies": {"argocd.token": argocd_token},
+        },
+    )
 
 
 def argocd_create_project_roles(groups_by_name: dict[str, str], definition):
@@ -116,7 +142,9 @@ def argocd_create_project_roles(groups_by_name: dict[str, str], definition):
         if argocd_project_description == "":
             argocd_project_description = argocd_project_id
         project_details = argocd_upsert_project(argocd_project_id, argocd_project_description)
-        argocd_create_roles_scope(groups_by_name, argocd_project, argocd_project_id, project_details)
+        argocd_create_roles_scope(
+            groups_by_name, argocd_project, argocd_project_id, project_details
+        )
 
 
 def argocd_delete_project_roles(groups_by_name: dict[str, str], definition, with_data):
@@ -128,7 +156,9 @@ def argocd_delete_project_roles(groups_by_name: dict[str, str], definition, with
             raise ValueError("[argocd] Missing ArgoCD project name")
         project_details = argocd_get_project(argocd_project_id)
         if project_details:
-            argocd_delete_roles_scope(groups_by_name, argocd_project, argocd_project_id, project_details)
+            argocd_delete_roles_scope(
+                groups_by_name, argocd_project, argocd_project_id, project_details
+            )
 
             if with_data:
                 call_argocd_api("DELETE", f"projects/{argocd_project_id}")
@@ -136,7 +166,9 @@ def argocd_delete_project_roles(groups_by_name: dict[str, str], definition, with
             utils.info(f"[argocd] Project {argocd_project_id} does not exist, ignore")
 
 
-def argocd_create_roles_scope(groups_by_name: dict[str, str], definition, project_id, project_details):
+def argocd_create_roles_scope(
+    groups_by_name: dict[str, str], definition, project_id, project_details
+):
     current_project_json = json.dumps(project_details)
     for argocd_group in definition.get("roles", {}).keys():
         ldap_group = ligoj.get_ldap_group("argocd", groups_by_name, argocd_group)
@@ -154,7 +186,9 @@ def argocd_create_roles_scope(groups_by_name: dict[str, str], definition, projec
         call_argocd_api("PUT", f"projects/{project_id}", data=project_details)
 
 
-def argocd_delete_roles_scope(groups_by_name: dict[str, str], definition, project_id, project_details):
+def argocd_delete_roles_scope(
+    groups_by_name: dict[str, str], definition, project_id, project_details
+):
     current_project_json = json.dumps(project_details)
     for argocd_group in definition.get("roles", {}).keys():
         ldap_group = ligoj.get_ldap_group("argocd", groups_by_name, argocd_group)
@@ -193,12 +227,16 @@ def argocd_complete_permissions(group, permissions, project_id, argocd_role):
             raise ValueError("[argocd] Missing ArgoCD permission action")
         action = permission["action"]
         if action not in ARGOCD_ALLOWED_ACTIONS:
-            raise ValueError(f"[argocd] Invalid ArgoCD permission action, allowed: {ARGOCD_ALLOWED_ACTIONS}")
+            raise ValueError(
+                f"[argocd] Invalid ArgoCD permission action, allowed: {ARGOCD_ALLOWED_ACTIONS}"
+            )
         action_permission = permission.get("permission", "allow")
         if action_permission != "allow" and action_permission != "deny":
             raise ValueError("[argocd] Invalid ArgoCD permission type, allowed: deny/allow")
         application = permission.get("application", "*")
-        policies.append(f"p, proj:{project_id}:{group}, applications, {action}, {project_id}/{application}, {action_permission}")
+        policies.append(
+            f"p, proj:{project_id}:{group}, applications, {action}, {project_id}/{application}, {action_permission}"
+        )
 
     # Replace previous groups and policies
     argocd_role["groups"] = [group.lower()]

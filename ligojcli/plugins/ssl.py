@@ -18,7 +18,11 @@ def main():
 
     # Parse arguments
     if len(sys.argv) < 2:
-        print("Usage: {} <domain> [port=443] [keystore=truststore.jks] [password=changeit]".format(sys.argv[0]))
+        print(
+            "Usage: {} <domain> [port=443] [keystore=truststore.jks] [password=changeit]".format(
+                sys.argv[0]
+            )
+        )
         sys.exit(1)
 
     domain = sys.argv[1]
@@ -46,7 +50,9 @@ def main():
     output = result.stdout
 
     # Use a regex to capture all blocks of -----BEGIN CERTIFICATE----- ... -----END CERTIFICATE-----
-    cert_pattern = re.compile(r"(-+BEGIN CERTIFICATE-+[\r\n]+(?:[A-Za-z0-9+/\r\n=]+)+-+END CERTIFICATE-+)", re.MULTILINE)
+    cert_pattern = re.compile(
+        r"(-+BEGIN CERTIFICATE-+[\r\n]+(?:[A-Za-z0-9+/\r\n=]+)+-+END CERTIFICATE-+)", re.MULTILINE
+    )
     certificates = cert_pattern.findall(output)
 
     if not certificates:
@@ -102,7 +108,12 @@ def create_keystore(keystore, password):
     )
 
     # Now remove the temporary key
-    subprocess.run(["keytool", "-delete", "-alias", "tempkey", "-keystore", keystore, "-storepass", password], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["keytool", "-delete", "-alias", "tempkey", "-keystore", keystore, "-storepass", password],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def import_certificate(keystore, password, alias, cert_pem):
@@ -119,7 +130,16 @@ def import_certificate(keystore, password, alias, cert_pem):
     # 2. If alias exists, remove it to replace the certificate
     if alias_exists:
         print(f"[*] Alias '{alias}' already exists. Removing old entry...")
-        delete_cmd = ["keytool", "-delete", "-alias", alias, "-keystore", keystore, "-storepass", password]
+        delete_cmd = [
+            "keytool",
+            "-delete",
+            "-alias",
+            alias,
+            "-keystore",
+            keystore,
+            "-storepass",
+            password,
+        ]
         subprocess.run(delete_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # 3. Write the certificate PEM to a temporary file
@@ -129,7 +149,19 @@ def import_certificate(keystore, password, alias, cert_pem):
 
     # 4. Import the certificate
     print(f"[*] Importing certificate with alias '{alias}'...")
-    import_cmd = ["keytool", "-importcert", "-noprompt", "-alias", alias, "-keystore", keystore, "-storepass", password, "-file", tmp_cert_file]
+    import_cmd = [
+        "keytool",
+        "-importcert",
+        "-noprompt",
+        "-alias",
+        alias,
+        "-keystore",
+        keystore,
+        "-storepass",
+        password,
+        "-file",
+        tmp_cert_file,
+    ]
     try:
         subprocess.run(import_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except subprocess.CalledProcessError as e:

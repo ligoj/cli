@@ -12,8 +12,12 @@ nexus_password: str | None = None
 
 
 def configure(subparser_service):
-    subparser_action = subparser_service.add_parser("nexus", help="Nexus operations").add_subparsers(title="action", help="Action", dest="action")
-    subparser_service2 = subparser_action.add_parser("repository", help="Nexus repository operations").add_subparsers(title="sub-action", help="Sub Action", dest="sub_action")
+    subparser_action = subparser_service.add_parser(
+        "nexus", help="Nexus operations"
+    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_service2 = subparser_action.add_parser(
+        "repository", help="Nexus repository operations"
+    ).add_subparsers(title="sub-action", help="Sub Action", dest="sub_action")
     parser_action = subparser_service2.add_parser("get", help="Get a Nexus repository")
     parser_action.add_argument("--id", "-i", help="Repository id", required=True)
     parser_action.add_argument("--format", "-f", help="Repository format", required=True)
@@ -22,7 +26,9 @@ def configure(subparser_service):
     parser_action.add_argument("--id", "-i", help="Repository id", required=True)
     parser_action.add_argument("--format", "-f", help="Repository format", required=True)
     parser_action.add_argument("--mode", "-m", help="Repository mode", required=True)
-    subparser_service2 = subparser_action.add_parser("role", help="Nexus role operations").add_subparsers(title="sub-action", help="Sub Action", dest="sub_action")
+    subparser_service2 = subparser_action.add_parser(
+        "role", help="Nexus role operations"
+    ).add_subparsers(title="sub-action", help="Sub Action", dest="sub_action")
     parser_action = subparser_service2.add_parser("get", help="Get a Nexus role")
     parser_action.add_argument("--id", "-i", help="Role id", required=True)
     parser_action = subparser_service2.add_parser("delete", help="Delete a Nexus role")
@@ -62,7 +68,9 @@ def parse_remote_args(args):
 
 
 def call_nexus_api(method, url, **kwargs):
-    response = utils.call_rest_api(method, "nexus", f"{nexus_endpoint}/service/", url, (nexus_user, nexus_password), kwargs)
+    response = utils.call_rest_api(
+        method, "nexus", f"{nexus_endpoint}/service/", url, (nexus_user, nexus_password), kwargs
+    )
     errors = None
     try:
         if response is not None and not isinstance(response, str) and "result" in response.json():
@@ -87,7 +95,9 @@ def nexus_create_roles(groups_by_name, definition):
         if repository_id == "":
             raise ValueError("[nexus] Missing nexus repository id")
         if repository_format == "":
-            raise ValueError(f"[nexus] Missing nexus repository format in repository {repository_id}")
+            raise ValueError(
+                f"[nexus] Missing nexus repository format in repository {repository_id}"
+            )
 
         repository_mode = repository.get("mode", "hosted")
         if repository_format == "maven2" or repository_format == "maven":
@@ -95,24 +105,44 @@ def nexus_create_roles(groups_by_name, definition):
             attributes = {
                 "name": repository_id,
                 "online": True,
-                "storage": {"blobStoreName": "default", "strictContentTypeValidation": True, "writePolicy": "allow_once"},
+                "storage": {
+                    "blobStoreName": "default",
+                    "strictContentTypeValidation": True,
+                    "writePolicy": "allow_once",
+                },
                 "cleanup": {"policyNames": []},
                 "component": {"proprietaryComponents": False},
-                "maven": {"versionPolicy": "RELEASE", "layoutPolicy": "STRICT", "contentDisposition": "INLINE"},
+                "maven": {
+                    "versionPolicy": "RELEASE",
+                    "layoutPolicy": "STRICT",
+                    "contentDisposition": "INLINE",
+                },
             }
         elif repository_format == "docker":
             attributes = {
                 "name": repository_id,
                 "online": True,
-                "storage": {"blobStoreName": "default", "strictContentTypeValidation": True, "writePolicy": "ALLOW", "latestPolicy": False},
+                "storage": {
+                    "blobStoreName": "default",
+                    "strictContentTypeValidation": True,
+                    "writePolicy": "ALLOW",
+                    "latestPolicy": False,
+                },
                 "cleanup": {"policyNames": []},
                 "component": {"proprietaryComponents": False},
                 "docker": {"forceBasicAuth": True, "v1Enabled": False},
             }
         else:
-            raise ValueError(f"[nexus] Unsupported format {repository_format} in repository {repository_id}")
+            raise ValueError(
+                f"[nexus] Unsupported format {repository_format} in repository {repository_id}"
+            )
 
-        nexus_create_repository(repository_id, repository_format, repository_mode, attributes | repository.get("attributes", {}))
+        nexus_create_repository(
+            repository_id,
+            repository_format,
+            repository_mode,
+            attributes | repository.get("attributes", {}),
+        )
         # Create/update the related roles
         for nexus_group in repository.get("roles", {}).keys():
             ldap_group = ligoj.get_ldap_group("nexus", groups_by_name, nexus_group)
@@ -147,13 +177,17 @@ def nexus_delete_roles(groups_by_name, definition, with_data):
         if repository_id == "":
             raise ValueError("[nexus] Missing nexus repository id")
         if repository_format == "":
-            raise ValueError(f"[nexus] Missing nexus repository format in repository {repository_id}")
+            raise ValueError(
+                f"[nexus] Missing nexus repository format in repository {repository_id}"
+            )
 
         repository_mode = repository.get("mode", "hosted")
         if repository_format == "maven2" or repository_format == "maven":
             repository_format = "maven2"
         elif repository_format != "docker":
-            raise ValueError(f"[nexus] Unsupported format {repository_format} in repository {repository_id}")
+            raise ValueError(
+                f"[nexus] Unsupported format {repository_format} in repository {repository_id}"
+            )
 
         # Create/update the related roles
         for nexus_group in repository.get("roles", {}).keys():
@@ -167,7 +201,11 @@ def nexus_delete_roles(groups_by_name, definition, with_data):
 def nexus_get_repository(repository_id, repository_format, repository_mode):
     internal_format = "maven" if repository_format == "maven2" else repository_format
     utils.info(f"[nexus] Fetch repository {repository_id}[{internal_format}] ...")
-    response = call_nexus_api("GET", f"rest/v1/repositories/{internal_format}/{repository_mode}/{repository_id}", ignore_error=True)
+    response = call_nexus_api(
+        "GET",
+        f"rest/v1/repositories/{internal_format}/{repository_mode}/{repository_id}",
+        ignore_error=True,
+    )
     if response:
         return response.json()
     return None
@@ -175,10 +213,14 @@ def nexus_get_repository(repository_id, repository_format, repository_mode):
 
 def nexus_create_repository(repository_id, repository_format, repository_mode, data):
     internal_format = "maven" if repository_format == "maven2" else repository_format
-    utils.info(f"[nexus] Create repository {repository_id}[{internal_format}] with data '{data}' ...")
+    utils.info(
+        f"[nexus] Create repository {repository_id}[{internal_format}] with data '{data}' ..."
+    )
     details = nexus_get_repository(repository_id, internal_format, repository_mode)
     if details is None:
-        call_nexus_api("POST", f"rest/v1/repositories/{internal_format}/{repository_mode}", data=data)
+        call_nexus_api(
+            "POST", f"rest/v1/repositories/{internal_format}/{repository_mode}", data=data
+        )
     else:
         utils.debug(f"[nexus] Repository {repository_id}[{internal_format}] already exists")
 
@@ -206,7 +248,15 @@ def nexus_create_role(group):
         call_nexus_api(
             "POST",
             "rest/v1/security/roles",
-            data={"id": group, "source": "default", "name": group, "description": "", "readOnly": False, "privileges": [], "roles": []},
+            data={
+                "id": group,
+                "source": "default",
+                "name": group,
+                "description": "",
+                "readOnly": False,
+                "privileges": [],
+                "roles": [],
+            },
         )
     else:
         utils.debug(f"[nexus] Role {group} already exists ...")
@@ -222,7 +272,9 @@ def nexus_delete_role(group):
 
 
 def nexus_set_permissions(group, repository_id, repository_format, permissions):
-    utils.info(f"[nexus] Assign permissions on {repository_id}[{repository_format}] to '{group}' with {permissions} ...")
+    utils.info(
+        f"[nexus] Assign permissions on {repository_id}[{repository_format}] to '{group}' with {permissions} ..."
+    )
     privileges = []
     for permission in permissions.get("admin-permissions", []):
         privileges.append(f"nx-repository-admin-{repository_format}-{repository_id}-{permission}")

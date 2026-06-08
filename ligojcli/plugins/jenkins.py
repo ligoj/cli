@@ -33,26 +33,49 @@ jenkins_crumb: str | None = None  # true (always), false (never), auto/None (onl
 
 
 def configure(subparser_service):
-    subparser_action = subparser_service.add_parser("jenkins", help="Jenkins related operations").add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser(
+        "jenkins", help="Jenkins related operations"
+    ).add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("run", help="Run a job")
     parser_action.add_argument("--job", "-j", help="Job name")
     parser_action.add_argument("--branch", "-b", help="Optional branch name", required=False)
-    parser_action.add_argument("--parameters", "-p", help="Key value job parameters", nargs="*", required=False)
-    parser_action.add_argument("--jenkins-crumb", "-C", help="Jenkins crumb mode; true, false, auto", default="auto")
-    parser_action.add_argument("--jenkins-endpoint", "-J", help="Endpoint of Jenkins", required=False)
+    parser_action.add_argument(
+        "--parameters", "-p", help="Key value job parameters", nargs="*", required=False
+    )
+    parser_action.add_argument(
+        "--jenkins-crumb", "-C", help="Jenkins crumb mode; true, false, auto", default="auto"
+    )
+    parser_action.add_argument(
+        "--jenkins-endpoint", "-J", help="Endpoint of Jenkins", required=False
+    )
     parser_action.add_argument("--jenkins-api-user", help="Jenkins API user", required=False)
     parser_action.add_argument("--jenkins-api-token", help="Jenkins API token", required=False)
     parser_action.add_argument(
-        "--wait", "-w", type=int, help="Wait for status is available up to given duration in seconds, -1 for unlimited, 0 for immediate return. Must be used with -parameter", default=0
+        "--wait",
+        "-w",
+        type=int,
+        help="Wait for status is available up to given duration in seconds, -1 for unlimited, 0 for immediate return. Must be used with -parameter",
+        default=0,
     )
-    parser_action.add_argument("--wait-parameter", "-W", help="Name of Jenkins parameters user to track the actual executed build. Must be used with --wait", default=0)
+    parser_action.add_argument(
+        "--wait-parameter",
+        "-W",
+        help="Name of Jenkins parameters user to track the actual executed build. Must be used with --wait",
+        default=0,
+    )
 
 
 def execute_action(service, action, _operation, args):
     if service == "jenkins":
         if action == "run":
             parse_remote_args(args)
-            return jenkins_run_job(args["job"], args.get("branch"), args.get("parameters", []), args.get("wait", 0), args.get("wait_parameter"))
+            return jenkins_run_job(
+                args["job"],
+                args.get("branch"),
+                args.get("parameters", []),
+                args.get("wait", 0),
+                args.get("wait_parameter"),
+            )
     return None
 
 
@@ -70,7 +93,13 @@ def parse_remote_args(args):
     jenkins_home = utils.get_config(args, "jenkins_home", "JENKINS_HOME", None)
 
 
-def jenkins_run_job(job_name: str, branch: str | None, parameters: list, wait: int = 0, wait_parameter: str | None = None):
+def jenkins_run_job(
+    job_name: str,
+    branch: str | None,
+    parameters: list,
+    wait: int = 0,
+    wait_parameter: str | None = None,
+):
     utils.info(f"[jenkins] Run job {job_name}")
     wait_parameter_value = None
     parameters_jenkins = []
@@ -89,7 +118,11 @@ def jenkins_run_job(job_name: str, branch: str | None, parameters: list, wait: i
     call_jenkins_api(
         "POST",
         f"{job_path}/build",
-        params={"json": json.dumps({"parameter": parameters_jenkins, "Submit": ""}, separators=(",", ":"))},
+        params={
+            "json": json.dumps(
+                {"parameter": parameters_jenkins, "Submit": ""}, separators=(",", ":")
+            )
+        },
         headers={"Content-Type": utils.MIME_URL_ENCODED},
         ignore_output=True,
     )
@@ -97,7 +130,9 @@ def jenkins_run_job(job_name: str, branch: str | None, parameters: list, wait: i
     if wait != 0:
         start_time = time.time()
         build_status_xml = None
-        utils.info(f"[jenkins] Wait for the job finishes, watch {wait_parameter}={wait_parameter_value} ...")
+        utils.info(
+            f"[jenkins] Wait for the job finishes, watch {wait_parameter}={wait_parameter_value} ..."
+        )
         while wait == -1 or (int(time.time() - start_time) < wait):
             try:
                 build_status_xml = call_jenkins_api(
@@ -115,7 +150,9 @@ def jenkins_run_job(job_name: str, branch: str | None, parameters: list, wait: i
                 pass
             if build_status_xml and build_status_xml != "<r/>":
                 raise ValueError(f"[jenkins] Job '{job_name}' did not succeed: {build_status_xml}")
-            utils.debug(f"[jenkins] Wait for the job finishes, watch {wait_parameter}={wait_parameter_value}, status is: {build_status_xml}")
+            utils.debug(
+                f"[jenkins] Wait for the job finishes, watch {wait_parameter}={wait_parameter_value}, status is: {build_status_xml}"
+            )
             time.sleep(2)
         if not build_status_xml or build_status_xml == "<r/>":
             raise ValueError(f"[jenkins] Job '{job_name}' did not succeed after {wait}s")
@@ -169,12 +206,23 @@ def jenkins_create_api_token(name: str, login_user: str, login_password: str) ->
         f"{jenkins_endpoint}/",
         "/me/descriptorByName/jenkins.security.ApiTokenProperty/generateNewToken",
         None,
-        {"params": {"newTokenName": name}, "headers": crumb_response[0] | {"Content-Type": utils.MIME_URL_ENCODED}, "ignore_output": True, "session": crumb_response[1]},
+        {
+            "params": {"newTokenName": name},
+            "headers": crumb_response[0] | {"Content-Type": utils.MIME_URL_ENCODED},
+            "ignore_output": True,
+            "session": crumb_response[1],
+        },
     ).json()["data"]["tokenValue"]
 
 
 def jenkins_find_credential(base_url: str, c_id: str):
-    item_credentials = call_jenkins_api("GET", f"{base_url}/api/json", params={"tree": "credentials[*]"}, headers={"Content-Type": utils.MIME_URL_ENCODED}, ignore_output=True).json()
+    item_credentials = call_jenkins_api(
+        "GET",
+        f"{base_url}/api/json",
+        params={"tree": "credentials[*]"},
+        headers={"Content-Type": utils.MIME_URL_ENCODED},
+        ignore_output=True,
+    ).json()
     return next(filter(lambda r: r["id"] == c_id, item_credentials.get("credentials", [])), None)
 
 
@@ -202,15 +250,23 @@ def jenkins_create_credentials(definition, parents):
 
         scope = credential_definition.get("scope")
         if scope is not None and scope.upper() not in JENKINS_CREDENTIALS_SCOPE:
-            raise ValueError(f"[jenkins] Unsupported scope {scope}, accept only {JENKINS_CREDENTIALS_SCOPE}")
+            raise ValueError(
+                f"[jenkins] Unsupported scope {scope}, accept only {JENKINS_CREDENTIALS_SCOPE}"
+            )
 
         existing_credential = jenkins_find_credential(base_url, c_id)
         target_type_name = JENKINS_CREDENTIALS_TYPES.get("stapler_class")
         updating = existing_credential is not None and (
-            existing_credential.get("description", "") != description or (target_type_name is not None and target_type_name != existing_credential.get("typeName"))
+            existing_credential.get("description", "") != description
+            or (
+                target_type_name is not None
+                and target_type_name != existing_credential.get("typeName")
+            )
         )
         if target_type_name is None and existing_credential is not None:
-            utils.info(f"[jenkins] Credential class {stapler_class} cannot be mapped to a built-in typeName, change report is not supported")
+            utils.info(
+                f"[jenkins] Credential class {stapler_class} cannot be mapped to a built-in typeName, change report is not supported"
+            )
         # See https://github.com/jenkinsci/credentials-plugin/blob/master/docs/user.adoc
         call_jenkins_api(
             "POST",
@@ -219,7 +275,13 @@ def jenkins_create_credentials(definition, parents):
                 "json": json.dumps(
                     {
                         "": "0",
-                        "credentials": {"id": c_id, "description": description, "stapler-class": stapler_class, "$class": stapler_class} | attributes,
+                        "credentials": {
+                            "id": c_id,
+                            "description": description,
+                            "stapler-class": stapler_class,
+                            "$class": stapler_class,
+                        }
+                        | attributes,
                     }
                     | ({} if scope is None else {"scope": scope}),
                     separators=(",", ":"),
@@ -249,7 +311,9 @@ def jenkins_delete_credentials(definition, parents):
             raise ValueError("[jenkins] Missing credential id")
         scope = credential_definition.get("scope")
         if scope is not None and scope.upper() not in JENKINS_CREDENTIALS_SCOPE:
-            raise ValueError(f"[jenkins] Unsupported scope {scope}, accept only {JENKINS_CREDENTIALS_SCOPE}")
+            raise ValueError(
+                f"[jenkins] Unsupported scope {scope}, accept only {JENKINS_CREDENTIALS_SCOPE}"
+            )
 
         existing_credential = jenkins_find_credential(base_url, c_id)
         if existing_credential:
@@ -265,7 +329,9 @@ def jenkins_delete_credentials(definition, parents):
             utils.info(f"[jenkins] Credential '{c_id}' does not exist, ignore")
 
 
-def jenkins_create_folders_rec(groups_by_name, definition, distinct_folders: dict[str, True], parents: list[str], depth: int):
+def jenkins_create_folders_rec(
+    groups_by_name, definition, distinct_folders: dict[str, True], parents: list[str], depth: int
+):
     if depth > JENKINS_MAX_FOLDER_DEPTH:
         raise ValueError(f"[jenkins] Maximal supported folders depth is {JENKINS_MAX_FOLDER_DEPTH}")
 
@@ -279,10 +345,17 @@ def jenkins_create_folders_rec(groups_by_name, definition, distinct_folders: dic
 
         recursive_folder_access = folder_definition.get("recursive", True)
         distinct_folders[folder_name] = True
-        folder_description = folder_definition.get("description", "Créé par le script d'initialisation")
+        folder_description = folder_definition.get(
+            "description", "Créé par le script d'initialisation"
+        )
         folder_mode = folder_definition.get("mode", "com.cloudbees.hudson.plugins.folder.Folder")
-        if folder_mode != "com.cloudbees.hudson.plugins.folder.Folder" and folder_mode != "jenkins.branch.OrganizationFolder":
-            utils.warn(f"[jenkins] Unmanaged folder mode '{folder_mode}', might not work as expected")
+        if (
+            folder_mode != "com.cloudbees.hudson.plugins.folder.Folder"
+            and folder_mode != "jenkins.branch.OrganizationFolder"
+        ):
+            utils.warn(
+                f"[jenkins] Unmanaged folder mode '{folder_mode}', might not work as expected"
+            )
 
         jenkins_create_folder(folder_name, folder_mode, folder_description, parents)
 
@@ -292,11 +365,13 @@ def jenkins_create_folders_rec(groups_by_name, definition, distinct_folders: dic
             groups_by_name,
             folder_definition,
             "projectRoles",
-            {"pattern": f'(?i){"/".join(parents)}{"(/.*)?" if recursive_folder_access else ""}'},
-            f'-{"/".join(parents)}',
+            {"pattern": f"(?i){'/'.join(parents)}{'(/.*)?' if recursive_folder_access else ''}"},
+            f"-{'/'.join(parents)}",
         )
         jenkins_create_credentials(folder_definition, parents)
-        jenkins_create_folders_rec(groups_by_name, folder_definition, distinct_folders, parents, depth + 1)
+        jenkins_create_folders_rec(
+            groups_by_name, folder_definition, distinct_folders, parents, depth + 1
+        )
         parents.pop()
 
 
@@ -312,7 +387,7 @@ def jenkins_delete_folders_rec(groups_by_name, definition, parents: list[str], w
             groups_by_name,
             folder_definition,
             "projectRoles",
-            f'-{"/".join(parents)}',
+            f"-{'/'.join(parents)}",
         )
         jenkins_delete_folders_rec(groups_by_name, folder_definition, parents, with_data)
         if with_data:
@@ -320,14 +395,18 @@ def jenkins_delete_folders_rec(groups_by_name, definition, parents: list[str], w
         parents.pop()
 
 
-def jenkins_create_roles_scope(groups_by_name, definition, role_type, additional_params, role_suffix: str):
+def jenkins_create_roles_scope(
+    groups_by_name, definition, role_type, additional_params, role_suffix: str
+):
     utils.info(f"[jenkins] Create roles in scope {role_type} with '{role_suffix}' suffix...")
     for jenkins_group in definition.get("roles", {}).keys():
         ldap_group = ligoj.get_ldap_group("jenkins", groups_by_name, jenkins_group)
         role_definition = definition["roles"][jenkins_group]
         permissions = role_definition.get("permissions", [])
         if len(permissions) == 0:
-            raise ValueError(f"[jenkins] Missing Jenkins permissions in role [{role_type}]'{jenkins_group}'")
+            raise ValueError(
+                f"[jenkins] Missing Jenkins permissions in role [{role_type}]'{jenkins_group}'"
+            )
         role = f"{ldap_group}{role_suffix}"
         role_item = jenkins_create_role(role, permissions, role_type, additional_params)
 
@@ -348,7 +427,15 @@ def jenkins_delete_roles_scope(groups_by_name, definition, role_type, role_suffi
 
 def jenkins_assign_role(role_item, role: str, role_type: str, ldap_group: str):
     utils.info(f"[jenkins] Assign role {role} to group {ldap_group} ...")
-    if next(filter(lambda sid: sid == ldap_group or (sid.get("type") == "GROUP" and sid.get("sid") == ldap_group), role_item.get("sids", [])), None):
+    if next(
+        filter(
+            lambda sid: (
+                sid == ldap_group or (sid.get("type") == "GROUP" and sid.get("sid") == ldap_group)
+            ),
+            role_item.get("sids", []),
+        ),
+        None,
+    ):
         # Already assigned
         utils.debug(f"[jenkins] {role} is already assigned to group {ldap_group}, ignore")
     else:
@@ -363,8 +450,21 @@ def jenkins_assign_role(role_item, role: str, role_type: str, ldap_group: str):
 
 def jenkins_unassign_role(role_item, role: str, role_type: str, ldap_group: str):
     utils.info(f"[jenkins] Unassign role {role} from group {ldap_group} ...")
-    if next(filter(lambda sid: sid == ldap_group or (sid.get("type") == "GROUP" and sid.get("sid") == ldap_group), role_item.get("sids", [])), None):
-        call_jenkins_api("POST", "role-strategy/strategy/unassignGroupRole", params={"type": role_type, "roleName": role, "group": ldap_group}, headers={"Content-Type": utils.MIME_URL_ENCODED})
+    if next(
+        filter(
+            lambda sid: (
+                sid == ldap_group or (sid.get("type") == "GROUP" and sid.get("sid") == ldap_group)
+            ),
+            role_item.get("sids", []),
+        ),
+        None,
+    ):
+        call_jenkins_api(
+            "POST",
+            "role-strategy/strategy/unassignGroupRole",
+            params={"type": role_type, "roleName": role, "group": ldap_group},
+            headers={"Content-Type": utils.MIME_URL_ENCODED},
+        )
     else:
         # Already unassigned
         utils.debug(f"[jenkins] {role} is already unassigned from group {ldap_group}, ignore")
@@ -375,7 +475,9 @@ def jenkins_get_folder(folder):
     items = call_jenkins_api(
         "GET",
         "api/json",
-        params={"tree": f'jobs{"[name,description,jobs"*JENKINS_MAX_FOLDER_DEPTH}{"]"*JENKINS_MAX_FOLDER_DEPTH}'},
+        params={
+            "tree": f"jobs{'[name,description,jobs' * JENKINS_MAX_FOLDER_DEPTH}{']' * JENKINS_MAX_FOLDER_DEPTH}"
+        },
         headers={"Content-Type": utils.MIME_URL_ENCODED},
     ).json()
     return find_job(items, folder)
@@ -383,7 +485,10 @@ def jenkins_get_folder(folder):
 
 def find_job(items, folder):
     for item in items["jobs"]:
-        if item["_class"] == "com.cloudbees.hudson.plugins.folder.Folder" or item["_class"] == "jenkins.branch.OrganizationFolder":
+        if (
+            item["_class"] == "com.cloudbees.hudson.plugins.folder.Folder"
+            or item["_class"] == "jenkins.branch.OrganizationFolder"
+        ):
             if item["name"] == folder:
                 return item
             result = find_job(item, folder)
@@ -449,7 +554,9 @@ def jenkins_delete_folder_and_credentials(folder_definition, name, parents):
 
 
 def jenkins_get_role(role_name, role_type):
-    item = call_jenkins_api("GET", "role-strategy/strategy/getRole", params={"type": role_type, "roleName": role_name}).json()
+    item = call_jenkins_api(
+        "GET", "role-strategy/strategy/getRole", params={"type": role_type, "roleName": role_name}
+    ).json()
     return None if len(item.keys()) == 0 else item
 
 
@@ -464,17 +571,36 @@ def jenkins_create_role(role_name, permission_ids, role_type, additional_params)
         permissions_item = list(role_item.get("permissionIds", []).keys())
         permissions_item.sort()
 
-        if permission_ids == permissions_item and next(filter(lambda p: additional_params[p] != role_item.get(p), additional_params.keys()), None) is None:
-            utils.debug(f"[jenkins] Role [{role_type}]'{role_name}' already exists with the same permissions and pattern, ignore")
+        if (
+            permission_ids == permissions_item
+            and next(
+                filter(
+                    lambda p: additional_params[p] != role_item.get(p), additional_params.keys()
+                ),
+                None,
+            )
+            is None
+        ):
+            utils.debug(
+                f"[jenkins] Role [{role_type}]'{role_name}' already exists with the same permissions and pattern, ignore"
+            )
             return role_item
-        utils.debug(f"[jenkins] Update role [{role_type}]'{role_name}' having different permissions/pattern ...")
+        utils.debug(
+            f"[jenkins] Update role [{role_type}]'{role_name}' having different permissions/pattern ..."
+        )
 
     # Update or create the role
     permission_ids_as_string = ",".join(permission_ids)
     call_jenkins_api(
         "POST",
         "role-strategy/strategy/addRole",
-        params={"type": role_type, "roleName": role_name, "permissionIds": permission_ids_as_string, "overwrite": "true"} | additional_params,
+        params={
+            "type": role_type,
+            "roleName": role_name,
+            "permissionIds": permission_ids_as_string,
+            "overwrite": "true",
+        }
+        | additional_params,
         headers={"Content-Type": utils.MIME_URL_ENCODED},
         report=("role", "update" if role_exists else "create"),
     )
@@ -498,14 +624,27 @@ def jenkins_delete_role(role_name, role_type):
 
 
 def jenkins_update_cac_file():
-    local_jenkins_home = jenkins_home if jenkins_home is not None and jenkins_home != "" else os.environ.get("JENKINS_HOME", f"{os.environ.get('HOME', '.')}/.jenkins")
-    jenkins_file = utils.get_config({}, "jenkins_casc_file", "JENKINS_CASC_FILE", utils.get_config({}, "casc_jenkins_config", "CASC_JENKINS_CONFIG", f"{local_jenkins_home}/jenkins.yaml"))
+    local_jenkins_home = (
+        jenkins_home
+        if jenkins_home is not None and jenkins_home != ""
+        else os.environ.get("JENKINS_HOME", f"{os.environ.get('HOME', '.')}/.jenkins")
+    )
+    jenkins_file = utils.get_config(
+        {},
+        "jenkins_casc_file",
+        "JENKINS_CASC_FILE",
+        utils.get_config(
+            {}, "casc_jenkins_config", "CASC_JENKINS_CONFIG", f"{local_jenkins_home}/jenkins.yaml"
+        ),
+    )
     if not os.path.exists(jenkins_file):
         utils.warn(f"[jenkins] No CaC file '{jenkins_file}' found, ignore CaC update")
         return
 
     utils.info(f"[jenkins] Export CaC file {jenkins_file}")
-    in_memory_cac_plain = call_jenkins_api("POST", "manage/configuration-as-code/export", ignore_output=True, params={"export": ""}).text
+    in_memory_cac_plain = call_jenkins_api(
+        "POST", "manage/configuration-as-code/export", ignore_output=True, params={"export": ""}
+    ).text
     in_memory_cac_nb_lines = in_memory_cac_plain.count("\n")
     utils.info(f"[jenkins] In-memory CaC file: {in_memory_cac_nb_lines} lines")
     in_memory_cac = yaml.load(in_memory_cac_plain, Loader=SafeLoader)
@@ -516,9 +655,13 @@ def jenkins_update_cac_file():
     with open(jenkins_file, "r", -1, "UTF-8") as f:
         merged_cac = yaml.load(f, Loader=SafeLoader)
     try:
-        merged_cac["jenkins"]["authorizationStrategy"]["roleBased"]["roles"] = in_memory_cac["jenkins"]["authorizationStrategy"]["roleBased"]["roles"]
+        merged_cac["jenkins"]["authorizationStrategy"]["roleBased"]["roles"] = in_memory_cac[
+            "jenkins"
+        ]["authorizationStrategy"]["roleBased"]["roles"]
     except KeyError as ke:
-        utils.warn(f"[jenkins] CaC file does not contain role based plugin section, ignore CaC update: {str(ke)}")
+        utils.warn(
+            f"[jenkins] CaC file does not contain role based plugin section, ignore CaC update: {str(ke)}"
+        )
         return
     except BaseException as err:
         raise ValueError(f"[jenkins] Unknown error while updating CaC file: {str(err)}") from err
@@ -555,14 +698,18 @@ def jenkins_update_cac_file():
     try:
         shutil.copy2(jenkins_file, jenkins_file_backup)
     except BaseException as err:
-        raise ValueError(f"[jenkins] Unable to backup configuration file '{jenkins_file}' to '{jenkins_file_backup}'{str(err)}") from err
+        raise ValueError(
+            f"[jenkins] Unable to backup configuration file '{jenkins_file}' to '{jenkins_file_backup}'{str(err)}"
+        ) from err
 
     utils.info(f"[jenkins] Write updated CaC file to {jenkins_file}")
     with open(jenkins_file, "w", -1, "UTF-8") as f:
         yaml.dump(merged_cac, f, sort_keys=False, default_flow_style=False)
 
 
-def jenkins_add_crumb(method: str, headers: dict[str, str], user: str | None = None, password: str | None = None) -> tuple[dict[str, str], Any | None]:
+def jenkins_add_crumb(
+    method: str, headers: dict[str, str], user: str | None = None, password: str | None = None
+) -> tuple[dict[str, str], Any | None]:
     if jenkins_crumb == "true" or (jenkins_crumb == "auto" and method != "GET"):
         kwargs = {"params": {"xpath": 'concat(//crumbRequestField,":",//crumb)'}}
         crumb = utils.call_rest_api(
@@ -583,7 +730,14 @@ def call_jenkins_api(method, url, **kwargs):
     crumb_response = jenkins_add_crumb(method, kwargs.get("headers", {}))
     kwargs["headers"] = crumb_response[0]
     kwargs["session"] = crumb_response[1]
-    return utils.call_rest_api(method, "jenkins", f"{jenkins_endpoint}/", url, (jenkins_api_user, jenkins_api_token), kwargs)
+    return utils.call_rest_api(
+        method,
+        "jenkins",
+        f"{jenkins_endpoint}/",
+        url,
+        (jenkins_api_user, jenkins_api_token),
+        kwargs,
+    )
 
 
 def welcome_user(node_base_id, ligoj_user_reader, ligoj_user_reader_password):
@@ -592,15 +746,29 @@ def welcome_user(node_base_id, ligoj_user_reader, ligoj_user_reader_password):
     node_id = f"service:build:jenkins:{node_base_id}"
     node_name = f"Jenkins {node_base_id}"
     node = None
-    utils.info(f"[ligoj] Create node '{node_id}', endpoint='{jenkins_endpoint}', name='{node_name}'")
+    utils.info(
+        f"[ligoj] Create node '{node_id}', endpoint='{jenkins_endpoint}', name='{node_name}'"
+    )
     if not ligoj_user_reader_password and (not jenkins_api_token or not jenkins_api_user):
         node = ligoj.node_get_by_id(node_id, "ALL", "map", True)
         if not node:
-            raise ValueError("[ligoj] No available user reader password, regenerate it with '--reset-reader-password' or provide '--jenkins-api-token', cannot update/create Jenkins like from Ligoj")
+            raise ValueError(
+                "[ligoj] No available user reader password, regenerate it with '--reset-reader-password' or provide '--jenkins-api-token', cannot update/create Jenkins like from Ligoj"
+            )
     if node:
         jenkins_api_user = node["parameters"]["service:build:jenkins:user"]
         jenkins_api_token = node["parameters"]["service:build:jenkins:api-token"]
     elif not jenkins_api_token or not jenkins_api_user:
         jenkins_api_user = ligoj_user_reader
-        jenkins_api_token = jenkins_create_api_token("ligoj", ligoj_user_reader, ligoj_user_reader_password)
-    ligoj.node_upsert(node_id, node_name, {"service:build:jenkins:url": jenkins_endpoint, "service:build:jenkins:user": ligoj_user_reader, "service:build:jenkins:api-token": jenkins_api_token})
+        jenkins_api_token = jenkins_create_api_token(
+            "ligoj", ligoj_user_reader, ligoj_user_reader_password
+        )
+    ligoj.node_upsert(
+        node_id,
+        node_name,
+        {
+            "service:build:jenkins:url": jenkins_endpoint,
+            "service:build:jenkins:user": ligoj_user_reader,
+            "service:build:jenkins:api-token": jenkins_api_token,
+        },
+    )

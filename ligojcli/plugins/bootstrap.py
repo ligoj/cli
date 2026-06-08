@@ -7,7 +7,7 @@ import dns.resolver
 from jsonmerge import merge
 from jsonschema import validate
 
-from ligojcli.plugins import alfresco, argocd, gitlab, jenkins, ligoj, nexus, sonarqube, id, utils
+from ligojcli.plugins import alfresco, argocd, gitlab, id, jenkins, ligoj, nexus, sonarqube, utils
 
 includes: list[str] = []
 excludes: list[str] = []
@@ -21,80 +21,259 @@ DEFAULT_PARENT_GROUP_SUFFIX = "-team"
 def configure(subparser_service):
 
     # Bootstrap operations
-    subparser_action = subparser_service.add_parser("bootstrap", help="Bundle of API calls for new groups or project").add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser(
+        "bootstrap", help="Bundle of API calls for new groups or project"
+    ).add_subparsers(title="action", help="Action", dest="action")
 
     # bootstrap init
     parser_action = subparser_action.add_parser("init", help="Create basic groups and scopes")
     parser_action.add_argument("--base-dn", help="LDAP Base DN", default="")
-    parser_action.add_argument("--groups-base-dn", help="LDAP DN for all groups, starting from base-dn", default="")
-    parser_action.add_argument("--projects-base-dn", help="LDAP DN of groups associated to projects, starting from groups-base-dn", default="")
-    parser_action.add_argument("--technical-groups-base-dn", help="LDAP DN of technical groups, starting from groups-base-dn", default="")
-    parser_action.add_argument("--users-base-dn", help="LDAP DN for users, starting from global base-dn", default="")
-    parser_action.add_argument("--internal-users-base-dn", help="LDAP DN of internal users, starting from users-base-dn", default="")
-    parser_action.add_argument("--technical-users-base-dn", help="LDAP DN of technical users, starting from users-base-dn", default="")
-    parser_action.add_argument("--external-users-base-dn", help="LDAP DN of writable external users, starting from users-base-dn", default="")
-    parser_action.add_argument("--technical-groups", help="List of technical groups", default="", nargs="*")
+    parser_action.add_argument(
+        "--groups-base-dn", help="LDAP DN for all groups, starting from base-dn", default=""
+    )
+    parser_action.add_argument(
+        "--projects-base-dn",
+        help="LDAP DN of groups associated to projects, starting from groups-base-dn",
+        default="",
+    )
+    parser_action.add_argument(
+        "--technical-groups-base-dn",
+        help="LDAP DN of technical groups, starting from groups-base-dn",
+        default="",
+    )
+    parser_action.add_argument(
+        "--users-base-dn", help="LDAP DN for users, starting from global base-dn", default=""
+    )
+    parser_action.add_argument(
+        "--internal-users-base-dn",
+        help="LDAP DN of internal users, starting from users-base-dn",
+        default="",
+    )
+    parser_action.add_argument(
+        "--technical-users-base-dn",
+        help="LDAP DN of technical users, starting from users-base-dn",
+        default="",
+    )
+    parser_action.add_argument(
+        "--external-users-base-dn",
+        help="LDAP DN of writable external users, starting from users-base-dn",
+        default="",
+    )
+    parser_action.add_argument(
+        "--technical-groups", help="List of technical groups", default="", nargs="*"
+    )
 
     # bootstrap welcome-user
-    parser_action = subparser_action.add_parser("welcome-user", help="Create an new project for given administrator")
-    parser_action.add_argument("--id", "-i", help="Username to create as administrator of project", default=False)
-    parser_action.add_argument("--verify-project-with-dns", help="Verify the project name matches with the given DNS record format", required=False)
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
+    parser_action = subparser_action.add_parser(
+        "welcome-user", help="Create an new project for given administrator"
+    )
+    parser_action.add_argument(
+        "--id", "-i", help="Username to create as administrator of project", default=False
+    )
+    parser_action.add_argument(
+        "--verify-project-with-dns",
+        help="Verify the project name matches with the given DNS record format",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--group-suffix",
+        help="Suffix added to project name in created groups",
+        default=DEFAULT_PARENT_GROUP_SUFFIX,
+    )
     parser_action.add_argument("--project", "-p", help="New project's key")
-    parser_action.add_argument("--name", help="New project's name, default is derived from `project`", required=False)
-    parser_action.add_argument("--sonar-create-node", help="Also create a SonarQube node in Ligoj to the given endpoint", required=False, action="store_true")
-    parser_action.add_argument("--sonar-endpoint", "-S", help="SonarQube endpoint for Ligoj generated node", required=False)
-    parser_action.add_argument("--sonar-api-token", help="SonarQube API token. When undefined a new one is generated for the reader user", required=False)
-    parser_action.add_argument("--jenkins-create-node", help="Jenkins endpoint for Ligoj generated node", required=False, action="store_true")
-    parser_action.add_argument("--jenkins-endpoint", "-J", help="Also register the given Jenkins endpoint to Ligoj", required=False)
-    parser_action.add_argument("--jenkins-api-token", help="Jenkins API token. When undefined a new one is generated for the reader user", required=False)
-    parser_action.add_argument("--reset-reader-password", "-r", help="If reader user already existed, reset its password", required=False, action="store_true")
-    parser_action.add_argument("--script-custom-attributes", help="Custom attributes of script user that would be created", required=False)
-    parser_action.add_argument("--reader-custom-attributes", help="Custom attributes of reader user that would be created", required=False)
+    parser_action.add_argument(
+        "--name", help="New project's name, default is derived from `project`", required=False
+    )
+    parser_action.add_argument(
+        "--sonar-create-node",
+        help="Also create a SonarQube node in Ligoj to the given endpoint",
+        required=False,
+        action="store_true",
+    )
+    parser_action.add_argument(
+        "--sonar-endpoint", "-S", help="SonarQube endpoint for Ligoj generated node", required=False
+    )
+    parser_action.add_argument(
+        "--sonar-api-token",
+        help="SonarQube API token. When undefined a new one is generated for the reader user",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--jenkins-create-node",
+        help="Jenkins endpoint for Ligoj generated node",
+        required=False,
+        action="store_true",
+    )
+    parser_action.add_argument(
+        "--jenkins-endpoint",
+        "-J",
+        help="Also register the given Jenkins endpoint to Ligoj",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--jenkins-api-token",
+        help="Jenkins API token. When undefined a new one is generated for the reader user",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--reset-reader-password",
+        "-r",
+        help="If reader user already existed, reset its password",
+        required=False,
+        action="store_true",
+    )
+    parser_action.add_argument(
+        "--script-custom-attributes",
+        help="Custom attributes of script user that would be created",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--reader-custom-attributes",
+        help="Custom attributes of reader user that would be created",
+        required=False,
+    )
 
     # bootstrap create-project
-    parser_action = subparser_action.add_parser("create-project", help="Bundle of API calls for new project")
+    parser_action = subparser_action.add_parser(
+        "create-project", help="Bundle of API calls for new project"
+    )
     parser_action.add_argument("--project", "-p", help="New project's key")
-    parser_action.add_argument("--name", help="New project's name, default is derived from `project`", required=False)
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
-    parser_action.add_argument("--groups", help="Primary identity `plugin-id` is used to create initial project's groups. Final group name is based on 'group-suffix'", nargs="*", default=["admin"])
-    parser_action.add_argument("--parent-project", help="When defined, a context is put to the new project related to this parent project", required=False)
-    parser_action.add_argument("--parent-admin", help="Username of checked user being one of the administrators of parent project. Default is session user", required=False)
-    parser_action.add_argument("--team-leader", help="Username of target owner of the new project. Default is `parent-admin`")
+    parser_action.add_argument(
+        "--name", help="New project's name, default is derived from `project`", required=False
+    )
+    parser_action.add_argument(
+        "--group-suffix",
+        help="Suffix added to project name in created groups",
+        default=DEFAULT_PARENT_GROUP_SUFFIX,
+    )
+    parser_action.add_argument(
+        "--groups",
+        help="Primary identity `plugin-id` is used to create initial project's groups. Final group name is based on 'group-suffix'",
+        nargs="*",
+        default=["admin"],
+    )
+    parser_action.add_argument(
+        "--parent-project",
+        help="When defined, a context is put to the new project related to this parent project",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--parent-admin",
+        help="Username of checked user being one of the administrators of parent project. Default is session user",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--team-leader",
+        help="Username of target owner of the new project. Default is `parent-admin`",
+    )
 
     # bootstrap delete-project
-    parser_action = subparser_action.add_parser("delete-project", help="Bundle of API calls for project deletion")
+    parser_action = subparser_action.add_parser(
+        "delete-project", help="Bundle of API calls for project deletion"
+    )
     parser_action.add_argument("--project", "-p", help="Project's key to delete")
-    parser_action.add_argument("--parent-admin", help="Username of checked user being one of the administrators of parent project. Default is session user", required=False)
+    parser_action.add_argument(
+        "--parent-admin",
+        help="Username of checked user being one of the administrators of parent project. Default is session user",
+        required=False,
+    )
 
     # bootstrap create-nested-project
-    parser_action = subparser_action.add_parser("create-nested-project", help="Bundle of API calls for groups inside a project")
+    parser_action = subparser_action.add_parser(
+        "create-nested-project", help="Bundle of API calls for groups inside a project"
+    )
     parser_action.add_argument("--project", "-p", help="New project's key")
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
-    parser_action.add_argument("--groups", help="Group names to create. Final group name is based on 'group-suffix'", nargs="*", default=["admin"])
-    parser_action.add_argument("--parent-project", help="When defined, a context is put to the new project related to this parent project", required=False)
-    parser_action.add_argument("--parent-admin", help="Username of checked user being one of the administrators of parent project. Default is session user", required=False)
-    parser_action.add_argument("--team-leader", help="Username of target owner of the new project. Default is session user")
-    parser_action.add_argument("--script-custom-attributes", help="Custom attributes of script user that would be created", required=False)
-    parser_action.add_argument("--reader-custom-attributes", help="Custom attributes of reader user that would be created", required=False)
+    parser_action.add_argument(
+        "--group-suffix",
+        help="Suffix added to project name in created groups",
+        default=DEFAULT_PARENT_GROUP_SUFFIX,
+    )
+    parser_action.add_argument(
+        "--groups",
+        help="Group names to create. Final group name is based on 'group-suffix'",
+        nargs="*",
+        default=["admin"],
+    )
+    parser_action.add_argument(
+        "--parent-project",
+        help="When defined, a context is put to the new project related to this parent project",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--parent-admin",
+        help="Username of checked user being one of the administrators of parent project. Default is session user",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--team-leader", help="Username of target owner of the new project. Default is session user"
+    )
+    parser_action.add_argument(
+        "--script-custom-attributes",
+        help="Custom attributes of script user that would be created",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--reader-custom-attributes",
+        help="Custom attributes of reader user that would be created",
+        required=False,
+    )
 
     # bootstrap create-roles
-    parser_action = subparser_action.add_parser("create-roles", help="Create role mappings and configurations in supported tools")
+    parser_action = subparser_action.add_parser(
+        "create-roles", help="Create role mappings and configurations in supported tools"
+    )
     parser_action.add_argument("--project", "-p", help="Associated project key")
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in created groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
-    parser_action.add_argument("--groups", help="Group names to create. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file", nargs="*", default=[])
+    parser_action.add_argument(
+        "--group-suffix",
+        help="Suffix added to project name in created groups",
+        default=DEFAULT_PARENT_GROUP_SUFFIX,
+    )
+    parser_action.add_argument(
+        "--groups",
+        help="Group names to create. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file",
+        nargs="*",
+        default=[],
+    )
     parser_action.add_argument("--from", "-f", help="Configuration JSON URL or local file name")
-    parser_action.add_argument("--schema", help="Optional JSON Schema definition applied to configuration, JSON, file or URL", required=False)
-    parser_action.add_argument("--includes", help="Includes only some plugins. '*' for all", required=False, action="extend", nargs="+", type=str, default=["*"])
-    parser_action.add_argument("--excludes", help="Excludes some plugins. '*' for all", required=False, action="extend", nargs="+", type=str, default=[])
-    parser_action.add_argument("--sonar-endpoint", "-S", help="Endpoint of SonarQube", required=False)
+    parser_action.add_argument(
+        "--schema",
+        help="Optional JSON Schema definition applied to configuration, JSON, file or URL",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--includes",
+        help="Includes only some plugins. '*' for all",
+        required=False,
+        action="extend",
+        nargs="+",
+        type=str,
+        default=["*"],
+    )
+    parser_action.add_argument(
+        "--excludes",
+        help="Excludes some plugins. '*' for all",
+        required=False,
+        action="extend",
+        nargs="+",
+        type=str,
+        default=[],
+    )
+    parser_action.add_argument(
+        "--sonar-endpoint", "-S", help="Endpoint of SonarQube", required=False
+    )
     parser_action.add_argument("--sonar-api-token", help="SonarQube API token", required=False)
     parser_action.add_argument("--jenkins-home", "-H", help="JENKINS_HOME", required=False)
-    parser_action.add_argument("--jenkins-crumb", "-C", help="Jenkins crumb mode; true, false, auto", default="auto")
-    parser_action.add_argument("--jenkins-endpoint", "-J", help="Endpoint of Jenkins", required=False)
+    parser_action.add_argument(
+        "--jenkins-crumb", "-C", help="Jenkins crumb mode; true, false, auto", default="auto"
+    )
+    parser_action.add_argument(
+        "--jenkins-endpoint", "-J", help="Endpoint of Jenkins", required=False
+    )
     parser_action.add_argument("--jenkins-api-user", help="Jenkins API user", required=False)
     parser_action.add_argument("--jenkins-api-token", help="Jenkins API token", required=False)
-    parser_action.add_argument("--alfresco-endpoint", "-A", help="Endpoint of Alfresco", required=False)
+    parser_action.add_argument(
+        "--alfresco-endpoint", "-A", help="Endpoint of Alfresco", required=False
+    )
     parser_action.add_argument("--alfresco-user", help="Alfresco username", required=False)
     parser_action.add_argument("--alfresco-password", help="Alfresco password", required=False)
     parser_action.add_argument("--alfresco-ticket", help="Alfresco ticket", required=False)
@@ -102,31 +281,93 @@ def configure(subparser_service):
     parser_action.add_argument("--nexus-user", help="Nexus username", required=False)
     parser_action.add_argument("--nexus-password", help="Nexus password", required=False)
     parser_action.add_argument("--gitlab-endpoint", "-G", help="Endpoint of Gitlab", required=False)
-    parser_action.add_argument("--gitlab-token", help="GitLab API token. Must be the owner of base group", required=False)
-    parser_action.add_argument("--gitlab-base-group", help=f"Optional GitLab base groups (path or id) where project groups are created, [{gitlab.DEFAULT_GITLAB_BASE_GROUP}]")
-    parser_action.add_argument("--gitlab-project-group-prefix", help=f"Optional prefix of created GitLab project group (path)[{gitlab.DEFAULT_GITLAB_PROJECT_GROUP_PREFIX}]")
-    parser_action.add_argument("--gitlab-wrapper-group", help=f"Optional GitLab group (path) of sub-groups. When '/', project group is the parent [{gitlab.DEFAULT_GITLAB_WRAPPER_GROUP}]")
-    parser_action.add_argument("--gitlab-wrapper-group-name", help=f"Optional GitLab group name of sub-groups [{gitlab.DEFAULT_GITLAB_WRAPPER_GROUP_NAME}]")
-    parser_action.add_argument("--gitlab-project-subgroup-prefix", help=f"Optional prefix of created GitLab sub-groups (path) [{gitlab.DEFAULT_GITLAB_PROJECT_SUBGROUP_PREFIX}]")
+    parser_action.add_argument(
+        "--gitlab-token", help="GitLab API token. Must be the owner of base group", required=False
+    )
+    parser_action.add_argument(
+        "--gitlab-base-group",
+        help=f"Optional GitLab base groups (path or id) where project groups are created, [{gitlab.DEFAULT_GITLAB_BASE_GROUP}]",
+    )
+    parser_action.add_argument(
+        "--gitlab-project-group-prefix",
+        help=f"Optional prefix of created GitLab project group (path)[{gitlab.DEFAULT_GITLAB_PROJECT_GROUP_PREFIX}]",
+    )
+    parser_action.add_argument(
+        "--gitlab-wrapper-group",
+        help=f"Optional GitLab group (path) of sub-groups. When '/', project group is the parent [{gitlab.DEFAULT_GITLAB_WRAPPER_GROUP}]",
+    )
+    parser_action.add_argument(
+        "--gitlab-wrapper-group-name",
+        help=f"Optional GitLab group name of sub-groups [{gitlab.DEFAULT_GITLAB_WRAPPER_GROUP_NAME}]",
+    )
+    parser_action.add_argument(
+        "--gitlab-project-subgroup-prefix",
+        help=f"Optional prefix of created GitLab sub-groups (path) [{gitlab.DEFAULT_GITLAB_PROJECT_SUBGROUP_PREFIX}]",
+    )
 
     # bootstrap delete-roles
-    parser_action = subparser_action.add_parser("delete-roles", help="Delete role mappings and configurations from supported tools")
+    parser_action = subparser_action.add_parser(
+        "delete-roles", help="Delete role mappings and configurations from supported tools"
+    )
     parser_action.add_argument("--project", "-p", help="Associated project key")
-    parser_action.add_argument("--group-suffix", help="Suffix added to project name in deleted groups", default=DEFAULT_PARENT_GROUP_SUFFIX)
-    parser_action.add_argument("--groups", help="Group names to delete. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file", nargs="*", default=[])
+    parser_action.add_argument(
+        "--group-suffix",
+        help="Suffix added to project name in deleted groups",
+        default=DEFAULT_PARENT_GROUP_SUFFIX,
+    )
+    parser_action.add_argument(
+        "--groups",
+        help="Group names to delete. Final group name is based on 'group-suffix'. Overrides the groups defined in JSON file",
+        nargs="*",
+        default=[],
+    )
     parser_action.add_argument("--from", "-f", help="Configuration JSON URL or local file name")
-    parser_action.add_argument("--schema", help="Optional JSON Schema definition applied to configuration, JSON, file or URL", required=False)
-    parser_action.add_argument("--with-data", help="Include data deletion, repositories, folders,... for some plugins. '*' for all", required=False, action="append", default=[])
-    parser_action.add_argument("--includes", help="Includes only some plugins. '*' for all", required=False, action="extend", nargs="+", type=str, default=["*"])
-    parser_action.add_argument("--excludes", help="Excludes some plugins. '*' for all", required=False, action="extend", nargs="+", type=str, default=[])
-    parser_action.add_argument("--sonar-endpoint", "-S", help="Endpoint of SonarQube", required=False)
+    parser_action.add_argument(
+        "--schema",
+        help="Optional JSON Schema definition applied to configuration, JSON, file or URL",
+        required=False,
+    )
+    parser_action.add_argument(
+        "--with-data",
+        help="Include data deletion, repositories, folders,... for some plugins. '*' for all",
+        required=False,
+        action="append",
+        default=[],
+    )
+    parser_action.add_argument(
+        "--includes",
+        help="Includes only some plugins. '*' for all",
+        required=False,
+        action="extend",
+        nargs="+",
+        type=str,
+        default=["*"],
+    )
+    parser_action.add_argument(
+        "--excludes",
+        help="Excludes some plugins. '*' for all",
+        required=False,
+        action="extend",
+        nargs="+",
+        type=str,
+        default=[],
+    )
+    parser_action.add_argument(
+        "--sonar-endpoint", "-S", help="Endpoint of SonarQube", required=False
+    )
     parser_action.add_argument("--sonar-api-token", help="SonarQube API token", required=False)
     parser_action.add_argument("--jenkins-home", "-H", help="JENKINS_HOME", required=False)
-    parser_action.add_argument("--jenkins-crumb", "-C", help="Jenkins crumb mode; true, false, auto", default="auto")
-    parser_action.add_argument("--jenkins-endpoint", "-J", help="Endpoint of Jenkins", required=False)
+    parser_action.add_argument(
+        "--jenkins-crumb", "-C", help="Jenkins crumb mode; true, false, auto", default="auto"
+    )
+    parser_action.add_argument(
+        "--jenkins-endpoint", "-J", help="Endpoint of Jenkins", required=False
+    )
     parser_action.add_argument("--jenkins-api-user", help="Jenkins API user", required=False)
     parser_action.add_argument("--jenkins-api-token", help="Jenkins API token", required=False)
-    parser_action.add_argument("--alfresco-endpoint", "-A", help="Endpoint of Alfresco", required=False)
+    parser_action.add_argument(
+        "--alfresco-endpoint", "-A", help="Endpoint of Alfresco", required=False
+    )
     parser_action.add_argument("--alfresco-user", help="Alfresco username", required=False)
     parser_action.add_argument("--alfresco-password", help="Alfresco password", required=False)
     parser_action.add_argument("--alfresco-ticket", help="Alfresco ticket", required=False)
@@ -134,12 +375,29 @@ def configure(subparser_service):
     parser_action.add_argument("--nexus-user", help="Nexus username", required=False)
     parser_action.add_argument("--nexus-password", help="Nexus password", required=False)
     parser_action.add_argument("--gitlab-endpoint", "-G", help="Endpoint of Gitlab", required=False)
-    parser_action.add_argument("--gitlab-token", help="GitLab API token. Must be the owner of base group", required=False)
-    parser_action.add_argument("--gitlab-base-group", help=f"Optional GitLab base groups (path or id) where project groups are deleted, [{gitlab.DEFAULT_GITLAB_BASE_GROUP}]")
-    parser_action.add_argument("--gitlab-project-group-prefix", help=f"Optional prefix of deleted GitLab project group (path)[{gitlab.DEFAULT_GITLAB_PROJECT_GROUP_PREFIX}]")
-    parser_action.add_argument("--gitlab-wrapper-group", help=f"Optional GitLab group (path) of sub-groups. When '/', project group is the parent [{gitlab.DEFAULT_GITLAB_WRAPPER_GROUP}]")
-    parser_action.add_argument("--gitlab-wrapper-group-name", help=f"Optional GitLab group name of sub-groups [{gitlab.DEFAULT_GITLAB_WRAPPER_GROUP_NAME}]")
-    parser_action.add_argument("--gitlab-project-subgroup-prefix", help=f"Optional prefix of deleted GitLab sub-groups (path) [{gitlab.DEFAULT_GITLAB_PROJECT_SUBGROUP_PREFIX}]")
+    parser_action.add_argument(
+        "--gitlab-token", help="GitLab API token. Must be the owner of base group", required=False
+    )
+    parser_action.add_argument(
+        "--gitlab-base-group",
+        help=f"Optional GitLab base groups (path or id) where project groups are deleted, [{gitlab.DEFAULT_GITLAB_BASE_GROUP}]",
+    )
+    parser_action.add_argument(
+        "--gitlab-project-group-prefix",
+        help=f"Optional prefix of deleted GitLab project group (path)[{gitlab.DEFAULT_GITLAB_PROJECT_GROUP_PREFIX}]",
+    )
+    parser_action.add_argument(
+        "--gitlab-wrapper-group",
+        help=f"Optional GitLab group (path) of sub-groups. When '/', project group is the parent [{gitlab.DEFAULT_GITLAB_WRAPPER_GROUP}]",
+    )
+    parser_action.add_argument(
+        "--gitlab-wrapper-group-name",
+        help=f"Optional GitLab group name of sub-groups [{gitlab.DEFAULT_GITLAB_WRAPPER_GROUP_NAME}]",
+    )
+    parser_action.add_argument(
+        "--gitlab-project-subgroup-prefix",
+        help=f"Optional prefix of deleted GitLab sub-groups (path) [{gitlab.DEFAULT_GITLAB_PROJECT_SUBGROUP_PREFIX}]",
+    )
 
 
 def execute_action(service, action, _operation, args):
@@ -150,17 +408,27 @@ def execute_action(service, action, _operation, args):
         if len(includes) > 1 and includes[0] == "*":
             includes.pop(0)
         with_data = args.get("with_data", [])
-        utils.debug(f"Inclusion options excludes={excludes}, includes={includes}, with_data={with_data}")
+        utils.debug(
+            f"Inclusion options excludes={excludes}, includes={includes}, with_data={with_data}"
+        )
         if action == "init":
             return bootstrap_init(
                 utils.get_config(args, "base_dn", "LIGOJ_LDAP_BASE_DN", None),
                 utils.get_config(args, "groups_base_dn", "LIGOJ_LDAP_GROUPS_BASE_DN", None),
                 utils.get_config(args, "projects_base_dn", "LIGOJ_LDAP_PROJECTS_BASE_DN", None),
-                utils.get_config(args, "technical_groups_base_dn", "LIGOJ_LDAP_TECHNICAL_GROUPS_BASE_DN", None),
+                utils.get_config(
+                    args, "technical_groups_base_dn", "LIGOJ_LDAP_TECHNICAL_GROUPS_BASE_DN", None
+                ),
                 utils.get_config(args, "users_base_dn", "LIGOJ_LDAP_USERS_BASE_DN", None),
-                utils.get_config(args, "internal_users_base_dn", "LIGOJ_LDAP_INTERNAL_USERS_BASE_DN", None),
-                utils.get_config(args, "technical_users_base_dn", "LIGOJ_LDAP_TECHNICAL_USERS_BASE_DN", None),
-                utils.get_config(args, "external_users_base_dn", "LIGOJ_LDAP_EXTERNAL_USERS_BASE_DN", None),
+                utils.get_config(
+                    args, "internal_users_base_dn", "LIGOJ_LDAP_INTERNAL_USERS_BASE_DN", None
+                ),
+                utils.get_config(
+                    args, "technical_users_base_dn", "LIGOJ_LDAP_TECHNICAL_USERS_BASE_DN", None
+                ),
+                utils.get_config(
+                    args, "external_users_base_dn", "LIGOJ_LDAP_EXTERNAL_USERS_BASE_DN", None
+                ),
                 utils.get_config_list(args, "technical_groups", "LIGOJ_LDAP_TECHNICAL_GROUPS", []),
             )
         if action == "welcome-user":
@@ -190,7 +458,11 @@ def execute_action(service, action, _operation, args):
                 args.get("groups"),
             )
         if action == "delete-project":
-            return bootstrap_delete_project(utils.not_none(args.get("project"), "project key"), args.get("parent_admin"), args.get("on_behalf_of"))
+            return bootstrap_delete_project(
+                utils.not_none(args.get("project"), "project key"),
+                args.get("parent_admin"),
+                args.get("on_behalf_of"),
+            )
         if action == "create-nested-project":
             return bootstrap_create_project(
                 action,
@@ -213,13 +485,30 @@ def execute_action(service, action, _operation, args):
             project_key = utils.not_none(args.get("project"), "project key")
             project = ligoj.project_get(project_key)
             if not project:
-                utils.warn(f"[ligoj] Project '{project_key}' not found, partial context will be available in JSON")
+                utils.warn(
+                    f"[ligoj] Project '{project_key}' not found, partial context will be available in JSON"
+                )
 
-            context: dict[str, str] = {"project": {"key": project_key} | ({"name": project_key, "id": 0} if project is None else {"name": project.get("name"), "id": project.get("id")})}
-            definition_json = utils.load_json_from_url_or_file_with_interpolation(utils.not_none(args.get("from"), "configuration file/URL"), context)
-            schema_base = utils.load_json_from_url_or_file_with_interpolation("./plugins/schema.json", context)
-            schema_extension = utils.load_json_from_url_or_file_with_interpolation(args.get("schema"), context)
-            schema = schema_base if schema_extension is None else merge(schema_base, schema_extension)
+            context: dict[str, str] = {
+                "project": {"key": project_key}
+                | (
+                    {"name": project_key, "id": 0}
+                    if project is None
+                    else {"name": project.get("name"), "id": project.get("id")}
+                )
+            }
+            definition_json = utils.load_json_from_url_or_file_with_interpolation(
+                utils.not_none(args.get("from"), "configuration file/URL"), context
+            )
+            schema_base = utils.load_json_from_url_or_file_with_interpolation(
+                "./plugins/schema.json", context
+            )
+            schema_extension = utils.load_json_from_url_or_file_with_interpolation(
+                args.get("schema"), context
+            )
+            schema = (
+                schema_base if schema_extension is None else merge(schema_base, schema_extension)
+            )
             validate(definition_json, schema)
 
             if action == "create-roles":
@@ -232,13 +521,25 @@ def execute_action(service, action, _operation, args):
                 )
 
             if action == "delete-roles":
-                return bootstrap_delete_roles(project, utils.flat_map_group(args.get("groups")), definition_json, args.get("group_suffix"))
+                return bootstrap_delete_roles(
+                    project,
+                    utils.flat_map_group(args.get("groups")),
+                    definition_json,
+                    args.get("group_suffix"),
+                )
 
 
 def is_plugin_included(definition_json, plugin) -> bool:
     plugin_name = getattr(plugin, "PLUGIN_NAME")
     endpoint = getattr(plugin, f"{plugin_name}_endpoint")
-    included = plugin_name in definition_json and plugin_name not in excludes and "*" not in excludes and (plugin_name in includes or "*" in includes) and endpoint and len(endpoint) > 0
+    included = (
+        plugin_name in definition_json
+        and plugin_name not in excludes
+        and "*" not in excludes
+        and (plugin_name in includes or "*" in includes)
+        and endpoint
+        and len(endpoint) > 0
+    )
     if included:
         utils.check_endpoint(endpoint, plugin_name)
     return included
@@ -253,26 +554,40 @@ def is_plugin_with_data(plugin: str) -> bool:
 # -----
 # For each tool, delete the related role
 def bootstrap_delete_roles(project_key: str, groups: list[str], definition_json, group_suffix: str):
-    (groups, groups_by_name, parent_group) = validate_schema("Delete", project_key, definition_json, groups, group_suffix)
+    (groups, groups_by_name, parent_group) = validate_schema(
+        "Delete", project_key, definition_json, groups, group_suffix
+    )
 
     # Delete the roles for each tool
     if is_plugin_included(definition_json, jenkins):
-        jenkins.jenkins_delete_roles(groups_by_name, definition_json["jenkins"], is_plugin_with_data("jenkins"))
+        jenkins.jenkins_delete_roles(
+            groups_by_name, definition_json["jenkins"], is_plugin_with_data("jenkins")
+        )
 
     if is_plugin_included(definition_json, nexus):
-        nexus.nexus_delete_roles(groups_by_name, definition_json["nexus"], is_plugin_with_data("nexus"))
+        nexus.nexus_delete_roles(
+            groups_by_name, definition_json["nexus"], is_plugin_with_data("nexus")
+        )
 
     if is_plugin_included(definition_json, sonarqube):
-        sonarqube.sonar_delete_roles(groups_by_name, definition_json["sonar"], is_plugin_with_data("sonar"))
+        sonarqube.sonar_delete_roles(
+            groups_by_name, definition_json["sonar"], is_plugin_with_data("sonar")
+        )
 
     if is_plugin_included(definition_json, alfresco):
-        alfresco.alfresco_delete_site_roles(groups_by_name, definition_json["alfresco"], is_plugin_with_data("alfresco"))
+        alfresco.alfresco_delete_site_roles(
+            groups_by_name, definition_json["alfresco"], is_plugin_with_data("alfresco")
+        )
 
     if is_plugin_included(definition_json, argocd):
-        argocd.argocd_delete_project_roles(groups_by_name, definition_json["argocd"], is_plugin_with_data("argocd"))
+        argocd.argocd_delete_project_roles(
+            groups_by_name, definition_json["argocd"], is_plugin_with_data("argocd")
+        )
 
     if is_plugin_included(definition_json, gitlab):
-        gitlab.gitlab_delete_project_roles(parent_group, groups_by_name, definition_json["gitlab"], is_plugin_with_data("gitlab"))
+        gitlab.gitlab_delete_project_roles(
+            parent_group, groups_by_name, definition_json["gitlab"], is_plugin_with_data("gitlab")
+        )
 
     utils.info("[bootstrap] Roles have been deleted as needed")
     return False
@@ -282,8 +597,16 @@ def bootstrap_delete_roles(project_key: str, groups: list[str], definition_json,
 # Activities
 # -----
 # For each tool, create the related role
-def bootstrap_create_roles(project_key: str, groups: list[str], definition_json, group_suffix: str, on_behalf_of: str | None):
-    (groups, groups_by_name, parent_group) = validate_schema("Create", project_key, definition_json, groups, group_suffix)
+def bootstrap_create_roles(
+    project_key: str,
+    groups: list[str],
+    definition_json,
+    group_suffix: str,
+    on_behalf_of: str | None,
+):
+    (groups, groups_by_name, parent_group) = validate_schema(
+        "Create", project_key, definition_json, groups, group_suffix
+    )
 
     # Create the roles for each tool
     if is_plugin_included(definition_json, jenkins):
@@ -302,7 +625,9 @@ def bootstrap_create_roles(project_key: str, groups: list[str], definition_json,
         argocd.argocd_create_project_roles(groups_by_name, definition_json["argocd"])
 
     if is_plugin_included(definition_json, gitlab):
-        gitlab.gitlab_create_project_roles(parent_group, project_key, groups_by_name, on_behalf_of, definition_json["gitlab"])
+        gitlab.gitlab_create_project_roles(
+            parent_group, project_key, groups_by_name, on_behalf_of, definition_json["gitlab"]
+        )
 
     utils.info("[bootstrap] Roles have been created as needed")
     return False
@@ -333,20 +658,34 @@ def bootstrap_init(
     technical_groups: list[str],
 ):
     # Companies
-    scope_unassigned_company = id.container_scope_create("Unassigned", "company", id.ldap_concat(users_base_dn, "", base_dn))
-    id.container_scope_create("Internal", "company", id.ldap_concat(internal_users_base_dn, users_base_dn, base_dn))
-    id.container_scope_create("External", "company", id.ldap_concat(external_users_base_dn, users_base_dn, base_dn))
-    id.container_scope_create("Technical", "company", id.ldap_concat(technical_users_base_dn, users_base_dn, base_dn))
+    scope_unassigned_company = id.container_scope_create(
+        "Unassigned", "company", id.ldap_concat(users_base_dn, "", base_dn)
+    )
+    id.container_scope_create(
+        "Internal", "company", id.ldap_concat(internal_users_base_dn, users_base_dn, base_dn)
+    )
+    id.container_scope_create(
+        "External", "company", id.ldap_concat(external_users_base_dn, users_base_dn, base_dn)
+    )
+    id.container_scope_create(
+        "Technical", "company", id.ldap_concat(technical_users_base_dn, users_base_dn, base_dn)
+    )
     id.company_create(DEFAULT_LDAP_OU_TECHNICAL_USERS, scope_unassigned_company)
     id.company_create(DEFAULT_LDAP_OU_EXTERNAL_USERS, scope_unassigned_company)
 
     # Groups
-    scope_unassigned_group = id.container_scope_create("Unassigned", "group", id.ldap_concat(groups_base_dn, "", base_dn))
-    id.container_scope_create("Project", "group", id.ldap_concat(projects_base_dn, groups_base_dn, base_dn))
+    scope_unassigned_group = id.container_scope_create(
+        "Unassigned", "group", id.ldap_concat(groups_base_dn, "", base_dn)
+    )
+    id.container_scope_create(
+        "Project", "group", id.ldap_concat(projects_base_dn, groups_base_dn, base_dn)
+    )
 
     # Cross instances administrator access
     if technical_groups_base_dn and not technical_groups.empty():
-        scope_technical_group = id.container_scope_create("Technical", "group", id.ldap_concat(technical_groups_base_dn, groups_base_dn, base_dn))
+        scope_technical_group = id.container_scope_create(
+            "Technical", "group", id.ldap_concat(technical_groups_base_dn, groups_base_dn, base_dn)
+        )
         id.ou_create("technical-groups", scope_unassigned_group, "group")
         for technical_group in technical_groups:
             id.group_create(technical_group, scope_technical_group)
@@ -404,7 +743,9 @@ def bootstrap_welcome_user(
             if validated:
                 break
         if not validated:
-            raise ValueError(f"[ligoj] All DNS A records validation failed for project {project_key}")
+            raise ValueError(
+                f"[ligoj] All DNS A records validation failed for project {project_key}"
+            )
 
     # Create technical script admin user
     ligoj_user_script = f"{project_key}-script"
@@ -416,7 +757,9 @@ def bootstrap_welcome_user(
             "mail": f"{ligoj_user_script}@localhost",
             "company": DEFAULT_LDAP_OU_TECHNICAL_USERS,
             "groups": ["full-read"],
-            "customAttributes": script_custom_attributes and json.loads(script_custom_attributes) or None,
+            "customAttributes": script_custom_attributes
+            and json.loads(script_custom_attributes)
+            or None,
         }
     )
     role_name = f"ADMIN_{project_key.upper()}"
@@ -426,7 +769,9 @@ def bootstrap_welcome_user(
         utils.info(f"[ligoj] User '{ligoj_user_script}' has been created with api_key")
     else:
         user_api_key = user_api_key.json()
-        utils.info(f"[ligoj] User '{ligoj_user_script}' had already an api_key and will not be displayed there")
+        utils.info(
+            f"[ligoj] User '{ligoj_user_script}' had already an api_key and will not be displayed there"
+        )
 
     # Create technical LDAP reader user
     ligoj_user_reader = f"{project_key}-reader"
@@ -439,25 +784,40 @@ def bootstrap_welcome_user(
             "company": DEFAULT_LDAP_OU_TECHNICAL_USERS,
             "groups": [],
             "returnGeneratePassword": True,
-            "customAttributes": json.loads(reader_custom_attributes) if reader_custom_attributes else None,
+            "customAttributes": json.loads(reader_custom_attributes)
+            if reader_custom_attributes
+            else None,
         }
     )
     if ligoj_user_reader_password is None:
         if reset_reader_password:
             ligoj_user_reader_password = id.user_reset_password(ligoj_user_reader)
-            utils.info(f"[ligoj] User '{ligoj_user_reader}' was already created with password, and reset to a new one")
+            utils.info(
+                f"[ligoj] User '{ligoj_user_reader}' was already created with password, and reset to a new one"
+            )
         else:
-            utils.info(f"[ligoj] User '{ligoj_user_reader}' was already created with password (cannot be retrieved again)")
+            utils.info(
+                f"[ligoj] User '{ligoj_user_reader}' was already created with password (cannot be retrieved again)"
+            )
     else:
         ligoj_user_reader_password = ligoj_user_reader_password.text
-        utils.warn(f"[ligoj] User '{ligoj_user_reader}' has been created with password, add LDAP ACL for the following DN: uid={ligoj_user_reader}(base_dn)")
+        utils.warn(
+            f"[ligoj] User '{ligoj_user_reader}' has been created with password, add LDAP ACL for the following DN: uid={ligoj_user_reader}(base_dn)"
+        )
 
     # Create the project
-    project_id = ligoj.project_create(admin_user, project_key, f"Principal {project_key}" if project_name is None else project_name, f"Projet principal de {project_key}")["id"]
+    project_id = ligoj.project_create(
+        admin_user,
+        project_key,
+        f"Principal {project_key}" if project_name is None else project_name,
+        f"Projet principal de {project_key}",
+    )["id"]
 
     # Retrieve the primary node
     ldap_node = ligoj.configuration_get("feature:iam:node:primary").get("value")
-    utils.debug(f"[ligoj] Create LDAP groups in node {ldap_node}, detected from configuration 'feature:iam:node:primary'")
+    utils.debug(
+        f"[ligoj] Create LDAP groups in node {ldap_node}, detected from configuration 'feature:iam:node:primary'"
+    )
 
     # Create LDAP parent group
     group = f"{project_key}{group_suffix}"
@@ -507,17 +867,32 @@ def bootstrap_welcome_user(
 # -----
 # Check the project
 # For each group, create LDAP sub-group "project-$1"
-def bootstrap_create_project(action: str, project_key: str, project_name: str | None, group_suffix: str, parent_project: str | None, parent_admin: str | None, team_leader: str | None, groups):
+def bootstrap_create_project(
+    action: str,
+    project_key: str,
+    project_name: str | None,
+    group_suffix: str,
+    parent_project: str | None,
+    parent_admin: str | None,
+    team_leader: str | None,
+    groups,
+):
     team_leader = team_leader or parent_admin or ligoj.ligoj_api_user
     if action == "create-project":
         if parent_project is None:
             utils.info(f"[ligoj] Create new project {project_key} and its groups... ")
         elif parent_admin is None:
-            utils.info(f"[ligoj] Create new project {project_key} and its groups with a relation to {parent_admin}... ")
+            utils.info(
+                f"[ligoj] Create new project {project_key} and its groups with a relation to {parent_admin}... "
+            )
         else:
-            utils.info(f"[ligoj] Create new project {project_key} and its groups with a relation to {parent_admin} where {parent_admin} must be a manager... ")
+            utils.info(
+                f"[ligoj] Create new project {project_key} and its groups with a relation to {parent_admin} where {parent_admin} must be a manager... "
+            )
     else:
-        utils.info(f"[ligoj] Create groups for nested project {project_key} inside {parent_project} ... ")
+        utils.info(
+            f"[ligoj] Create groups for nested project {project_key} inside {parent_project} ... "
+        )
 
     # Check the child project
     if parent_project is None:
@@ -542,29 +917,43 @@ def bootstrap_create_project(action: str, project_key: str, project_name: str | 
 
         parent_project_details = id.project_get(parent_project, headers=headers)
         if parent_project_details is None:
-            raise ValueError(f"[ligoj] Project '{parent_project}' does not exists or not visible to user {team_leader}")
+            raise ValueError(
+                f"[ligoj] Project '{parent_project}' does not exists or not visible to user {team_leader}"
+            )
         if parent_project_details["manageSubscriptions"] is not True:
-            raise ValueError(f"[ligoj] Project '{parent_project}' is not managed by user {team_leader}")
+            raise ValueError(
+                f"[ligoj] Project '{parent_project}' is not managed by user {team_leader}"
+            )
 
         child_project_details = ligoj.project_get(project_key, headers=headers)
         if child_project_details is None:
             project_id = ligoj.project_create(
-                team_leader, project_key, f"Principal {project_key}" if project_name is None else project_name, f"Projet principal de {project_key}", json.dumps({"parent-project": parent_project})
+                team_leader,
+                project_key,
+                f"Principal {project_key}" if project_name is None else project_name,
+                f"Projet principal de {project_key}",
+                json.dumps({"parent-project": parent_project}),
             )["id"]
         elif child_project_details["manageSubscriptions"] is True:
             project_id = child_project_details["id"]
             utils.debug(f"[ligoj] Project {project_key} already exists with id {project_id}")
         else:
-            raise ValueError(f"[ligoj] Parent project '{project_key}' already exists and is not managed by {team_leader}")
+            raise ValueError(
+                f"[ligoj] Parent project '{project_key}' already exists and is not managed by {team_leader}"
+            )
 
     # Retrieve the primary node
     ldap_node = ligoj.configuration_get("feature:iam:node:primary").get("value")
-    utils.debug(f"[ligoj] Create LDAP groups in node {ldap_node}, detected from configuration 'feature:iam:node:primary'")
+    utils.debug(
+        f"[ligoj] Create LDAP groups in node {ldap_node}, detected from configuration 'feature:iam:node:primary'"
+    )
 
     # Create the LDAP groups
     if "admin" not in groups:
         groups.append("admin")
-    utils.info(f"[ligoj] Create groups ({len(groups)}) for project {project_key}({project_id}) ... ")
+    utils.info(
+        f"[ligoj] Create groups ({len(groups)}) for project {project_key}({project_id}) ... "
+    )
 
     parent_group = f"{project_key}{group_suffix}"
     created_groups = 0
@@ -578,7 +967,9 @@ def bootstrap_create_project(action: str, project_key: str, project_name: str | 
         # Create LDAP admin group inside the project
         group_admin = f"{parent_group}-admin"
         expected_groups = expected_groups + 1
-        if id.subscription_create_id_group(project_id, project_key, ldap_node, group_admin, parent_group):
+        if id.subscription_create_id_group(
+            project_id, project_key, ldap_node, group_admin, parent_group
+        ):
             created_groups = created_groups + 1
 
         id.user_add_to_group(team_leader, group_admin)
@@ -588,17 +979,23 @@ def bootstrap_create_project(action: str, project_key: str, project_name: str | 
 
     for group in groups:
         if group.startswith(f"{parent_group}-"):
-            utils.warn(f"[ligoj] Provided group '{group}' already starts by required prefix '{parent_group}-'")
+            utils.warn(
+                f"[ligoj] Provided group '{group}' already starts by required prefix '{parent_group}-'"
+            )
             ldap_group = group
             base_group = group[len(f"{parent_group}-") :]
         elif group.startswith(f"{project_key}-"):
-            raise ValueError(f"[ligoj] Invalid group name '{group}', must start with '{parent_group}-' or not starts with '{project_key}-'")
+            raise ValueError(
+                f"[ligoj] Invalid group name '{group}', must start with '{parent_group}-' or not starts with '{project_key}-'"
+            )
         else:
             base_group = group
             ldap_group = f"{parent_group}-{group}"
         if base_group != "admin":
             expected_groups = expected_groups + 1
-            if id.subscription_create_id_group(project_id, project_key, ldap_node, ldap_group, parent_group):
+            if id.subscription_create_id_group(
+                project_id, project_key, ldap_node, ldap_group, parent_group
+            ):
                 created_groups = created_groups + 1
 
     utils.info(f"[ligoj] {created_groups}/{expected_groups} groups have been created")
@@ -651,25 +1048,37 @@ def bootstrap_delete_project(project_key: str, parent_admin: str | None, on_beha
     ligoj.project_delete_by_pkey(project_key, True)
 
 
-def validate_schema(mode, project_key, definition_json, groups: list[str], group_suffix: str) -> tuple[list[str], dict[str, str], str]:
+def validate_schema(
+    mode, project_key, definition_json, groups: list[str], group_suffix: str
+) -> tuple[list[str], dict[str, str], str]:
     # Check the groups
     if not groups or len(groups) == 0:
         # No provided inline groups, check the one in JSON
-        if "groups" not in definition_json or not isinstance(definition_json["groups"], list) or len(definition_json["groups"]) == 0:
+        if (
+            "groups" not in definition_json
+            or not isinstance(definition_json["groups"], list)
+            or len(definition_json["groups"]) == 0
+        ):
             raise ValueError("[ligoj] Empty or not array 'groups'")
         groups = definition_json["groups"]
 
     # Create the LDAP groups
-    utils.info(f"[ligoj] {mode} roles based on {len(groups)} group(s) for project '{project_key}' ... ")
+    utils.info(
+        f"[ligoj] {mode} roles based on {len(groups)} group(s) for project '{project_key}' ... "
+    )
     groups_by_name: dict[str, str] = {}
 
     parent_group = f"{project_key}{group_suffix}"
     for group in groups:
         if group.startswith(f"{parent_group}-"):
-            utils.warn(f"[ligoj] Provided group '{group}' starts already by required prefix '{parent_group}-'")
+            utils.warn(
+                f"[ligoj] Provided group '{group}' starts already by required prefix '{parent_group}-'"
+            )
             ldap_group = group
         elif group.startswith(f"{project_key}-"):
-            raise ValueError(f"[ligoj] Invalid group name '{group}', must start with '{parent_group}-' or not starts with '{project_key}-'")
+            raise ValueError(
+                f"[ligoj] Invalid group name '{group}', must start with '{parent_group}-' or not starts with '{project_key}-'"
+            )
         else:
             ldap_group = f"{parent_group}-{group}"
         groups_by_name[group] = ldap_group

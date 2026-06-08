@@ -26,7 +26,9 @@ INI_CREDENTIALS_FILE = f"{user_home}/.ligoj/credentials"
 INI_SESSIONS_FILE = f"{user_home}/.ligoj/sessions"
 ADD_GLOBAL_ROLES = True
 UPDATE_MODE_ONCE = "once"  # Roles are created only the first time. No update or addition
-UPDATE_MODE_CREATE = "create"  # Roles are created and updated as necessary. No deletion. Default mode.
+UPDATE_MODE_CREATE = (
+    "create"  # Roles are created and updated as necessary. No deletion. Default mode.
+)
 UPDATE_MODE_DEFAULT = UPDATE_MODE_CREATE
 MIME_JSON = "application/json"
 MIME_URL_ENCODED = "application/x-www-form-urlencoded"
@@ -48,23 +50,65 @@ ini_sessions = ConfigParser()
 def init() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
 
     # See https://docs.python.org/3/library/argparse.html
-    parser = argparse.ArgumentParser(prog="Ligoj CLI", description="Ligoj CLI for REST API", allow_abbrev=False)
+    parser = argparse.ArgumentParser(
+        prog="Ligoj CLI", description="Ligoj CLI for REST API", allow_abbrev=False
+    )
     parser.add_argument("--endpoint", "-e", help="Ligoj Endpoint", default=None)
     parser.add_argument("--api-user", "-u", help="Username", default=None)
-    parser.add_argument("--api-run-as-user", "-U", help="Run as username, only when API user is an administrator", default=None)
+    parser.add_argument(
+        "--api-run-as-user",
+        "-U",
+        help="Run as username, only when API user is an administrator",
+        default=None,
+    )
     parser.add_argument("--api-key", help="API key", default=None)
-    parser.add_argument("--api-local-roles", help="Restrict the computed roles to the local ones", default=False, action="store_true")
+    parser.add_argument(
+        "--api-local-roles",
+        help="Restrict the computed roles to the local ones",
+        default=False,
+        action="store_true",
+    )
     parser.add_argument("--profile", help="Profile name", default=None)
-    parser.add_argument("--fail-on-hook-error", help="Fail on hook error", default=False, action="store_true")
+    parser.add_argument(
+        "--fail-on-hook-error", help="Fail on hook error", default=False, action="store_true"
+    )
     parser.add_argument("--version", "-v", help="Version", action="store_true")
-    parser.add_argument("--no-color", help="Disable colors in messages", action="store_true", default=False)
-    parser.add_argument("--verbose", "-V", help="Enable TRACE level", action="store_true", default=False)
-    parser.add_argument("--trace", "-T", help="Enable TRACE level", action="store_true", default=False)
-    parser.add_argument("--debug", "-G", help="Enable DEBUG level", action="store_true", default=False)
-    parser.add_argument("--log-level", "-L", choices=["TRACE", "DEBUG", "INFO", "WARN", "ERROR"], help="Specific log level", default=None)
-    parser.add_argument("--output", "-o", choices=["text", "json"], help="Output mode", default=None)
-    parser.add_argument("--buffer-log", "-B", help="Enable log buffering, error and output might be out of sync", default=False, action="store_true")
-    parser.add_argument("--insecure", "-k", help="Allow insecure server connections when using SSL", action="store_true", default=None)
+    parser.add_argument(
+        "--no-color", help="Disable colors in messages", action="store_true", default=False
+    )
+    parser.add_argument(
+        "--verbose", "-V", help="Enable TRACE level", action="store_true", default=False
+    )
+    parser.add_argument(
+        "--trace", "-T", help="Enable TRACE level", action="store_true", default=False
+    )
+    parser.add_argument(
+        "--debug", "-G", help="Enable DEBUG level", action="store_true", default=False
+    )
+    parser.add_argument(
+        "--log-level",
+        "-L",
+        choices=["TRACE", "DEBUG", "INFO", "WARN", "ERROR"],
+        help="Specific log level",
+        default=None,
+    )
+    parser.add_argument(
+        "--output", "-o", choices=["text", "json"], help="Output mode", default=None
+    )
+    parser.add_argument(
+        "--buffer-log",
+        "-B",
+        help="Enable log buffering, error and output might be out of sync",
+        default=False,
+        action="store_true",
+    )
+    parser.add_argument(
+        "--insecure",
+        "-k",
+        help="Allow insecure server connections when using SSL",
+        action="store_true",
+        default=None,
+    )
     subparser_service = parser.add_subparsers(title="service", help="Service API", dest="service")
     return (parser, subparser_service)
 
@@ -84,9 +128,17 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
 
     ini_profile = get_config(args, "profile", "LIGOJ_PROFILE", DEFAULT_LIGOJ_PROFILE)
     no_color = args["no_color"]
-    buffer_log = str(get_config(args, "buffer-log", "LIGOJ_BUFFER_LOG", "True")).lower() in ["true", "1", "yes"]
+    buffer_log = str(get_config(args, "buffer-log", "LIGOJ_BUFFER_LOG", "True")).lower() in [
+        "true",
+        "1",
+        "yes",
+    ]
     init_logger()
-    insecure = str(get_config(args, "insecure", "LIGOJ_INSECURE", "False")).lower() in ["true", "1", "yes"]
+    insecure = str(get_config(args, "insecure", "LIGOJ_INSECURE", "False")).lower() in [
+        "true",
+        "1",
+        "yes",
+    ]
     cookie_session = get_secret(args, "session", "LIGOJ_COOKIE_SESSION", None)
     if args["verbose"] is True or args["trace"] is True:
         log_level = "TRACE"
@@ -98,7 +150,9 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
     if insecure is True:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     output = get_config(args, "output", "LIGOJ_OUTPUT", "json")
-    fail_on_hook_error = str(get_config(args, "fail_on_hook_error", "LIGOJ_FAIL_ON_HOOK_ERROR", "False")).lower() in ["true", "1", "yes"]
+    fail_on_hook_error = str(
+        get_config(args, "fail_on_hook_error", "LIGOJ_FAIL_ON_HOOK_ERROR", "False")
+    ).lower() in ["true", "1", "yes"]
     return (args, output)
 
 
@@ -114,8 +168,11 @@ def log(level: str, message, color=None, file=None):
     elif no_color:
         level_str = ""
     else:
-        level_str = f'[{Style.BRIGHT}{level}{Style.NORMAL}{"".rjust(5-len(level), " ")}]'
-    print(f"{'' if no_color or color is None else color}{level_str} {message}{'' if no_color or color is None else Style.RESET_ALL}", file=file)
+        level_str = f"[{Style.BRIGHT}{level}{Style.NORMAL}{''.rjust(5 - len(level), ' ')}]"
+    print(
+        f"{'' if no_color or color is None else color}{level_str} {message}{'' if no_color or color is None else Style.RESET_ALL}",
+        file=file,
+    )
 
 
 def trace(message):
@@ -165,7 +222,9 @@ def delete_temp_file_from(from_location, upload_file):
     return upload_file
 
 
-def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tuple[str] | None, kwargs=None):
+def call_rest_api(
+    method: str, component: str, endpoint: str, url: str, auth: tuple[str] | None, kwargs=None
+):
     if kwargs is None:
         kwargs = {}
     dict_data = kwargs.get("data", {})
@@ -181,7 +240,11 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
     message_url = f"[{component}] API {method} {full_url if log_level in ['TRACE'] else url}"
     message_req = f"{message_url}{f' ?{query_parameters}' if len(query_parameters.keys()) else ''} {dict_data if isinstance(dict_data, dict) and len(dict_data.keys()) else ''}"
     message_headers = f" -- {headers}" if len(headers.keys()) and log_level in ["TRACE"] else ""
-    message_cookies = f" -- {kwargs.get('cookies') if len(kwargs.get('cookies', {}).keys()) else ''}" if len(kwargs.get("cookies", {}).keys()) and log_level in ["TRACE"] else ""
+    message_cookies = (
+        f" -- {kwargs.get('cookies') if len(kwargs.get('cookies', {}).keys()) else ''}"
+        if len(kwargs.get("cookies", {}).keys()) and log_level in ["TRACE"]
+        else ""
+    )
     if log_level in ["TRACE"]:
         trace(f"{message_req}{message_headers}{message_cookies} ...")
     else:
@@ -202,7 +265,14 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
     try:
         if (dict_data is None or isinstance(dict_data, dict)) and "files" not in kwargs:
             response = session.request(
-                method, full_url, params=query_parameters, json=dict_data, stream=kwargs.get("stream", False), headers=request_headers, verify=not insecure, cookies=kwargs.get("cookies")
+                method,
+                full_url,
+                params=query_parameters,
+                json=dict_data,
+                stream=kwargs.get("stream", False),
+                headers=request_headers,
+                verify=not insecure,
+                cookies=kwargs.get("cookies"),
             )
         else:
             response = session.request(
@@ -220,7 +290,9 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
         raise ValueError(f"[{component}] API call failed", e) from e
 
     # Unconditional exit codes
-    message_headers = f" -- {response.headers}" if len(response.headers.keys()) and log_level in ["TRACE"] else ""
+    message_headers = (
+        f" -- {response.headers}" if len(response.headers.keys()) and log_level in ["TRACE"] else ""
+    )
     message_response = f"{message_url} ({response.status_code}){message_headers}"
     if response.status_code == 504:
         raise ValueError(f"{message_response}, failed with internal timeout")
@@ -270,10 +342,14 @@ def call_rest_api(method: str, component: str, endpoint: str, url: str, auth: tu
             return None
         raise ValueError(f"{message_response}, message={message}")
     try:
-        trace(f"{message_response} {'(ignored output)' if kwargs.get('ignore_output', False) else response.json()}")
+        trace(
+            f"{message_response} {'(ignored output)' if kwargs.get('ignore_output', False) else response.json()}"
+        )
     except BaseException:
         try:
-            trace(f"{message_response}, {'(ignored output)' if kwargs.get('ignore_output', False) else response.text}")
+            trace(
+                f"{message_response}, {'(ignored output)' if kwargs.get('ignore_output', False) else response.text}"
+            )
         except BaseException:
             trace(f"{message_response} (no response)")
 
@@ -304,7 +380,12 @@ def ini_sessions_write():
 
 
 def cleanup_ini_value(value: str | None) -> str | bool:
-    if isinstance(value, str) and (value.startswith("'") and value.endswith("'") or value.startswith('"') and value.endswith('"')):
+    if isinstance(value, str) and (
+        value.startswith("'")
+        and value.endswith("'")
+        or value.startswith('"')
+        and value.endswith('"')
+    ):
         value = value[1:-1]
     return None if isinstance(value, str) and len(value) == 0 else value
 
@@ -384,7 +465,9 @@ def interpolate(input_string: str, context):
     return result
 
 
-def load_json_from_url_or_file_with_interpolation(location: str | None, context: dict[str, str | None]):
+def load_json_from_url_or_file_with_interpolation(
+    location: str | None, context: dict[str, str | None]
+):
     obj = load_json_from_url_or_file(location)
     if obj:
         template_as_string = json.dumps(obj)
@@ -407,6 +490,10 @@ def load_json_from_url_or_file(location: str | None) -> dict[str, Any] | None:
 # Check the given endpoint is not a resource URL
 def check_endpoint(url: str, name: str):
     if re.match(r".*\.[A-Za-z0-9]{3,4}$", url):
-        raise ValueError(f"[ligoj] Given URL for {name} does not look like a valid endpoint. Extension detected")
+        raise ValueError(
+            f"[ligoj] Given URL for {name} does not look like a valid endpoint. Extension detected"
+        )
     if not re.match(r"^https?://.*$", url):
-        raise ValueError(f"[ligoj] Given URL for {name} does not look like a valid endpoint. No valid scheme")
+        raise ValueError(
+            f"[ligoj] Given URL for {name} does not look like a valid endpoint. No valid scheme"
+        )
