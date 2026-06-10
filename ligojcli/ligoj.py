@@ -13,6 +13,7 @@ from ligojcli.plugins import (
     gitlab,
     harbor,
     jenkins,
+    id,
     nexus,
     sonarqube,
     utils,
@@ -95,6 +96,7 @@ def execute_action(service, action, operation, args):
         or alfresco.execute_action(service, action, operation, args)
         or argocd.execute_action(service, action, operation, args)
         or jenkins.execute_action(service, action, operation, args)
+        or id.execute_action(service, action, operation, args)
         or bootstrap.execute_action(service, action, operation, args)
         or harbor.execute_action(service, action, operation, args)
         or nexus.execute_action(service, action, operation, args)
