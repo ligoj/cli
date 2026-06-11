@@ -15,6 +15,7 @@ from ligojcli.plugins import (
     id,
     jenkins,
     nexus,
+    prov,
     sonarqube,
     utils,
 )
@@ -32,6 +33,7 @@ def main():
     jenkins.configure(subparser_service)
     ligoj_plugin.configure(subparser_service)
     nexus.configure(subparser_service)
+    prov.configure(subparser_service)
     sonarqube.configure(subparser_service)
 
     (args, output) = utils.configure(parser)
@@ -102,6 +104,7 @@ def execute_action(service, action, operation, args):
         or id.execute_action(service, action, operation, args)
         or jenkins.execute_action(service, action, operation, args)
         or nexus.execute_action(service, action, operation, args)
+        or prov.execute_action(service, action, operation, args)
         or sonarqube.execute_action(service, action, operation, args)
         or False
     )

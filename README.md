@@ -1646,6 +1646,90 @@ For current user:
 ligoj id:user reset-password
 ```
 
+# Plugin prov
+
+Operations related to [plugin-prov](https://github.com/ligoj/plugin-prov) and its provider
+sub-plugins (AWS, Azure, GCP, …), exposed under `prov:<resource>` services. They drive a
+*provisioning quote* identified by a **subscription** id (`--subscription`/`-s`), the project's
+subscription to a `service:prov:*` node.
+
+| Service          | Actions                                          | REST base                          |
+| ---------------- | ------------------------------------------------ | ---------------------------------- |
+| `prov:quote`     | `get`, `update`, `refresh`, `refresh-cost`, `locations` | `service/prov/{subscription}` |
+| `prov:instance`  | `lookup`, `create`, `update`, `delete`, `delete-all` | `service/prov/instance`        |
+| `prov:container` | `lookup`, `create`, `update`, `delete`, `delete-all` | `service/prov/container`       |
+| `prov:database`  | `lookup`, `create`, `update`, `delete`, `delete-all` | `service/prov/database`        |
+| `prov:function`  | `lookup`, `create`, `update`, `delete`, `delete-all` | `service/prov/function`        |
+| `prov:storage`   | `lookup`, `create`, `update`, `delete`, `delete-all` | `service/prov/storage`         |
+| `prov:support`   | `lookup`, `create`, `update`, `delete`, `delete-all` | `service/prov/support`         |
+| `prov:usage`     | `list`, `create`, `update`, `delete`             | `service/prov/{subscription}/usage` |
+| `prov:budget`    | `list`, `create`, `update`, `delete`             | `service/prov/{subscription}/budget` |
+| `prov:optimizer` | `list`, `create`, `update`, `delete`             | `service/prov/{subscription}/optimizer` |
+| `prov:tag`       | `create`, `update`, `delete`                     | `service/prov/{subscription}/tag` |
+| `prov:catalog`   | `list`, `status`, `update`, `cancel`             | `service/prov/catalog`             |
+| `prov:upload`    | `resources`                                      | `service/prov/{subscription}/upload` |
+
+Run `ligoj prov:<service> --help` (and `... <action> --help`) for the full argument list. Every
+`create`/`update` also accepts `--data '<json>'` to set or override any backend field not exposed
+as a flag.
+
+
+## Quote configuration (`prov:quote`)
+
+```bash
+# Inspect the full quote (resources + total cost)
+ligoj prov:quote get --subscription 12
+
+# Set defaults and recompute
+ligoj prov:quote update -s 12 --location "eu-west-1" --usage "dev" --license "BYOL"
+ligoj prov:quote refresh -s 12
+```
+
+
+## Compute, database, container, function
+
+The typical flow is *lookup a price → create the resource with that price id*:
+
+```bash
+# 1. find the cheapest instance matching the requirement
+ligoj prov:instance lookup -s 12 --cpu 2 --ram 4096 --os LINUX
+
+# 2. create it from the returned price id
+ligoj prov:instance create -s 12 --name "web" --price 4211 --cpu 2 --ram 4096 \
+    --os LINUX --internet PUBLIC --min-quantity 1 --max-quantity 3
+
+# database / container / function follow the same pattern
+ligoj prov:database create -s 12 --name "db" --price 5120 --cpu 1 --ram 2048 --engine MYSQL
+ligoj prov:function create -s 12 --name "fn" --price 77 --runtime Python --nb-requests 5
+
+# update / delete
+ligoj prov:instance update -s 12 --id 99 --max-quantity 5
+ligoj prov:instance delete --id 99
+ligoj prov:instance delete-all -s 12
+```
+
+
+## Storage, usage, budget, optimizer, tag
+
+```bash
+ligoj prov:storage create -s 12 --name "data" --type "gp2" --size 100 --instance 99
+ligoj prov:usage create   -s 12 --name "dev"  --rate 50 --duration 12
+ligoj prov:budget create  -s 12 --name "2026" --initial-cost 10000
+ligoj prov:tag create     -s 12 --name "env" --value "prod" --type INSTANCE --resource 99
+```
+
+
+## Catalog and bulk upload
+
+```bash
+# trigger and follow a provider catalog import
+ligoj prov:catalog update --node "service:prov:aws:test" --force
+ligoj prov:catalog status --node "service:prov:aws:test"
+
+# bulk-create resources from a CSV
+ligoj prov:upload resources -s 12 --from ./resources.csv --merge update
+```
+
 # Bootstrap
 
 The following commands can be executed to perform several API commands following a complex workflow.
