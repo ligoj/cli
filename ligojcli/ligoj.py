@@ -23,11 +23,12 @@ from ligojcli.plugins import ligoj as ligoj_plugin
 
 def main():
     (parser, subparser_service) = utils.init()
-    argocd.configure(subparser_service)
     alfresco.configure(subparser_service)
+    argocd.configure(subparser_service)
     bootstrap.configure(subparser_service)
     gitlab.configure(subparser_service)
     harbor.configure(subparser_service)
+    id.configure(subparser_service)
     jenkins.configure(subparser_service)
     ligoj_plugin.configure(subparser_service)
     nexus.configure(subparser_service)
@@ -95,13 +96,13 @@ def execute_action(service, action, operation, args):
         ligoj_plugin.execute_action(service, action, operation, args)
         or alfresco.execute_action(service, action, operation, args)
         or argocd.execute_action(service, action, operation, args)
-        or jenkins.execute_action(service, action, operation, args)
-        or id.execute_action(service, action, operation, args)
         or bootstrap.execute_action(service, action, operation, args)
+        or gitlab.execute_action(service, action, operation, args)
         or harbor.execute_action(service, action, operation, args)
+        or id.execute_action(service, action, operation, args)
+        or jenkins.execute_action(service, action, operation, args)
         or nexus.execute_action(service, action, operation, args)
         or sonarqube.execute_action(service, action, operation, args)
-        or gitlab.execute_action(service, action, operation, args)
         or False
     )
 

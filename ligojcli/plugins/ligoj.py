@@ -26,9 +26,7 @@ ligoj_api_run_as_user: str | None = None
 def configure(subparser_service):
 
     # info
-    subparser_action = subparser_service.add_parser(
-        "info", help="Server information"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("info", help="Server information").add_subparsers(title="action", help="Action", dest="action")
     subparser_action.add_parser("version", help="Server version")
     subparser_action.add_parser("all", help="Server information")
     parser_action = subparser_action.add_parser("status", help="Server status")
@@ -47,14 +45,10 @@ def configure(subparser_service):
         help="API Format",
         default="openapi",
     )
-    parser_action.add_argument(
-        "--print", "-p", choices=["content", "url"], help="Content display", default="content"
-    )
+    parser_action.add_argument("--print", "-p", choices=["content", "url"], help="Content display", default="content")
 
     # user
-    subparser_action = subparser_service.add_parser(
-        "user", help="System user operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("user", help="System user operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("get", help="Return system user information")
     parser_action.add_argument("--id", "-i", help="User id/login")
     parser_action = subparser_action.add_parser("reset-password", help="Reset user password")
@@ -62,14 +56,10 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("delete", help="Delete a system user")
     parser_action.add_argument("--id", "-i", help="User id/login")
     parser_action = subparser_action.add_parser("list", help="Return system users")
-    parser_action.add_argument(
-        "--with-roles", "-r", help="Also return user roles", action="store_true"
-    )
+    parser_action.add_argument("--with-roles", "-r", help="Also return user roles", action="store_true")
     parser_action = subparser_action.add_parser("upsert", help="Create or update a system user")
     parser_action.add_argument("--id", "-i", help="User id")
-    parser_action.add_argument(
-        "--roles", "-r", help="Roles names or identifier", nargs="*", default=[]
-    )
+    parser_action.add_argument("--roles", "-r", help="Roles names or identifier", nargs="*", default=[])
     parser_action.add_argument(
         "--api_key_name",
         "-k",
@@ -78,15 +68,11 @@ def configure(subparser_service):
     )
 
     # session
-    subparser_action = subparser_service.add_parser(
-        "session", help="Session operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("session", help="Session operations").add_subparsers(title="action", help="Action", dest="action")
     subparser_action.add_parser("get", help="Return session details")
     subparser_action.add_parser("logout", help="Remove session data")
     subparser_action.add_parser("whoami", help="Return current user identifier")
-    parser_action = subparser_action.add_parser(
-        "login", help="Validate credentials and return session"
-    )
+    parser_action = subparser_action.add_parser("login", help="Validate credentials and return session")
     parser_action.add_argument(
         "--password",
         "-p",
@@ -96,9 +82,7 @@ def configure(subparser_service):
     )
 
     # token
-    subparser_action = subparser_service.add_parser(
-        "token", help="API token operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("token", help="API token operations").add_subparsers(title="action", help="Action", dest="action")
     subparser_action.add_parser("list", help="List token of current user")
     parser_action = subparser_action.add_parser("get", help="Return a token value")
     parser_action.add_argument("--id", "-i", help="Token name", required=False, default="")
@@ -121,37 +105,25 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("delete", help="Delete a token")
     parser_action.add_argument("--id", "-i", help="Token name", required=False, default="")
     subparser_action.add_parser("purge", help="Purge all expired tokens of principal user")
-    subparser_action.add_parser(
-        "purge-all", help="Purge all expired tokens. Only available for administrators"
-    )
+    subparser_action.add_parser("purge-all", help="Purge all expired tokens. Only available for administrators")
 
     # role
-    subparser_action = subparser_service.add_parser(
-        "role", help="System role operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("role", help="System role operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("get", help="Return system role information")
     parser_action.add_argument("--id", "-i", help="Role id. Exclusive with --name", required=False)
-    parser_action.add_argument(
-        "--name", "-n", help="Role name. Exclusive with --id", required=False
-    )
+    parser_action.add_argument("--name", "-n", help="Role name. Exclusive with --id", required=False)
     subparser_action.add_parser("list", help="Return system roles")
     parser_action = subparser_action.add_parser("create", help="Create system role")
-    parser_action.add_argument(
-        "--id", "-i", help="[deprecated, use '--name'] Role name", required=False
-    )
+    parser_action.add_argument("--id", "-i", help="[deprecated, use '--name'] Role name", required=False)
     parser_action.add_argument("--name", "-n", help="Role name", required=False)
     parser_action.add_argument("--api", help="API patterns", nargs="*", default=[])
     parser_action.add_argument("--ui", help="UI patterns", nargs="*", default=[])
     parser_action = subparser_action.add_parser("delete", help="Delete a role")
     parser_action.add_argument("--id", "-i", help="Role id. Exclusive with --name", required=False)
-    parser_action.add_argument(
-        "--name", "-n", help="Role name. Exclusive with --id", required=False
-    )
+    parser_action.add_argument("--name", "-n", help="Role name. Exclusive with --id", required=False)
 
     # plugin
-    subparser_action = subparser_service.add_parser(
-        "plugin", help="Plugins operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("plugin", help="Plugins operations").add_subparsers(title="action", help="Action", dest="action")
     subparser_action.add_parser("list", help="List installed plugin")
     parser_action = subparser_action.add_parser("install", help="Install plugin")
     parser_action.add_argument("--id", "-i", help="Maven artifact-id of the plugin")
@@ -174,21 +146,13 @@ def configure(subparser_service):
         action="store_true",
         default=False,
     )
-    parser_action.add_argument(
-        "--force", help="Force reinstallation of the plugin", action="store_true", default=False
-    )
+    parser_action.add_argument("--force", help="Force reinstallation of the plugin", action="store_true", default=False)
     parser_action = subparser_action.add_parser("upload", help="Install plugin")
     parser_action.add_argument("--id", "-i", help="Maven artifact-id of the plugin")
-    parser_action.add_argument(
-        "--version", "-v", help="Maven artifact-id of the plugin. 'LATEST' to check the repository"
-    )
+    parser_action.add_argument("--version", "-v", help="Maven artifact-id of the plugin. 'LATEST' to check the repository")
     parser_action.add_argument("--from", "-f", help="Plugin jar URL or local file name")
-    parser_action.add_argument(
-        "--force", help="Force reinstallation of the plugin", action="store_true", default=False
-    )
-    parser_action = subparser_action.add_parser(
-        "javadoc", help="Install Javadoc of all plugins and built-in endpoints"
-    )
+    parser_action.add_argument("--force", help="Force reinstallation of the plugin", action="store_true", default=False)
+    parser_action = subparser_action.add_parser("javadoc", help="Install Javadoc of all plugins and built-in endpoints")
     parser_action.add_argument(
         "--repository",
         "-r",
@@ -205,9 +169,7 @@ def configure(subparser_service):
     )
 
     # node
-    subparser_action = subparser_service.add_parser("node", help="Node operations").add_subparsers(
-        title="action", help="Action", dest="action"
-    )
+    subparser_action = subparser_service.add_parser("node", help="Node operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("get", help="Return node information")
     parser_action.add_argument("--id", "-i", help="Node identifier")
     parser_action.add_argument(
@@ -239,9 +201,7 @@ def configure(subparser_service):
         choices=["all", "create", "link"],
         required=False,
     )
-    parser_action.add_argument(
-        "--search", "-S", help="Filtered node's name (contains)", required=False
-    )
+    parser_action.add_argument("--search", "-S", help="Filtered node's name (contains)", required=False)
     parser_action.add_argument(
         "--depth",
         "-D",
@@ -290,9 +250,7 @@ def configure(subparser_service):
     )
     parser_action.add_argument("--from", "-f", help="Parameters JSON URL or local file name")
     parser_action = subparser_action.add_parser("upsert", help="Create or update new node")
-    parser_action.add_argument(
-        "--id", "-i", help="Node identifier. Related plugin must be previously installed"
-    )
+    parser_action.add_argument("--id", "-i", help="Node identifier. Related plugin must be previously installed")
     parser_action.add_argument("--name", "-n", help="Node name")
     parser_action.add_argument(
         "--mode",
@@ -307,23 +265,13 @@ def configure(subparser_service):
     parser_action.add_argument("--id", "-i", help="Node identifier", required=False)
 
     # subscription
-    subparser_action = subparser_service.add_parser(
-        "subscription", help="Subscription operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("subscription", help="Subscription operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("get", help="Return subscription information")
     parser_action.add_argument("--id", "-i", help="Subscription identifier", type=int)
-    parser_action.add_argument(
-        "--details", "-d", help="When set more details are returned", action="store_true"
-    )
-    parser_action = subparser_action.add_parser(
-        "list", help="Return subscriptions filtered by criteria"
-    )
-    parser_action.add_argument(
-        "--node", "-n", help="Node identifier, ie. `service:id:ldap:remote1`", required=False
-    )
-    parser_action.add_argument(
-        "--tool", "-t", help="Tool identifier, ie. `service:id:ldap`", required=False
-    )
+    parser_action.add_argument("--details", "-d", help="When set more details are returned", action="store_true")
+    parser_action = subparser_action.add_parser("list", help="Return subscriptions filtered by criteria")
+    parser_action.add_argument("--node", "-n", help="Node identifier, ie. `service:id:ldap:remote1`", required=False)
+    parser_action.add_argument("--tool", "-t", help="Tool identifier, ie. `service:id:ldap`", required=False)
     parser_action.add_argument(
         "--service",
         "-s",
@@ -333,12 +281,8 @@ def configure(subparser_service):
     )
     parser_action.add_argument("--project", "-p", help="Project key or identifier", required=False)
     parser_action = subparser_action.add_parser("create", help="Create a subscription")
-    parser_action.add_argument(
-        "--node", "-n", help="Node identifier, ie. `service:id:ldap:remote1`", required=False
-    )
-    parser_action.add_argument(
-        "--mode", "-m", help="Subscription mode", required=False, default="create"
-    )
+    parser_action.add_argument("--node", "-n", help="Node identifier, ie. `service:id:ldap:remote1`", required=False)
+    parser_action.add_argument("--mode", "-m", help="Subscription mode", required=False, default="create")
     parser_action.add_argument("--project", "-p", help="Project key or identifier", required=False)
     parser_action.add_argument("--from", "-f", help="Parameters JSON URL or local file name")
     parser_action = subparser_action.add_parser("delete", help="Delete by its identifier")
@@ -352,14 +296,10 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("status", help="Retrieve last status")
     parser_action.add_argument("--project", "-p", help="Project key or identifier")
     parser_action = subparser_action.add_parser("refresh", help="Refresh status and validate link")
-    parser_action.add_argument(
-        "--id", "-i", help="Subscription identifier to refresh", required=False
-    )
+    parser_action.add_argument("--id", "-i", help="Subscription identifier to refresh", required=False)
 
     # project
-    subparser_action = subparser_service.add_parser(
-        "project", help="Project operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("project", help="Project operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("get", help="Return project information")
     parser_action.add_argument("--id", "-i", help="Project key or identifier")
     parser_action = subparser_action.add_parser("list", help="List projects")
@@ -369,9 +309,7 @@ def configure(subparser_service):
         help="Filtered project's name, description or pkey (contains)",
         required=False,
     )
-    parser_action = subparser_action.add_parser(
-        "delete", help="Delete both the project and its associated subscriptions"
-    )
+    parser_action = subparser_action.add_parser("delete", help="Delete both the project and its associated subscriptions")
     parser_action.add_argument("--id", "-i", help="Project key or identifier")
     parser_action.add_argument(
         "--with-data",
@@ -388,91 +326,12 @@ def configure(subparser_service):
         required=False,
     )
     parser_action.add_argument("--pkey", "-k", help="Name")
-    parser_action.add_argument(
-        "--name", "-n", help="Key. By default, is the project's name", required=False
-    )
+    parser_action.add_argument("--name", "-n", help="Key. By default, is the project's name", required=False)
     parser_action.add_argument("--description", "-d", help="Description.", default="")
-    parser_action.add_argument(
-        "--context", "-c", help="Context data for this entity", required=False
-    )
-
-    # delegate node
-    subparser_action = subparser_service.add_parser(
-        "delegate-node", help="Delegate node operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
-    parser_action = subparser_action.add_parser("list", help="List delegates")
-    parser_action.add_argument("--node", "-n", help="Node identifier to filter", required=False)
-    parser_action = subparser_action.add_parser("get", help="Return delegate node information")
-    parser_action.add_argument("--id", "-i", help="Delegate node identifier", type=int)
-    parser_action = subparser_action.add_parser("create", help="Create a new delegate node")
-    parser_action.add_argument("--node", "-n", help="Node identifier to delegate", required=False)
-    parser_action.add_argument(
-        "--can-subscribe",
-        "-S",
-        help="Can create subscription related to this node",
-        action="store_true",
-        default=False,
-    )
-    parser_action.add_argument(
-        "--can-write", "-W", help="Can update this node", action="store_true", default=False
-    )
-    parser_action.add_argument(
-        "--can-admin", "-A", help="Can share this delegate", action="store_true", default=False
-    )
-    parser_action.add_argument("--receiver", "-R", help="Receiver identifier")
-    parser_action.add_argument(
-        "--receiver-type", "-T", choices=["user", "group", "company"], help="Receiver type"
-    )
-    parser_action = subparser_action.add_parser("delete", help="Delete a new delegate node")
-    parser_action.add_argument("--id", "-i", help="Ligoj node identifier", required=False, type=int)
-
-    # delegate org
-    subparser_action = subparser_service.add_parser(
-        "delegate-org", help="Delegate organization operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
-    parser_action = subparser_action.add_parser(
-        "get", help="Return delegate organization information"
-    )
-    parser_action.add_argument(
-        "--id", "-i", help="Organization delegate organization identifier", required=False, type=int
-    )
-    parser_action.add_argument(
-        "--name", "-n", help="Organization identifier or DN for tree to filter", required=False
-    )
-    parser_action.add_argument(
-        "--type",
-        "-t",
-        choices=["tree", "group", "company"],
-        help="Organization type to delegate",
-        required=False,
-    )
-    parser_action = subparser_action.add_parser("create", help="Create a new delegate organization")
-    parser_action.add_argument(
-        "--id", "-i", help="Ligoj delegate organization identifier", type=int
-    )
-    parser_action.add_argument("--name", "-n", help="Organization identifier or DN for tree")
-    parser_action.add_argument(
-        "--type", "-t", choices=["tree", "group", "company"], help="Organization type to delegate"
-    )
-    parser_action.add_argument(
-        "--can-write", "-W", help="Can update this organization", action="store_true", default=False
-    )
-    parser_action.add_argument(
-        "--can-admin", "-A", help="Can share this delegate", action="store_true", default=False
-    )
-    parser_action.add_argument("--receiver", "-R", help="Receiver identifier", default=False)
-    parser_action.add_argument(
-        "--receiver-type", "-T", choices=["user", "group", "company"], help="Receiver type"
-    )
-    parser_action = subparser_action.add_parser("delete", help="Delete a new delegate organization")
-    parser_action.add_argument(
-        "--id", "-i", help="Ligoj organization identifier", required=False, type=int
-    )
+    parser_action.add_argument("--context", "-c", help="Context data for this entity", required=False)
 
     # configuration
-    subparser_action = subparser_service.add_parser(
-        "configuration", help="Configuration related operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("configuration", help="Configuration related operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("get", help="Return configuration value or values")
     parser_action.add_argument("--id", "-i", help="Configuration name")
     parser_action = subparser_action.add_parser("set", help="Set configuration value")
@@ -488,28 +347,18 @@ def configure(subparser_service):
     parser_action.add_argument("--id", "-i", help="Configuration name")
 
     # cache
-    subparser_action = subparser_service.add_parser(
-        "cache", help="Cache related operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
+    subparser_action = subparser_service.add_parser("cache", help="Cache related operations").add_subparsers(title="action", help="Action", dest="action")
     subparser_action.add_parser("list", help="Return caches")
     parser_action = subparser_action.add_parser("get", help="Return configuration value or values")
     parser_action.add_argument("--id", "-i", help="Cache name to retrieve")
     parser_action = subparser_action.add_parser("invalidate", help="Invalidate one or all caches")
-    parser_action.add_argument(
-        "--id", "-i", help="Cache name. When empty, all caches are invalidated", required=False
-    )
+    parser_action.add_argument("--id", "-i", help="Cache name. When empty, all caches are invalidated", required=False)
 
     # hook
-    subparser_action = subparser_service.add_parser("hook", help="Hook operations").add_subparsers(
-        title="action", help="Action", dest="action"
-    )
+    subparser_action = subparser_service.add_parser("hook", help="Hook operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("upsert", help="Update of create a hook")
-    parser_action.add_argument(
-        "--id", "-i", required=False, help="Hook identifier to update", type=int
-    )
-    parser_action.add_argument(
-        "--name", "-n", required=True, help="Hook name to create or update (unique)"
-    )
+    parser_action.add_argument("--id", "-i", required=False, help="Hook identifier to update", type=int)
+    parser_action.add_argument("--name", "-n", required=True, help="Hook name to create or update (unique)")
     parser_action.add_argument(
         "--directory",
         "-d",
@@ -534,9 +383,7 @@ def configure(subparser_service):
         nargs="*",
         default=[],
     )
-    parser_action.add_argument(
-        "--timeout", "-t", default=10, type=int, help="Maximum integration time in second"
-    )
+    parser_action.add_argument("--timeout", "-t", default=10, type=int, help="Maximum integration time in second")
     parser_action.add_argument(
         "--delay",
         default=1,
@@ -544,29 +391,19 @@ def configure(subparser_service):
         help="Delay in second before execution. Use 0 for synchronous execution",
     )
     parser_action = subparser_action.add_parser("delete", help="Update of create a hook")
-    parser_action.add_argument(
-        "--id", "-i", help="Hook identifier to delete", type=int, required=False
-    )
+    parser_action.add_argument("--id", "-i", help="Hook identifier to delete", type=int, required=False)
     parser_action.add_argument("--name", "-n", help="Hook name to delete", required=False)
     parser_action = subparser_action.add_parser("get", help="Return hook details")
-    parser_action.add_argument(
-        "--id", "-i", help="Hook identifier to return", type=int, required=False
-    )
+    parser_action.add_argument("--id", "-i", help="Hook identifier to return", type=int, required=False)
     parser_action.add_argument("--name", "-n", help="Hook name to return", required=False)
     subparser_action.add_parser("list", help="Return hooks")
 
     # file
-    subparser_action = subparser_service.add_parser("file", help="File operations").add_subparsers(
-        title="action", help="Action", dest="action"
-    )
+    subparser_action = subparser_service.add_parser("file", help="File operations").add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("put", help="Create or update a file")
     parser_action.add_argument("--from", "-f", help="Import URL or local file name")
-    parser_action.add_argument(
-        "--path", "-n", help="Remote file path. Must be allowed by `ligoj.file.path` configuration."
-    )
-    parser_action.add_argument(
-        "--executable", "-x", help="With executable right", action="store_true", default=False
-    )
+    parser_action.add_argument("--path", "-n", help="Remote file path. Must be allowed by `ligoj.file.path` configuration.")
+    parser_action.add_argument("--executable", "-x", help="With executable right", action="store_true", default=False)
     parser_action = subparser_action.add_parser("delete", help="Delete a file")
     parser_action.add_argument(
         "--path",
@@ -581,119 +418,6 @@ def configure(subparser_service):
     )
     parser_action.add_argument("--out", "-o", help="Target local file name")
 
-    # plugin:id user
-    subparser_action = subparser_service.add_parser(
-        "id:user", help="Plugin id user operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
-    parser_action = subparser_action.add_parser(
-        "create", help="Create a new user mapped to groups created as needed"
-    )
-    parser_action.add_argument("--id", "-i", help="User name")
-    parser_action.add_argument("--firstname", "-f", help="firstName")
-    parser_action.add_argument("--lastname", "-l", help="lastName")
-    parser_action.add_argument("--mail", "-m", help="mail")
-    parser_action.add_argument("--company", "-c", help="company")
-    parser_action.add_argument("--groups", "-g", help="groups", nargs="*", default=[])
-    parser_action.add_argument(
-        "--custom-attributes",
-        "-A",
-        help="Custom attributes. Case might be sensitive",
-        default=False,
-    )
-    parser_action = subparser_action.add_parser("get", help="Return a user by id or by mail")
-    parser_action.add_argument("--id", "-i", help="User name", required=False)
-    parser_action.add_argument("--mail", "-m", help="User mail", required=False)
-    parser_action = subparser_action.add_parser(
-        "list", help="Return a list users filtered by id and/or by mail"
-    )
-    parser_action.add_argument("--company", "-c", help="Company name", required=False)
-    parser_action.add_argument("--group", "-g", help="Group name", required=False)
-    parser_action.add_argument("--criteria", "-s", help="Criteria", required=False)
-    parser_action.add_argument("--page", "-p", help="Page number", required=False)
-    parser_action.add_argument("--page-length", "-l", help="Page length", required=False)
-    parser_action = subparser_action.add_parser("delete", help="Delete a user")
-    parser_action.add_argument("--id", "-i", help="User name", required=False)
-    parser_action.add_argument("--mail", "-m", help="User mail", required=False)
-    parser_action = subparser_action.add_parser("add", help="Add user to groups")
-    parser_action.add_argument("--id", "-i", help="User name", required=False)
-    parser_action.add_argument("--mail", "-m", help="User mail", required=False)
-    parser_action.add_argument("--groups", "-g", help="groups", nargs="+")
-    parser_action = subparser_action.add_parser("remove", help="Remove user from groups")
-    parser_action.add_argument("--id", "-i", help="User name", required=False)
-    parser_action.add_argument("--mail", "-m", help="User mail", required=False)
-    parser_action.add_argument("--groups", "-g", help="groups", nargs="+")
-
-    # plugin:id group
-    subparser_action = subparser_service.add_parser(
-        "id:group", help="Plugin id group operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
-    parser_action = subparser_action.add_parser("create", help="Create a new group")
-    parser_action.add_argument("--name", "-n", help="Group name", required=True)
-    parser_action.add_argument(
-        "--scope", "-s", help="Scope groupe name or identifier.", required=True
-    )
-    parser_action.add_argument("--parent", "-p", help="Parent group name")
-    parser_action = subparser_action.add_parser("import", help="Import groups")
-    parser_action.add_argument("--from", "-f", help="Import URL or local file name", required=True)
-    parser_action = subparser_action.add_parser("get", help="Get group by name")
-    parser_action.add_argument("--name", "-n", help="Group name", required=True)
-    subparser_action.add_parser("list", help="List groups")
-    parser_action = subparser_action.add_parser("delete", help="Delete a group")
-    parser_action.add_argument("--name", "-n", help="Group name", required=True)
-
-    # plugin:id container scope
-    subparser_action = subparser_service.add_parser(
-        "id:scope", help="Plugin id container scope operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
-    parser_action = subparser_action.add_parser("create", help="Create a new container scope")
-    parser_action.add_argument("--name", "-n", help="Container scope name", required=True)
-    parser_action.add_argument(
-        "--type", "-t", help="Scope type", required=True, choices=["company", "group"]
-    )
-    parser_action.add_argument("--dn", help="Container scope DN")
-    parser_action = subparser_action.add_parser(
-        "get", help="Get container scope by name or identifier"
-    )
-    parser_action.add_argument("--id", "-i", help="Container scope identifier", required=False)
-    parser_action.add_argument(
-        "--name", "-n", help="Container scope name, exclusive with id", required=False
-    )
-    parser_action.add_argument(
-        "--type",
-        "-t",
-        help="Scope type. Required with name",
-        required=False,
-        choices=["company", "group"],
-    )
-    parser_action = subparser_action.add_parser("list", help="List container scopes")
-    parser_action.add_argument(
-        "--type", "-t", help="Filtered scope type", required=True, choices=["company", "group"]
-    )
-    parser_action = subparser_action.add_parser(
-        "delete", help="Delete a container scope or by identifier"
-    )
-    parser_action.add_argument("--id", "-i", help="Container scope identifier", required=False)
-    parser_action.add_argument(
-        "--name", "-n", help="Container scope name, exclusive with id", required=False
-    )
-    parser_action.add_argument(
-        "--type",
-        "-t",
-        help="Scope type. Required with name",
-        required=False,
-        choices=["company", "group"],
-    )
-
-    # plugin:id ou
-    subparser_action = subparser_service.add_parser(
-        "id:ou", help="Plugin id Organizational Unit operations"
-    ).add_subparsers(title="action", help="Action", dest="action")
-    parser_action = subparser_action.add_parser("create", help="Create a new OU")
-    parser_action.add_argument("--name", "-n", help="OU name", required=True)
-    parser_action.add_argument("--parent-dn", "-d", help="Parent DN", required=True)
-    parser_action = subparser_action.add_parser("delete", help="Delete an OU")
-    parser_action.add_argument("--name", "-n", help="OU name", required=False)
-
 
 def parse_remote_args(args):
     global ligoj_api_key
@@ -706,9 +430,7 @@ def parse_remote_args(args):
     ligoj_api_user = utils.get_config(args, "api_user", "LIGOJ_API_USER", DEFAULT_LIGOJ_API_USER)
     ligoj_api_run_as_user = utils.get_config(args, "api_run_as_user", "LIGOJ_API_RUN_AS_USER", None)
     ligoj_endpoint = utils.get_config(args, "endpoint", "LIGOJ_ENDPOINT", DEFAULT_LIGOJ_ENDPOINT)
-    ligoj_api_local_roles = utils.get_config(
-        args, "api_local_roles", "LIGOJ_API_LOCAL_ROLES", False
-    )
+    ligoj_api_local_roles = utils.get_config(args, "api_local_roles", "LIGOJ_API_LOCAL_ROLES", False)
 
 
 def execute_action(service, action, _, args):
@@ -779,9 +501,7 @@ def execute_action(service, action, _, args):
                 args["parameters_secured"],
             )
         if action == "list":
-            return node_list(
-                args.get("search"), args.get("refined"), args.get("mode"), args.get("depth", -1)
-            )
+            return node_list(args.get("search"), args.get("refined"), args.get("mode"), args.get("depth", -1))
         if action == "delete":
             return node_delete(args["id"])
         if action == "status":
@@ -791,22 +511,16 @@ def execute_action(service, action, _, args):
         if action == "get":
             return subscription_get_by_id(args["id"], args["details"])
         if action == "list":
-            return subscription_list(
-                args.get("node"), args.get("tool"), args.get("service_id"), args.get("project")
-            )
+            return subscription_list(args.get("node"), args.get("tool"), args.get("service_id"), args.get("project"))
         if action == "create":
             project = args.get("project")
             node_id = args.get("node")
-            subscription_parameters = utils.load_json_from_url_or_file_with_interpolation(
-                args["from"], {"project": project, "node_id": node_id}
-            )
+            subscription_parameters = utils.load_json_from_url_or_file_with_interpolation(args["from"], {"project": project, "node_id": node_id})
             return subscription_create(project, node_id, subscription_parameters, args.get("mode"))
         if action == "delete":
             return subscription_delete(args["id"], args.get("with_data"))
         if action == "status":
-            return subscription_status(
-                utils.not_none(args.get("project"), "subscription identifier")
-            )
+            return subscription_status(utils.not_none(args.get("project"), "subscription identifier"))
         if action == "refresh":
             return subscription_refresh(args.get("id"))
     elif service == "project":
@@ -889,9 +603,7 @@ def execute_action(service, action, _, args):
     elif service == "role":
         if action == "create":
             role_name = utils.not_none(args.get("name") or args.get("id"), "role name")
-            utils.info(
-                f"Create system role '{role_name}', api={args.get('api')}, ui={args.get('ui')} ..."
-            )
+            utils.info(f"Create system role '{role_name}', api={args.get('api')}, ui={args.get('ui')} ...")
             return system_role_create(
                 role_name,
                 utils.not_none(args.get("api"), "API patterns"),
@@ -939,9 +651,7 @@ def call_api(method, url, **kwargs):
     elif utils.cookie_session is not None:
         kwargs["cookies"] = {"JSESSIONID": utils.cookie_session}
     else:
-        raise ValueError(
-            "[ligoj] No enough credential materials, no session and no API key pair found"
-        )
+        raise ValueError("[ligoj] No enough credential materials, no session and no API key pair found")
 
     # Local roles mode
     if ligoj_api_local_roles:
@@ -987,9 +697,7 @@ def plugins_list(repository: str):
 
 def plugins_search(artifact_id: str, repository: str):
     utils.info(f"[ligoj] Search plugin '{artifact_id}' in repository ...")
-    response = call_api(
-        "GET", "system/plugin/search", params={"repository": repository, "q": artifact_id}
-    )
+    response = call_api("GET", "system/plugin/search", params={"repository": repository, "q": artifact_id})
     return None if response is None else response.json()
 
 
@@ -999,9 +707,7 @@ def plugin_search_latest_version(artifact_id: str, repository: str):
     return search_result["version"] if search_result is not None else None
 
 
-def plugin_install_internal(
-    artifact_id: str, target_version: str, repository: str, from_location: str | None, javadoc: bool
-):
+def plugin_install_internal(artifact_id: str, target_version: str, repository: str, from_location: str | None, javadoc: bool):
     utils.info(f"[ligoj] Plugin '{artifact_id}:{target_version}' is being to be installed")
     if from_location:
         upload_file = utils.get_temp_file_from(from_location)
@@ -1050,37 +756,25 @@ def plugin_install(
     if from_location:
         if not target_version or target_version == "LATEST":
             raise ValueError("[ligoj] A non 'LATEST' version is required while uploading a plugin")
-        utils.info(
-            f"[ligoj] Install plugin '{artifact_id}:{target_version}' from '{from_location}' ..."
-        )
+        utils.info(f"[ligoj] Install plugin '{artifact_id}:{target_version}' from '{from_location}' ...")
     else:
         params["repository"] = repository.strip()
-        utils.info(
-            f"[ligoj] Install plugin '{artifact_id}:{'LATEST' if target_version is None else target_version}@{repository}' ..."
-        )
+        utils.info(f"[ligoj] Install plugin '{artifact_id}:{'LATEST' if target_version is None else target_version}@{repository}' ...")
 
     # Check node format
     artifact_parts = artifact_id.split("-")
     if len(artifact_parts) < 2:
-        raise ValueError(
-            f"[ligoj] Invalid artifact id format '{artifact_id}', must be 'plugin-$service' or 'plugin-$service:$tool'"
-        )
+        raise ValueError(f"[ligoj] Invalid artifact id format '{artifact_id}', must be 'plugin-$service' or 'plugin-$service:$tool'")
 
     plugins = plugins_list(repository)
     if not plugins:
         if not target_version:
-            raise ValueError(
-                f"[ligoj] Plugin '{artifact_id}' is not detected, and the repository is unavailable"
-            )
+            raise ValueError(f"[ligoj] Plugin '{artifact_id}' is not detected, and the repository is unavailable")
 
-        utils.warn(
-            f"[ligoj] Plugin '{artifact_id}' is not detected, and the repository is unavailable but a version is specified"
-        )
+        utils.warn(f"[ligoj] Plugin '{artifact_id}' is not detected, and the repository is unavailable but a version is specified")
         plugins = []
 
-    installed_plugin = next(
-        filter(lambda p: "plugin" in p and p["plugin"]["artifact"] == artifact_id, plugins), None
-    )
+    installed_plugin = next(filter(lambda p: "plugin" in p and p["plugin"]["artifact"] == artifact_id, plugins), None)
     if installed_plugin:
         latest_version = installed_plugin.get("newVersion")
         current_version = installed_plugin["plugin"].get("version")
@@ -1088,72 +782,42 @@ def plugin_install(
         if not current_version:
             if not latest_local_version:
                 if force:
-                    utils.info(
-                        f"[ligoj] Plugin '{artifact_id}' is already installed, but in an unknown state {installed_plugin}. '--force' enabled, reinstalling"
-                    )
-                    plugin_install_internal(
-                        artifact_id, latest_version, repository, from_location, javadoc
-                    )
+                    utils.info(f"[ligoj] Plugin '{artifact_id}' is already installed, but in an unknown state {installed_plugin}. '--force' enabled, reinstalling")
+                    plugin_install_internal(artifact_id, latest_version, repository, from_location, javadoc)
                     installed = True
                 else:
-                    raise ValueError(
-                        f"[ligoj] Plugin '{artifact_id}' is already installed but in an unknown state {installed_plugin}. Use '--force' to reinstall"
-                    )
+                    raise ValueError(f"[ligoj] Plugin '{artifact_id}' is already installed but in an unknown state {installed_plugin}. Use '--force' to reinstall")
             else:
-                utils.info(
-                    f"[ligoj] Plugin '{artifact_id}:{latest_local_version}' is installed but requires a restart to be available"
-                )
+                utils.info(f"[ligoj] Plugin '{artifact_id}:{latest_local_version}' is installed but requires a restart to be available")
         elif not target_version and not latest_version:
             if force:
-                utils.info(
-                    f"[ligoj] Plugin '{artifact_id}' is already installed, but in an unknown state {installed_plugin}. '--force' enabled, reinstalling"
-                )
-                plugin_install_internal(
-                    artifact_id, latest_version, repository, from_location, javadoc
-                )
+                utils.info(f"[ligoj] Plugin '{artifact_id}' is already installed, but in an unknown state {installed_plugin}. '--force' enabled, reinstalling")
+                plugin_install_internal(artifact_id, latest_version, repository, from_location, javadoc)
                 installed = True
             else:
-                utils.info(
-                    f"[ligoj] Plugin '{artifact_id}:{current_version}' is already installed with the latest version, skipping. Use '--force' to reinstall"
-                )
+                utils.info(f"[ligoj] Plugin '{artifact_id}:{current_version}' is already installed with the latest version, skipping. Use '--force' to reinstall")
         elif not target_version:
             if force:
-                utils.info(
-                    f"[ligoj] Plugin '{artifact_id}:{current_version}' is already installed, but a newest version is available -> {latest_version}. '--force' enabled, reinstalling"
-                )
-                plugin_install_internal(
-                    artifact_id, latest_version, repository, from_location, javadoc
-                )
+                utils.info(f"[ligoj] Plugin '{artifact_id}:{current_version}' is already installed, but a newest version is available -> {latest_version}. '--force' enabled, reinstalling")
+                plugin_install_internal(artifact_id, latest_version, repository, from_location, javadoc)
                 installed = True
             else:
-                utils.info(
-                    f"[ligoj] Plugin '{artifact_id}:{current_version}' is already installed, but a newest version is available -> {latest_version}"
-                )
+                utils.info(f"[ligoj] Plugin '{artifact_id}:{current_version}' is already installed, but a newest version is available -> {latest_version}")
             plugin_install_internal(artifact_id, latest_version, repository, from_location, javadoc)
             installed = True
         elif target_version == current_version and not target_version.endswith("-SNAPSHOT"):
             if force:
-                utils.info(
-                    f"[ligoj] Plugin '{artifact_id}:{target_version}' is already installed with the desired version. '--force' enabled, reinstalling"
-                )
-                plugin_install_internal(
-                    artifact_id, target_version, repository, from_location, javadoc
-                )
+                utils.info(f"[ligoj] Plugin '{artifact_id}:{target_version}' is already installed with the desired version. '--force' enabled, reinstalling")
+                plugin_install_internal(artifact_id, target_version, repository, from_location, javadoc)
                 installed = True
             else:
-                utils.info(
-                    f"[ligoj] Plugin '{artifact_id}:{target_version}' is already installed with the desired version, skipping. Use '--force' to reinstall"
-                )
+                utils.info(f"[ligoj] Plugin '{artifact_id}:{target_version}' is already installed with the desired version, skipping. Use '--force' to reinstall")
         elif target_version:
-            utils.info(
-                f"[ligoj] Plugin '{artifact_id}:{current_version}' is already installed, but need to be updated -> {target_version}"
-            )
+            utils.info(f"[ligoj] Plugin '{artifact_id}:{current_version}' is already installed, but need to be updated -> {target_version}")
             plugin_install_internal(artifact_id, target_version, repository, from_location, javadoc)
             installed = True
         else:
-            utils.info(
-                f"[ligoj] Plugin '{artifact_id}:{current_version}' is installed, but no latest version can be resolved"
-            )
+            utils.info(f"[ligoj] Plugin '{artifact_id}:{current_version}' is installed, but no latest version can be resolved")
     elif target_version:
         utils.info(f"[ligoj] Plugin '{artifact_id}:{target_version}' is not yet installed")
         plugin_install_internal(artifact_id, target_version, repository, from_location, javadoc)
@@ -1167,9 +831,7 @@ def plugin_install(
         plugin_install_internal(artifact_id, target_version, repository, from_location, javadoc)
         installed = True
     if installed:
-        utils.info(
-            f"[ligoj] Plugin '{artifact_id}' has been installed/updated, a restart is required"
-        )
+        utils.info(f"[ligoj] Plugin '{artifact_id}' has been installed/updated, a restart is required")
 
     # No output
     return False
@@ -1195,12 +857,8 @@ def token_create(name: str, expiration: str, save: bool):
                 expiration_date = int((datetime.now() + timedelta(seconds=parsed_date)).timestamp())
             except ValueError:
                 raise ValueError(utils.error(f"[ligoj] Invalid expiration value '{expiration}'"))
-        utils.info(
-            f"[ligoj] Create token '{name}' expiring at {datetime.fromtimestamp(expiration_date)} ..."
-        )
-        response = call_api(
-            "POST", "api/token", data={"name": name, "expiration": expiration_date}
-        ).json()
+        utils.info(f"[ligoj] Create token '{name}' expiring at {datetime.fromtimestamp(expiration_date)} ...")
+        response = call_api("POST", "api/token", data={"name": name, "expiration": expiration_date}).json()
     else:
         utils.info(f"[ligoj] Create token '{name}' without expiration ...")
         response = call_api("POST", f"api/token/{name}").json()
@@ -1209,9 +867,7 @@ def token_create(name: str, expiration: str, save: bool):
             utils.ini_credentials.add_section(utils.ini_profile)
         utils.ini_credentials.set(utils.ini_profile, "api_key", response["id"])
         utils.ini_credentials_write()
-        utils.info(
-            f"[ligoj] Token saved into profile '{utils.ini_profile}', file {utils.INI_CREDENTIALS_FILE}"
-        )
+        utils.info(f"[ligoj] Token saved into profile '{utils.ini_profile}', file {utils.INI_CREDENTIALS_FILE}")
         return False
     return response
 
@@ -1319,9 +975,7 @@ def hook_upsert(
         raise ValueError(f"[ligoj] Hook '{name}', invalid JSON syntax for match") from err
 
     if not hook_id:
-        hook_response = call_api(
-            "GET", f"system/hook/name/{urllib.parse.quote(name, safe='')}", ignore_error=True
-        )
+        hook_response = call_api("GET", f"system/hook/name/{urllib.parse.quote(name, safe='')}", ignore_error=True)
         if hook_response:
             hook_id = hook_response.json()["id"]
 
@@ -1349,11 +1003,7 @@ def hook_get(hook_id: str | None, name: str | None):
     hooks = response.json().get("data", [])
     return list(
         filter(
-            lambda h: (
-                ((name is None or name == "") and (hook_id is None or hook_id == ""))
-                or h.get("name") == name
-                or str(h.get("id")) == hook_id
-            ),
+            lambda h: (((name is None or name == "") and (hook_id is None or hook_id == "")) or h.get("name") == name or str(h.get("id")) == hook_id),
             hooks,
         )
     )
@@ -1528,9 +1178,7 @@ def node_list(
         "node",
         params={"search[value]": search, "refined": refined, "mode": mode, "depth": depth},
     )
-    return node_get_parameters(
-        response, parameters_mode, parameters_output, return_secured_parameters
-    )
+    return node_get_parameters(response, parameters_mode, parameters_output, return_secured_parameters)
 
 
 def node_get_by_id(
@@ -1542,30 +1190,22 @@ def node_get_by_id(
     if node_id is None:
         return node_list(None, parameters_mode, parameters_output, return_secured_parameters)
     response = call_api("GET", f"node/{node_id}", ignore_error=True, ignore_output=True)
-    return node_get_parameters(
-        response, parameters_mode, parameters_output, return_secured_parameters
-    )
+    return node_get_parameters(response, parameters_mode, parameters_output, return_secured_parameters)
 
 
-def node_upsert(
-    node_id: str, name: str, parameters: list | dict[str, Any], mode: str | None = "ALL"
-):
+def node_upsert(node_id: str, name: str, parameters: list | dict[str, Any], mode: str | None = "ALL"):
     utils.info(f"[ligoj] Create or update node '{node_id}' ...")
     # Check node format
     node_parts = node_id.split(":")
     if not re.match(r"service(:[a-z0-9]{1,50}){3}", node_id):
-        raise ValueError(
-            f"[ligoj] Invalid node id format '{node_id}', must be 'service:$service:$tool:$name'"
-        )
+        raise ValueError(f"[ligoj] Invalid node id format '{node_id}', must be 'service:$service:$tool:$name'")
     if len(name.strip()) == 0:
         raise ValueError(f"[ligoj] Invalid node name '{name}'")
 
     parent_id = ":".join(node_parts[:-1])
     parent_node_details = node_get_by_id(parent_id)
     if parent_node_details is None:
-        raise ValueError(
-            f"[ligoj] Parent node id not found '{node_id}', maybe the corresponding plugins 'plugin-{node_parts[1]}' or 'plugin-{node_parts[1]}-{node_parts[2]}' are not installed"
-        )
+        raise ValueError(f"[ligoj] Parent node id not found '{node_id}', maybe the corresponding plugins 'plugin-{node_parts[1]}' or 'plugin-{node_parts[1]}-{node_parts[2]}' are not installed")
 
     node_details = node_get_by_id(node_id)
     if node_details is None:
@@ -1575,9 +1215,7 @@ def node_upsert(
         utils.info(f"[ligoj] Update node '{node_id}' ...")
         method = "PUT"
 
-    parameters_as_list = (
-        parameters if isinstance(parameters, list) else node_parameters_as_list(parameters)
-    )
+    parameters_as_list = parameters if isinstance(parameters, list) else node_parameters_as_list(parameters)
 
     call_api(
         method,
@@ -1635,9 +1273,7 @@ def node_parameters_as_dict(parameters_as_list):
     for parameter in parameters_as_list:
         if get_parameter_type(parameter):
             parameter_obj = parameter["parameter"]
-            parameter_id = (
-                parameter_obj if isinstance(parameter_obj, str) else parameter["parameter"]["id"]
-            )
+            parameter_id = parameter_obj if isinstance(parameter_obj, str) else parameter["parameter"]["id"]
             parameters_as_dict[parameter_id] = parameter.get(
                 "text",
                 parameter.get(
@@ -1690,8 +1326,7 @@ def system_role_create(role_name, api_patterns, ui_patterns):
             LIGOJ_SYSTEM_ROLE_PATH,
             data={
                 "name": role_name,
-                "authorizations": [{"pattern": p, "type": "api"} for p in api_patterns]
-                + [{"pattern": p, "type": "ui"} for p in ui_patterns],
+                "authorizations": [{"pattern": p, "type": "api"} for p in api_patterns] + [{"pattern": p, "type": "ui"} for p in ui_patterns],
             },
         ).json()
     utils.debug(f"[ligoj] System role '{role_name}' already exists, update permissions ...")
@@ -1701,17 +1336,14 @@ def system_role_create(role_name, api_patterns, ui_patterns):
         data={
             "id": role["id"],
             "name": role_name,
-            "authorizations": [{"pattern": p, "type": "api"} for p in api_patterns]
-            + [{"pattern": p, "type": "ui"} for p in ui_patterns],
+            "authorizations": [{"pattern": p, "type": "api"} for p in api_patterns] + [{"pattern": p, "type": "ui"} for p in ui_patterns],
         },
     )
     return role["id"]
 
 
 def system_role_get_by_name(name):
-    response = call_api(
-        "GET", f"system/security/role/name/{urllib.parse.quote(name, safe='')}", ignore_404=True
-    )
+    response = call_api("GET", f"system/security/role/name/{urllib.parse.quote(name, safe='')}", ignore_404=True)
     return None if response is None else response.json()
 
 
@@ -1742,14 +1374,11 @@ def system_role_list():
 
 def system_user_upsert(user, roles, api_key_name: str = None):
     utils.info(f"[ligoj] Create system user '{user}' with roles {roles} ...")
-    roles = list(
-        map(lambda r: r if isinstance(r, int) else system_role_get_by_name(r)["id"], roles)
-    )
+    roles = list(map(lambda r: r if isinstance(r, int) else system_role_get_by_name(r)["id"], roles))
     return call_api(
         "POST",
         "system/user",
-        data={"login": user, "roles": roles}
-        | ({} if api_key_name is None else {"apiToken": api_key_name}),
+        data={"login": user, "roles": roles} | ({} if api_key_name is None else {"apiToken": api_key_name}),
     )
 
 
@@ -1803,9 +1432,7 @@ def project_create(
             "description": description,
         }
         if context:
-            new_project["creationContext"] = (
-                json.dumps(context) if isinstance(context, dict) else context
-            )
+            new_project["creationContext"] = json.dumps(context) if isinstance(context, dict) else context
         call_api("POST", "project", data=new_project)
         project_details = project_get(project_key)
     return project_details
@@ -1836,9 +1463,7 @@ def project_list(search=str | None):
 
 def subscription_get_by_id(subscription_id: int, with_details: bool):
     utils.info(f"[ligoj] Get subscription by id '{subscription_id}' ...")
-    return call_api(
-        "GET", f"subscription/{subscription_id}{'/configuration' if with_details else ''}"
-    ).json()
+    return call_api("GET", f"subscription/{subscription_id}{'/configuration' if with_details else ''}").json()
 
 
 def subscription_refresh(subscription_id: int | None):
@@ -1853,9 +1478,7 @@ def subscription_status(project: int | str | None):
     return call_api("GET", f"subscription/status/{project}").json()
 
 
-def subscription_list(
-    node_id: str | None, tool: str | None, service: str | None, project: str | int | None
-) -> list:
+def subscription_list(node_id: str | None, tool: str | None, service: str | None, project: str | int | None) -> list:
     filters_log = {}
     if node_id:
         filters_log["node"] = node_id
@@ -1874,16 +1497,8 @@ def subscription_list(
             lambda s: (
                 (not node_id or node_id == s["node"])
                 and (not tool or tool == nodes[s["node"]].get("refined"))
-                and (
-                    not service
-                    or nodes[s["node"]].get("refined")
-                    and service == nodes[nodes[s["node"]]["refined"]].get("refined")
-                )
-                and (
-                    not project
-                    or project == projects[s["project"]]["pkey"]
-                    or project == s["project"]
-                )
+                and (not service or nodes[s["node"]].get("refined") and service == nodes[nodes[s["node"]]["refined"]].get("refined"))
+                and (not project or project == projects[s["project"]]["pkey"] or project == s["project"])
             ),
             items["subscriptions"],
         )
@@ -1893,27 +1508,17 @@ def subscription_list(
 def subscription_delete(subscription_id: int, with_data: bool | None = False):
     with_data = bool(with_data)
     utils.info(f"[ligoj] Delete subscription '{subscription_id}', with_data={with_data} ...")
-    return call_api(
-        "DELETE", f"subscription/{subscription_id}/{str(with_data).lower()}", ignore_error=True
-    )
+    return call_api("DELETE", f"subscription/{subscription_id}/{str(with_data).lower()}", ignore_error=True)
 
 
-def subscription_create(
-    project: str | int | None, node_id: str, parameters: dict | list, mode: str | None = "create"
-) -> int:
-    utils.info(
-        f"[ligoj] Create subscription related to project '{project}' and node '{node_id}' ..."
-    )
+def subscription_create(project: str | int | None, node_id: str, parameters: dict | list, mode: str | None = "create") -> int:
+    utils.info(f"[ligoj] Create subscription related to project '{project}' and node '{node_id}' ...")
     project_details = project_get(project)
     if not project_details:
         raise ValueError(f"[ligoj] Given project {project} does not exist or is not visible")
 
-    parameters_as_dict = (
-        node_parameters_as_dict(parameters) if isinstance(parameters, list) else parameters
-    )
-    parameters_as_list = (
-        parameters if isinstance(parameters, list) else node_parameters_as_list(parameters)
-    )
+    parameters_as_dict = node_parameters_as_dict(parameters) if isinstance(parameters, list) else parameters
+    parameters_as_list = parameters if isinstance(parameters, list) else node_parameters_as_list(parameters)
 
     for other_subscription in subscription_list(node_id, None, None, project):
         other_subscription_details = subscription_get_by_id(other_subscription["id"], True)
@@ -1924,9 +1529,7 @@ def subscription_create(
                 same_parameters = False
 
         if same_parameters:
-            utils.info(
-                f"[ligoj] Subscription {other_subscription['id']} already exists with these parameters"
-            )
+            utils.info(f"[ligoj] Subscription {other_subscription['id']} already exists with these parameters")
             return other_subscription["id"]
 
     # Need to be created
