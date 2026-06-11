@@ -2315,74 +2315,60 @@ docker run -e CUSTOM_OPTS='-Djavax.net.ssl.trustStore=/home/ligoj/ligoj.jks' \
 
 # Development
 
-Local development uses [`uv`](https://docs.astral.sh/uv/) and the provided [`Makefile`](Makefile).
-`uv` creates the virtual environment and installs the exact runtime and dev dependencies declared
-in [`pyproject.toml`](pyproject.toml) — no manual `venv` / `pip` steps are required.
+Everything goes through the [`Makefile`](Makefile), powered by
+[`uv`](https://docs.astral.sh/uv/). `make init` installs `uv` if it is missing, then creates the
+virtual environment and installs the exact runtime and dev dependencies from
+[`pyproject.toml`](pyproject.toml) — no manual `venv` / `pip` / `pyenv` steps.
 
 ```bash
-# 1. Install uv — see https://docs.astral.sh/uv/getting-started/installation/
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. Create the virtual environment and install all dependencies
-make init                     # uv sync
-
-# 3. Run the CLI from the source tree
-make run ARGS="--version"     # or: uv run ligoj --version
+make init                     # install uv if needed + create the venv + install deps
+make run ARGS="--version"     # run the CLI from the source tree
 ```
 
-Common tasks (run `make help` to list them all):
+Run `make help` to list every target:
 
-| Command       | Description                                    |
-| ------------- | ---------------------------------------------- |
-| `make init`   | Create the venv and install all dependencies   |
-| `make run`    | Run the CLI, e.g. `make run ARGS="info status"`|
-| `make format` | Auto-format and apply safe fixes with `ruff`   |
-| `make lint`   | Static analysis with `ruff` and `flake8`       |
-| `make build`  | Build the sdist and wheel into `dist/`         |
-| `make check`  | Validate the built distributions with `twine`  |
-| `make clean`  | Remove build artifacts and caches              |
+| Command             | Description                                             |
+| ------------------- | ------------------------------------------------------- |
+| `make init`         | Install uv if missing, create the venv, install deps    |
+| `make run`          | Run the CLI, e.g. `make run ARGS="info status"`         |
+| `make format`       | Auto-format and apply safe fixes with `ruff`            |
+| `make lint`         | Static analysis with `ruff` and `flake8`                |
+| `make test`         | Full local gate: lint, format check, build, twine check |
+| `make build`        | Build the sdist and wheel into `dist/`                  |
+| `make release-test` | Publish a dev build to TestPyPI and wait until live     |
+| `make release`      | Cut a PyPI release (bump, tag, publish, wait)           |
+| `make clean`        | Remove build artifacts and caches                       |
 
 # Releasing
 
-Publishing is fully automated through GitHub Actions using
-[PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no API token).
-See [RELEASE.md](RELEASE.md) for the complete checklist.
+Releases are driven entirely from `make`; the GitHub Actions workflows only build and publish via
+[PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no API token). Both
+commands print step-by-step progress and block until the package is actually live on the index. See
+[RELEASE.md](RELEASE.md) for one-time setup and troubleshooting.
 
-| Stage            | Index                                                | Trigger                              | Workflow |
-| ---------------- | ---------------------------------------------------- | ------------------------------------ | -------- |
-| **Test publish** | [TestPyPI](https://test.pypi.org/project/ligoj-cli/) | Push to the `develop` branch         | [deploy-test.yml](.github/workflows/deploy-test.yml) |
-| **Release**      | [PyPI](https://pypi.org/project/ligoj-cli/)          | Publish a GitHub Release (tag `v*`)  | [deploy.yml](.github/workflows/deploy.yml) |
+| Stage            | Command             | Index                                                | Workflow                                             |
+| ---------------- | ------------------- | ---------------------------------------------------- | ---------------------------------------------------- |
+| **Test publish** | `make release-test` | [TestPyPI](https://test.pypi.org/project/ligoj-cli/) | [deploy-test.yml](.github/workflows/deploy-test.yml) |
+| **Release**      | `make release`      | [PyPI](https://pypi.org/project/ligoj-cli/)          | [deploy.yml](.github/workflows/deploy.yml)           |
 
 ## Test publish (TestPyPI)
 
-Every push to `develop` builds the package, appends a unique `.dev<run-number>` suffix to the
-version, and uploads it to TestPyPI. Use it to validate the package end-to-end before a real release.
-
 ```bash
-git switch develop
-git push origin develop
+make release-test
 ```
 
-Then smoke-test the published build in a throwaway environment:
-
-```bash
-pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ ligoj-cli
-ligoj --version
-```
+Pushes the current `HEAD` to `develop`, which builds a unique `.dev<run-number>` version and uploads
+it to TestPyPI. The command waits until that build is live and prints the install line.
 
 ## Release (PyPI)
 
-A release is triggered by **publishing a GitHub Release** — pushing a tag alone does **not** publish.
+```bash
+make release              # bump the minor version (e.g. 1.0.2 -> 1.1.0)
+make release PART=patch   # or bump patch / major instead
+```
 
-1. Bump `version` in [pyproject.toml](pyproject.toml) following [SemVer](https://semver.org/),
-   then commit and land it on `master`.
-2. Build and validate locally (optional but recommended):
-   ```bash
-   make check
-   ```
-3. Create and publish the release. This creates the `vX.Y.Z` tag and fires
-   [deploy.yml](.github/workflows/deploy.yml):
-   ```bash
-   gh release create vX.Y.Z --target master --generate-notes
-   ```
-4. Verify on [PyPI](https://pypi.org/project/ligoj-cli/).
+This runs the full quality gate, bumps `version` in [pyproject.toml](pyproject.toml), commits, tags
+`vX.Y.Z`, pushes, creates the GitHub Release (which triggers
+[deploy.yml](.github/workflows/deploy.yml)), then waits until the version is live on
+[PyPI](https://pypi.org/project/ligoj-cli/). You are asked to confirm before anything is pushed —
+pass `YES=1` to skip the prompt.

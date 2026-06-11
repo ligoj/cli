@@ -1,165 +1,104 @@
 # Release Guide — `ligoj-cli`
 
-Publishing uses [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
-(OIDC, no API token). The GitHub Actions workflow is
-[.github/workflows/deploy.yml](.github/workflows/deploy.yml).
+Releasing is driven entirely from `make`. The GitHub Actions workflows only build and publish
+using [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no API token).
 
-Two targets are used:
+| Command             | Index                 | Workflow                                              | Purpose              |
+| ------------------- | --------------------- | ----------------------------------------------------- | -------------------- |
+| `make release-test` | https://test.pypi.org | [deploy-test.yml](.github/workflows/deploy-test.yml)  | Validate end-to-end  |
+| `make release`      | https://pypi.org      | [deploy.yml](.github/workflows/deploy.yml)            | Final public release |
 
-| Target      | Index                 | GitHub Environment | Purpose              |
-| ----------- | --------------------- | ------------------ | -------------------- |
-| **Dev**     | https://test.pypi.org | `dev`              | Validate end-to-end  |
-| **Release** | https://pypi.org      | `release`          | Final public release |
+Both commands print step-by-step progress and **wait until the package is actually live** on the
+index before reporting success.
+
+---
+
+## 1. Test publish (TestPyPI)
+
+```bash
+make release-test
+```
+
+Pushes the current `HEAD` to the `develop` branch, which triggers
+[deploy-test.yml](.github/workflows/deploy-test.yml). That workflow appends a unique
+`.dev<run-number>` suffix, builds, and uploads to TestPyPI. The command then polls TestPyPI until
+the new build appears and prints its install line, e.g.:
+
+```bash
+pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ \
+    ligoj-cli==<X.Y.Z>.dev<N>
+ligoj --version
+```
+
+> TestPyPI does not allow re-uploading the same version; each push gets a fresh `.dev<N>` suffix,
+> so retries just work.
+
+---
+
+## 2. Release (PyPI)
+
+```bash
+make release              # bump the minor version (e.g. 1.0.2 -> 1.1.0)
+make release PART=patch   # bump patch instead (PART = major | minor | patch)
+make release YES=1        # skip the confirmation prompt (CI / unattended)
+```
+
+`make release` performs, in order, aborting on the first failure:
+
+1. **Pre-flight** — must be on `main`, working tree clean, in sync with `origin/main`.
+2. **Quality gate** — `ruff check`, `ruff format --check`, `flake8`, `build`, `twine check`.
+3. **Bump** the version in [pyproject.toml](pyproject.toml) and ask for confirmation.
+4. **Commit** `chore(release): vX.Y.Z`.
+5. **Tag** `vX.Y.Z` and **push** the branch and tag.
+6. **Create the GitHub Release** (`gh release create`), which triggers
+   [deploy.yml](.github/workflows/deploy.yml) → build → publish to PyPI.
+7. **Wait** until `ligoj-cli==X.Y.Z` is served by PyPI, then print the install line.
+
+Nothing is pushed until after the confirmation in step 3, so it is safe to abort early.
 
 ---
 
 ## 0. One-time setup
 
-Before the very first publish, make sure the following are done.
+Required before the very first publish.
 
-### 0.1 PyPI / TestPyPI Trusted Publishers
+### PyPI / TestPyPI Trusted Publishers
 - TestPyPI → project `ligoj-cli` → *Publishing* → add a pending/existing publisher:
-  - Owner: `ligoj`, Repository: `cli`, Workflow: `deploy.yml`, Environment: `dev`.
-- PyPI → same, but Environment: `release`.
+  Owner `ligoj`, Repository `cli`, Workflow `deploy-test.yml`, Environment `dev`.
+- PyPI → same, but Workflow `deploy.yml` and Environment `dev` (matching the `environment:` in
+  the job).
 
-### 0.2 GitHub repository environments
-In `Settings → Environments`, create:
-- `dev` — no reviewers required.
-- `release` — add *required reviewers* and restrict to the `master` branch
-  and tag pattern `v*`.
-
-### 0.3 Complete `deploy.yml`
-The committed workflow currently only contains the publish job. It still
-needs:
-- a `name:` and `on:` trigger (push tag `v*` for release, manual
-  `workflow_dispatch` with an `environment` input for dev),
-- a `build` job that runs `python -m build` and uploads the `dist/`
-  artifact,
-- the `pypi-publish` job must `needs: build`, `download-artifact` into
-  `dist/`, and pass `repository-url: https://test.pypi.org/legacy/` when
-  targeting `dev`.
+### GitHub repository environments
+In `Settings → Environments`, create `dev` (add required reviewers if you want a manual gate before
+the upload step runs).
 
 ---
 
-## 1. Pre-flight checklist (every release)
+## 3. Rollback / yank
 
-- [ ] Working tree clean: `git status`.
-- [ ] On `master`, up to date: `git pull --ff-only`.
-- [ ] Bump `version` in [pyproject.toml](pyproject.toml) following
-      [SemVer](https://semver.org/): `MAJOR.MINOR.PATCH`.
-- [ ] Update `README.md` / changelog if relevant.
-- [ ] Lint & format:
-      ```bash
-      ruff check .
-      ruff format --check .
-      flake8
-      ```
-- [ ] Tests pass: `make test`.
-- [ ] Local build succeeds and artifacts look right:
-      ```bash
-      rm -rf dist/ build/ *.egg-info
-      python -m pip install --upgrade build twine
-      python -m build
-      python -m twine check dist/*
-      ```
-- [ ] Commit the version bump:
-      ```bash
-      git add pyproject.toml
-      git commit -m "chore(release): v<X.Y.Z>"
-      git push origin main
-      ```
-
----
-
-## 2. Publish to **dev** (TestPyPI)
-
-Goal: validate that the package installs and runs from an index before
-cutting the real release.
-
-1. Trigger the workflow against the `dev` environment:
-   - GitHub UI → *Actions* → **deploy** → *Run workflow*
-   - Branch: `main`, input `environment: dev`.
-   - Or via CLI:
-     ```bash
-     gh workflow run deploy.yml -f environment=dev --ref master
-     ```
-2. Watch the run:
-   ```bash
-   gh run watch
-   ```
-3. Verify on TestPyPI: https://test.pypi.org/project/ligoj-cli/
-4. Smoke-test install in a throwaway venv:
-   ```bash
-   python -m venv /tmp/ligoj-cli-dev && source /tmp/ligoj-cli-dev/bin/activate
-   pip install -i https://test.pypi.org/simple/ \
-       --extra-index-url https://pypi.org/simple/ \
-       "ligoj-cli==<X.Y.Z>"
-   ligoj --version
-   ligoj --help
-   deactivate && rm -rf /tmp/ligoj-cli-dev
-   ```
-
-> TestPyPI does **not** allow re-uploading the same version. If you need
-> to retry, bump to `<X.Y.Z>.postN` or to the next patch.
-
----
-
-## 3. Final release (PyPI)
-
-Only once the dev run passes and the smoke-test is green.
-
-1. Tag the release commit and push the tag:
-   ```bash
-   git tag -a v<X.Y.Z> -m "Release v<X.Y.Z>"
-   git push origin v<X.Y.Z>
-   ```
-   Pushing the tag triggers the `release` job in `deploy.yml`.
-
-2. Approve the deployment in GitHub if the `release` environment is
-   gated by required reviewers.
-
-3. Create the GitHub Release from the tag (auto-generated notes are
-   fine):
-   ```bash
-   gh release create v<X.Y.Z> --generate-notes
-   ```
-
-4. Verify on PyPI: https://pypi.org/project/ligoj-cli/<X.Y.Z>/
-
-5. Smoke-test install from the real index:
-   ```bash
-   python -m venv /tmp/ligoj-cli-rel && source /tmp/ligoj-cli-rel/bin/activate
-   pip install "ligoj-cli==<X.Y.Z>"
-   ligoj --version
-   deactivate && rm -rf /tmp/ligoj-cli-rel
-   ```
-
----
-
-## 4. Rollback / yank
-
-PyPI releases cannot be deleted, but they can be **yanked** (kept for
-pinned installs, hidden from resolvers):
+PyPI releases cannot be deleted, but they can be **yanked** (kept for pinned installs, hidden from
+resolvers):
 
 ```bash
-# via web UI: project page → Manage → Releases → Yank
+# web UI: project page → Manage → Releases → Yank
 # or with an API token (one-off, not Trusted Publishing):
 python -m twine yank ligoj-cli==<X.Y.Z> -r pypi
 ```
 
-Then publish a fixed `<X.Y.(Z+1)>` following sections 1–3.
+Then ship a fixed release: `make release PART=patch`.
 
 ---
 
-## 5. Troubleshooting
+## 4. Troubleshooting
 
-- **`invalid-publisher` from OIDC** — environment name on PyPI does not
-  match the `environment:` value in the job. They must be identical
-  (`dev` / `release`).
-- **`File already exists`** — version was already uploaded; bump the
-  version, don't try to overwrite.
-- **Workflow never starts on tag push** — tag didn't match the `on:
-  push: tags:` pattern, or branch protection blocked the push.
-- **Build is missing files** — check `[tool.setuptools] packages` in
-  `pyproject.toml` and inspect `python -m build`'s sdist with
-  `tar tzf dist/*.tar.gz`.
+- **`uv not found` / `pyenv: version '3.11' is not installed`** — run `make init`; the Makefile
+  resolves a real `uv` (skipping any pyenv shim) and installs it if missing.
+- **`working tree is not clean` / `not on main` / `behind origin`** — the pre-flight refused; fix
+  the reported condition and re-run.
+- **`tag vX.Y.Z already exists`** — that version was already released; bump again
+  (`make release PART=patch`).
+- **`invalid-publisher` from OIDC** — the environment name on PyPI must match the `environment:`
+  value in the workflow job (`dev`).
+- **`File already exists`** — the version was already uploaded; bump, don't overwrite.
+- **Timed out waiting for the index** — the upload usually appears within a minute or two; check the
+  workflow run (the command prints its Actions URL) and PyPI/TestPyPI directly.
