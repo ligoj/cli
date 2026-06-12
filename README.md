@@ -1730,6 +1730,35 @@ ligoj prov:catalog status --node "service:prov:aws:test"
 ligoj prov:upload resources -s 12 --from ./resources.csv --merge update
 ```
 
+# Plugin build
+
+Operations related to [plugin-build](https://github.com/ligoj/plugin-build) and its CI provider
+sub-plugins (Jenkins, Travis), exposed under the `build:job` service. The build provider is taken
+from `--provider`, inferred from the `--node` identifier (`service:build:<provider>:…`), or resolved
+from the subscription's node.
+
+> Note: this drives the **Ligoj** build service (`service/build/<provider>`). The separate `jenkins`
+> service talks **directly** to a Jenkins server instead.
+
+| Action      | Arguments                          | REST                                               |
+| ----------- | ---------------------------------- | -------------------------------------------------- |
+| `trigger`   | `--subscription` [`--provider`]    | `POST service/build/<provider>/build/{subscription}` |
+| `find`      | `--node --criteria` [`--provider`] | `GET service/build/<provider>/{node}/{criteria}`   |
+| `templates` | `--node --criteria` [`--provider`] | `GET service/build/<provider>/template/{node}/{criteria}` (Jenkins) |
+| `get`       | `--node --id` [`--provider`]       | `GET service/build/<provider>/{node}/job/{id}`     |
+
+```bash
+# Trigger the build configured for a subscription (provider inferred from the subscription)
+ligoj build:job trigger --subscription 42
+
+# Search jobs / templates on a node (provider inferred from the node)
+ligoj build:job find      --node "service:build:jenkins:dev" --criteria "my-app"
+ligoj build:job templates --node "service:build:jenkins:dev" --criteria "template"
+
+# Return a single job by id
+ligoj build:job get --node "service:build:jenkins:dev" --id "my-app"
+```
+
 # Bootstrap
 
 The following commands can be executed to perform several API commands following a complex workflow.

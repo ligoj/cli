@@ -10,6 +10,7 @@ from ligojcli.plugins import (
     alfresco,
     argocd,
     bootstrap,
+    build,
     gitlab,
     harbor,
     id,
@@ -27,6 +28,7 @@ def main():
     alfresco.configure(subparser_service)
     argocd.configure(subparser_service)
     bootstrap.configure(subparser_service)
+    build.configure(subparser_service)
     gitlab.configure(subparser_service)
     harbor.configure(subparser_service)
     id.configure(subparser_service)
@@ -99,6 +101,7 @@ def execute_action(service, action, operation, args):
         or alfresco.execute_action(service, action, operation, args)
         or argocd.execute_action(service, action, operation, args)
         or bootstrap.execute_action(service, action, operation, args)
+        or build.execute_action(service, action, operation, args)
         or gitlab.execute_action(service, action, operation, args)
         or harbor.execute_action(service, action, operation, args)
         or id.execute_action(service, action, operation, args)
