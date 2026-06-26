@@ -11,6 +11,7 @@ from ligojcli.plugins import (
     argocd,
     bootstrap,
     build,
+    dev,
     gitlab,
     harbor,
     id,
@@ -29,6 +30,7 @@ def main():
     argocd.configure(subparser_service)
     bootstrap.configure(subparser_service)
     build.configure(subparser_service)
+    dev.configure(subparser_service)
     gitlab.configure(subparser_service)
     harbor.configure(subparser_service)
     id.configure(subparser_service)
@@ -91,6 +93,10 @@ def main():
 
 
 def execute_action(service, action, operation, args):
+    # The 'dev' service only drives local containers, no Ligoj endpoint required.
+    if service == "dev":
+        return dev.execute_action(service, action, operation, args)
+
     utils.check_endpoint(utils.not_none(ligoj_plugin.ligoj_endpoint, "endpoint"), "ligoj")
     utils.debug(
         f"[ligoj] Ligoj CLI '{service}/{action}' profile '{utils.ini_profile}', user '{ligoj_plugin.ligoj_api_user}'{'' if ligoj_plugin.ligoj_api_run_as_user is None else (' as ' + ligoj_plugin.ligoj_api_run_as_user)} on endpoint '{ligoj_plugin.ligoj_endpoint}'"

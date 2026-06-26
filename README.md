@@ -1759,6 +1759,247 @@ ligoj build:job templates --node "service:build:jenkins:dev" --criteria "templat
 ligoj build:job get --node "service:build:jenkins:dev" --id "my-app"
 ```
 
+# Dev environment
+
+`dev init` brings up, on **Kubernetes**, the backing services a Ligoj developer needs and wires the
+resulting endpoints and credentials into the **`[dev]` section** of `~/.ligoj/credentials`. The
+generated `[dev]` profile can then be reused by any other command with `--profile dev`.
+
+> Unlike every other command, `dev` is purely local and does **not** require `LIGOJ_ENDPOINT`.
+
+Two runtimes, both driven by **podman** — no heavyweight cluster unless you ask for Harbor:
+
+- **`podman kube play`** for every self-contained service. Each becomes a `Pod` (manifest written to
+  `~/.ligoj/dev/k8s/<service>.yaml`); `PersistentVolumeClaim`s map to podman named volumes so data
+  survives restarts. A pre-existing raw container of the same name is migrated to a pod automatically.
+- **a `kind` cluster** (podman provider, `ligoj-dev`) created on demand **only for Harbor**, which
+  needs a real cluster; Harbor is installed with its Helm chart and exposed on `localhost` via a
+  NodePort + kind `extraPortMappings`.
+
+The init phase **bootstraps its own tooling**: a missing CLI (`podman`, and `kind`/`helm`/`kubectl`
+for Harbor) is installed with Homebrew, and the podman machine is initialized/started as needed — so
+a fresh machine can go from nothing to a running stack with one command. (If Homebrew is absent, you
+get a clear message to install the tool yourself.) Each service streams live progress and is
+**idempotent** — a running pod is reused; use `--recreate` to replace it.
+
+| Service      | Pod / release | Default port | Image                                 | What `dev init` configures |
+| ------------ | ------------- | ------------ | ------------------------------------- | -------------------------- |
+| `postgresql` | `ligoj-db`    | `5432`       | `postgres:17`                         | `ligoj/ligoj` user/db (what `ligoj-api` expects), persistent volume `ligoj_db_data` |
+| `openldap`   | `openldap`    | `1389`       | `bitnamilegacy/openldap:latest`       | `Manager` / `dc=sample,dc=com`; generates the admin password if missing; volume `openldap_data` |
+| `keycloak`   | `keycloak`    | `9083`       | `quay.io/keycloak/keycloak:26.6.1`    | realm `ligoj`, LDAP user federation, confidential `ligoj` client; prints Spring Boot properties |
+| `jenkins`    | `jenkins`     | `8080`       | `jenkins/jenkins:2.570-slim-jdk25`    | volume `jenkins_home`; provisions the admin user and generates an API token |
+| `sonarqube`  | `sonarqube`   | `9000`       | `sonarqube:26.6.0.123539-community`   | changes the default admin password and creates an API token |
+| `gitlab`     | `gitlab`      | `8929` (+ssh `2289`) | `gitlab/gitlab-ce:latest`     | omnibus CE (single container), trimmed footprint; root password in `[dev]` |
+| `harbor`     | `harbor` (Helm, on `kind`) | `8088`  | `goharbor/harbor` chart            | minimal Harbor (no trivy/metrics); admin password in `[dev]` |
+| `argocd`     | `argocd` (Helm, on `kind`) | `8083`  | `argo/argo-cd` chart               | `role:ligoj` RBAC + `ligoj` account & API token; Dex **LDAP federation** to OpenLDAP |
+
+## Options
+
+| Option        | Description                                                                 |
+| ------------- | --------------------------------------------------------------------------- |
+| `--only`, `-O` | Limit to a subset, e.g. `--only postgresql keycloak` (default: all)        |
+| `--recreate`, `-R` | Delete and recreate the pods / kind cluster (named volumes are kept)    |
+| `--wait`, `-w` | How long to wait for readiness, with **live progress**: omit = wait until done or Ctrl+C; `0` = no wait (skip readiness/token steps); `N` = up to N seconds. Also accepted by `start` / `stop` / `restart`. |
+| `--ldap-port` / `--jenkins-port` / `--sonar-port` / `--db-port` / `--keycloak-port` / `--gitlab-port` / `--harbor-port` / `--argocd-port` | Override a host port |
+
+Every value can also be set in the `[dev]` section or as an environment variable. The credentials
+are **read** before a secret is generated, so you stay in control:
+
+| Service      | Inputs (option · env · `[dev]` key)                                                                 |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| `postgresql` | `DB_IMAGE`·`db_image`, `DB_PORT`·`db_port`, `POSTGRES_USER`·`db_user`, `POSTGRES_PASSWORD`·`db_password`, `POSTGRES_DB`·`db_name` |
+| `openldap`   | `LDAP_IMAGE`·`ldap_image`, `LDAP_PORT`·`ldap_port`, `LDAP_ADMIN_USERNAME`·`ldap_admin_user`, `LDAP_ROOT`·`ldap_root`, `LDAP_ADMIN_PASSWORD`·`ldap_admin_password`, `LDAP_SCHEMA_DIR`·`ldap_schema_dir` |
+| `keycloak`   | `KEYCLOAK_IMAGE`·`keycloak_image`, `KEYCLOAK_PORT`·`keycloak_port`, `KC_BOOTSTRAP_ADMIN_USERNAME`·`keycloak_admin_user`, `KC_BOOTSTRAP_ADMIN_PASSWORD`·`keycloak_admin_password`, `KEYCLOAK_LDAP_URL`·`keycloak_ldap_url` |
+| `jenkins`    | `JENKINS_IMAGE`·`jenkins_image`, `JENKINS_PORT`·`jenkins_port`, `JENKINS_API_USER`·`jenkins_api_user`, `JENKINS_ADMIN_PASSWORD`·`jenkins_admin_password`, `JENKINS_API_TOKEN`·`jenkins_api_token` |
+| `sonarqube`  | `SONAR_IMAGE`·`sonar_image`, `SONAR_PORT`·`sonar_port`, `SONAR_ADMIN_PASSWORD`·`sonar_admin_password` |
+| `gitlab`     | `GITLAB_IMAGE`·`gitlab_image`, `GITLAB_PORT`·`gitlab_port`, `GITLAB_SSH_PORT`·`gitlab_ssh_port`, `GITLAB_ROOT_PASSWORD`·`gitlab_root_password` |
+| `harbor`     | `HARBOR_PORT`·`harbor_port`, `HARBOR_NODE_PORT`·`harbor_node_port`, `HARBOR_ADMIN_PASSWORD`·`harbor_admin_password`, `HARBOR_REDIS_IMAGE`·`harbor_redis_image` |
+| `argocd`     | `ARGOCD_PORT`·`argocd_port`, `ARGOCD_NODE_PORT`·`argocd_node_port` (LDAP fields reuse the `openldap` keys) |
+
+In return, `dev init` **writes** to `[dev]`: `db_*` (host/port/name/user/password/url), `ldap_url` and
+`ldap_admin_password`, `keycloak_endpoint` / `keycloak_admin_password` / `keycloak_client_secret` /
+`keycloak_issuer_uri`, `jenkins_endpoint` / `jenkins_admin_password` / `jenkins_api_token`,
+`sonar_endpoint` / `sonar_admin_password` / `sonar_api_token`, `gitlab_endpoint` /
+`gitlab_root_password`, `harbor_endpoint` / `harbor_admin_password`, and `argocd_endpoint` /
+`argocd_admin_password` / `argocd_account` / `argocd_api_token`. For **Jenkins**, **SonarQube** and
+**ArgoCD** an API token is generated (and reused on later runs), so `--profile dev` can drive their
+APIs straight away.
+
+```bash
+# Bring up the whole local stack (Harbor pulls in a kind cluster)
+ligoj dev init
+
+# Only the database and Keycloak, on custom ports
+ligoj dev init --only postgresql keycloak --db-port 5432 --keycloak-port 9083
+
+# Recreate Jenkins to apply a freshly configured admin token
+JENKINS_API_USER=admin JENKINS_API_TOKEN="$(cat token.txt)" ligoj dev init --only jenkins --recreate
+
+# Reuse the generated credentials in subsequent commands
+ligoj --profile dev sonar project list
+```
+
+> **Footprint**: GitLab (~4 GB) and Harbor (a kind node + ~7 pods) are heavy; running all services at
+> once needs a roomy podman machine. Use `--only` to bring up just what you need.
+
+> **Data safety**: for `postgresql`, an existing `ligoj-db` keeps its current data source (named
+> volume *or* host bind mount) and image **even on `--recreate`**, so a `--recreate` never orphans
+> the database nor swaps the PostgreSQL major version under an existing data directory.
+
+## Status
+
+`dev status` reports, for every service, its runtime state, a health probe **from the host** and the
+URL to reach it — handy after an `init` or to see what is still up:
+
+```text
+SERVICE     STATUS          HEALTH  URL
+----------  --------------  ------  ---------------------------------------
+postgresql  running         OK      postgresql://ligoj@localhost:5432/ligoj
+openldap    running         OK      ldap://localhost:1389
+keycloak    running         OK      http://localhost:9083
+jenkins     running         OK      http://localhost:8080
+sonarqube   running         OK      http://localhost:9000
+gitlab      running         OK      http://localhost:8929
+harbor      running (kind)  OK      http://localhost:8088
+```
+
+`STATUS` is the pod (or, for Harbor, the kind cluster) state — `running` / `stopped` / `absent`;
+`HEALTH` is probed from your machine (an HTTP check for web services, a TCP connect for
+PostgreSQL/LDAP). It reads the ports/URLs recorded in `[dev]`, so it works without contacting podman.
+
+## Per-service config
+
+`dev config <service>` prints the key properties of a single service — URL, admin user and password,
+and the other connection details — read straight from `[dev]`:
+
+```text
+# sonarqube
+url             http://localhost:9000
+admin user      admin
+admin password  v1JE…
+api token       squ_…
+```
+
+Works for `postgresql`, `openldap`, `keycloak`, `jenkins`, `sonarqube`, `gitlab` and `harbor`. Each
+service adds its own relevant fields — e.g. PostgreSQL the host/port/database, OpenLDAP the bind/base
+DN, Keycloak the realm + issuer URI + client id/secret, GitLab the SSH URL, Harbor the registry host.
+
+Omit the service to get a summary **table** of every service at once:
+
+```text
+SERVICE     URL                                      USER     PASSWORD  TOKEN/SECRET
+----------  ---------------------------------------  -------  --------  ------------
+postgresql  postgresql://ligoj@localhost:5432/ligoj  ligoj    ligoj     -
+keycloak    http://localhost:9083                    admin    admin     z1n7…
+jenkins     http://localhost:8080                    admin    cfu_…     11651…
+sonarqube   http://localhost:9000                    admin    v1JE…     squ_…
+…
+```
+
+## Restart, stop and start
+
+`dev restart` restarts every service; pass a service to restart just one:
+
+```bash
+ligoj dev restart            # all services
+ligoj dev restart jenkins    # one kube-play service  -> podman pod restart
+ligoj dev restart argocd     # one kind service        -> kubectl rollout restart
+```
+
+kube-play services are restarted with `podman pod restart`; `harbor`/`argocd` with a
+`kubectl rollout restart` of their deployments/statefulsets (the kind node is started first if it was
+stopped). A service that hasn't been created yet is reported and skipped.
+
+`dev stop` stops everything to free resources; pass a service to stop just one:
+
+```bash
+ligoj dev stop               # all services
+ligoj dev stop gitlab        # one kube-play service -> podman pod stop
+ligoj dev stop harbor        # one kind service      -> scale workloads to 0
+```
+
+A kube-play service is stopped with `podman pod stop`; a single kind service has its workloads
+scaled to 0. Stopping **all** also stops the kind node (pausing Harbor + ArgoCD together while keeping
+their replica counts).
+
+`dev start` is the inverse — it starts stopped services without the full `init` reconcile:
+
+```bash
+ligoj dev start              # all services
+ligoj dev start sonarqube    # one kube-play service -> podman pod start
+ligoj dev start harbor       # one kind service      -> start node + scale workloads to 1
+```
+
+A kube-play service is started with `podman pod start`; a kind service starts the node (if the
+whole-cluster stop stopped it) and scales its workloads back to 1. (`dev init` also brings everything
+up, additionally re-running the chart upgrades and token/realm steps.)
+
+All of `init`, `start`, `stop` and `restart` take `--wait` and stream **live progress** while waiting
+for the target state (services up, or down for `stop`): omit it to wait until done (or Ctrl+C), `0`
+to return immediately, or `N` to cap the wait at N seconds — e.g. `dev restart --wait 120`.
+
+## Keycloak realm, federation and client
+
+For the `keycloak` service, `dev init` drives the Keycloak Admin REST API to create (idempotently):
+
+- the **`ligoj` realm**;
+- an **LDAP user federation** bound to the OpenLDAP pod — reachable from inside the Keycloak
+  pod through `ldap://host.containers.internal:<ldap-port>` — using
+  `cn=<ldap_admin_user>,<ldap_root>` (`READ_ONLY`, users DN `<ldap_root>`, `inetOrgPerson`, subtree);
+- a confidential **`ligoj` OIDC client** (standard flow, redirect URIs for the UI on `:5173` and the
+  API on `:8080`) whose generated secret is stored in `[dev] keycloak_client_secret`.
+
+It then prints ready-to-paste Spring Boot properties:
+
+```properties
+security=OAuth2Bff
+ligoj.security.oauth2.username-attribute = email
+ligoj.security.login.url = /oauth2/authorization/keycloak
+spring.security.oauth2.client.provider.keycloak.issuer-uri=http://localhost:9083/realms/ligoj
+spring.security.oauth2.client.registration.keycloak.provider=keycloak
+spring.security.oauth2.client.registration.keycloak.authorization-grant-type=authorization_code
+spring.security.oauth2.client.registration.keycloak.client-id=ligoj
+spring.security.oauth2.client.registration.keycloak.client-secret=<generated>
+spring.security.oauth2.client.registration.keycloak.scope=openid
+```
+
+## Harbor and ArgoCD on kind
+
+Harbor and ArgoCD are the services that need a real cluster. They **share** a single-node **`kind`
+cluster** `ligoj-dev` (podman provider), created on first use with the host→NodePort mappings for
+**both** baked in (Harbor `8088→30088`, ArgoCD `8083→30083`) — mappings are immutable after creation,
+so the cluster carries all of them up front. Each service is then `helm upgrade --install`ed.
+
+`dev init --only harbor` installs the Harbor chart in namespace `harbor` — a **minimal** install
+(`trivy` and `metrics` disabled), TLS off, `externalURL=http://localhost:8088`; stores
+`harbor_endpoint` and `harbor_admin_password`.
+
+> **Apple Silicon (arm64)**: Harbor's official images are amd64-only. Most run under emulation, but
+> `goharbor/redis-photon` segfaults under QEMU, so `dev init` swaps the internal cache for a
+> multi-arch `redis` image (`HARBOR_REDIS_IMAGE`·`harbor_redis_image`, default `docker.io/redis:7.4.1`).
+> The remaining components run amd64-under-QEMU (functional, slower).
+
+`dev init --only argocd` installs the ArgoCD chart in namespace `argocd` (insecure/HTTP, NodePort),
+then:
+
+1. configures a **Dex LDAP connector** to the OpenLDAP pod — reachable from inside kind via the
+   podman host IP (resolved from `host.containers.internal` on the node), bind
+   `cn=<ldap_admin_user>,<ldap_root>`;
+2. creates a **`role:ligoj`** RBAC role (apps/projects/clusters/repos) bound to a `ligoj` account
+   (`apiKey, login`) and the `ligoj` LDAP group;
+3. reads the admin password from `argocd-initial-admin-secret` and **generates an API token** for the
+   `ligoj` account — both stored in `[dev]`.
+
+> Adding ArgoCD to a cluster that only had Harbor (or vice-versa) requires `--recreate` once, since
+> the new service's port mapping must be baked into the cluster. After that both coexist.
+
+> After a **podman machine restart** the kube-play pods and the kind node are left stopped; just
+> re-run `dev init` (or `dev init --only <kind-service>`) — it restarts the pods, starts the kind node
+> and refreshes its kubeconfig automatically.
+
+Tear the cluster down with `kind delete cluster --name ligoj-dev` (or `dev init --only harbor argocd
+--recreate` to rebuild it).
+
 # Bootstrap
 
 The following commands can be executed to perform several API commands following a complex workflow.

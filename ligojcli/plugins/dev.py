@@ -1,0 +1,1947 @@
+#
+# Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
+#
+# Local developer environment helpers, exposed under the `dev` service.
+#
+# `dev init` brings up the backing services a Ligoj developer needs and wires the
+# resulting endpoints and credentials into the `[dev]` section of
+# ~/.ligoj/credentials (reusable later with `--profile dev`).
+#
+# Runtime: Kubernetes manifests applied with `podman kube play` (no separate
+# cluster) for every self-contained service, and a small `kind` cluster (podman
+# provider) created on demand only for Harbor, which needs a real cluster:
+#   * postgresql - 'ligoj-db' PostgreSQL (ligoj/ligoj), persistent; an existing
+#                  data directory/volume and image are preserved on migration.
+#   * openldap   - reads ldap_admin_password / LDAP_ADMIN_PASSWORD (generated when missing).
+#   * keycloak   - 'ligoj' realm + LDAP federation + confidential 'ligoj' client;
+#                  prints sample Spring Boot properties (see commands/README.md).
+#   * jenkins    - admin password set from JENKINS_API_TOKEN when available.
+#   * sonarqube  - changes the default admin password and creates an API token.
+#   * gitlab     - GitLab CE omnibus (single container), persistent.
+#   * harbor     - Helm chart on a kind cluster (podman), exposed via nodePort.
+#
+import base64
+import os
+import secrets
+import shutil
+import socket
+import string
+import subprocess
+import time
+from urllib.parse import urlparse
+
+import requests
+import yaml
+from colorama import Fore, Style
+
+from ligojcli.plugins import utils
+
+PLUGIN_NAME = "dev"
+DEV_SECTION = "dev"
+
+SERVICES = [
+    "postgresql",
+    "openldap",
+    "keycloak",
+    "jenkins",
+    "sonarqube",
+    "gitlab",
+    "harbor",
+    "argocd",
+]
+# Services that need the real (kind) cluster instead of `podman kube play`.
+KIND_SERVICES = ("harbor", "argocd")
+
+LDAP_DEFAULT_IMAGE = "docker.io/bitnamilegacy/openldap:latest"
+JENKINS_DEFAULT_IMAGE = "jenkins/jenkins:2.570-slim-jdk25"
+SONAR_DEFAULT_IMAGE = "sonarqube:26.6.0.123539-community"
+POSTGRES_DEFAULT_IMAGE = "postgres:17"
+KEYCLOAK_DEFAULT_IMAGE = "quay.io/keycloak/keycloak:26.6.1"
+GITLAB_DEFAULT_IMAGE = "gitlab/gitlab-ce:latest"
+
+POSTGRES_CONTAINER = "ligoj-db"
+POSTGRES_VOLUME = "ligoj_db_data"
+
+KEYCLOAK_CONTAINER = "keycloak"
+KEYCLOAK_VOLUME = "keycloak_data"
+KEYCLOAK_REALM = "ligoj"
+KEYCLOAK_CLIENT = "ligoj"
+# Where the ligoj UI/API expect to receive the OIDC callbacks (see commands/README.md).
+KEYCLOAK_REDIRECT_URIS = [
+    "http://localhost:5173/ligoj/login/oauth2/code/keycloak",
+    "http://localhost:8080/ligoj/login/oauth2/code/keycloak",
+]
+KEYCLOAK_ROOT_URL = "http://localhost:5173/ligoj/"
+
+LDAP_DEFAULT_SCHEMA_DIR = (
+    "~/git/ligoj-plugins/plugin-id-ldap-embedded/src/main/resources/export/schema"
+)
+SONAR_TOKEN_NAME = "ligoj-dev"
+JENKINS_TOKEN_NAME = "ligoj-dev"
+
+# Harbor and ArgoCD run on a shared kind cluster (the services that need a real cluster).
+HARBOR_CHART = "harbor/harbor"
+HARBOR_REPO_NAME = "harbor"
+HARBOR_REPO_URL = "https://helm.goharbor.io"
+HARBOR_RELEASE = "harbor"
+HARBOR_NAMESPACE = "harbor"
+KIND_CLUSTER = "ligoj-dev"
+# goharbor/redis-photon ships amd64 only and segfaults under QEMU on Apple Silicon;
+# swap the internal cache for a multi-arch redis so it runs natively on arm64.
+HARBOR_REDIS_IMAGE = "docker.io/redis:7.4.1"
+
+ARGOCD_CHART = "argo/argo-cd"
+ARGOCD_REPO_NAME = "argo"
+ARGOCD_REPO_URL = "https://argoproj.github.io/argo-helm"
+ARGOCD_RELEASE = "argocd"
+ARGOCD_NAMESPACE = "argocd"
+ARGOCD_ACCOUNT = "ligoj"
+ARGOCD_ROLE = "role:ligoj"
+ARGOCD_TOKEN_NAME = "ligoj-dev"
+
+# Host<->nodePort mappings baked into the kind cluster at creation (host_key, env, default, nodePort).
+KIND_PORT_MAPPINGS = [
+    ("harbor_port", "HARBOR_PORT", "8088", "harbor_node_port", "HARBOR_NODE_PORT", "30088"),
+    ("argocd_port", "ARGOCD_PORT", "8083", "argocd_node_port", "ARGOCD_NODE_PORT", "30083"),
+]
+
+K8S_DIR = os.path.join(utils.user_home, ".ligoj", "dev", "k8s")
+
+
+def _add_wait_argument(parser):
+    parser.add_argument(
+        "--wait",
+        "-w",
+        type=int,
+        default=None,
+        help="Seconds to wait for the operation with live progress: 0 = no wait, "
+        "a positive number = up to that many seconds, omitted = until done or Ctrl+C",
+    )
+
+
+def configure(subparser_service):
+    subparser_action = subparser_service.add_parser(
+        "dev", help="Local developer environment helpers"
+    ).add_subparsers(title="action", help="Action", dest="action")
+    parser_action = subparser_action.add_parser(
+        "init", help="Bring up the local dev services on Kubernetes (podman kube play / kind)"
+    )
+    parser_action.add_argument(
+        "--only",
+        "-O",
+        nargs="*",
+        choices=SERVICES,
+        help="Only initialize the given services (default: all)",
+    )
+    parser_action.add_argument(
+        "--recreate",
+        "-R",
+        action="store_true",
+        default=False,
+        help="Delete and recreate the pods/cluster (named volumes are kept)",
+    )
+    parser_action.add_argument("--ldap-port", help="Host port for OpenLDAP (default 1389)")
+    parser_action.add_argument("--jenkins-port", help="Host port for Jenkins HTTP (default 8080)")
+    parser_action.add_argument("--sonar-port", help="Host port for SonarQube (default 9000)")
+    parser_action.add_argument("--db-port", help="Host port for PostgreSQL (default 5432)")
+    parser_action.add_argument("--keycloak-port", help="Host port for Keycloak (default 9083)")
+    parser_action.add_argument("--gitlab-port", help="Host port for GitLab HTTP (default 8929)")
+    parser_action.add_argument("--harbor-port", help="Host port for Harbor (default 8088)")
+    parser_action.add_argument("--argocd-port", help="Host port for ArgoCD (default 8083)")
+    _add_wait_argument(parser_action)
+
+    subparser_action.add_parser(
+        "status", help="Show the status, host health check and access URL of each dev service"
+    )
+
+    parser_restart = subparser_action.add_parser(
+        "restart", help="Restart all dev services (or a specific one)"
+    )
+    parser_restart.add_argument(
+        "restart_service",
+        metavar="service",
+        nargs="?",
+        choices=SERVICES,
+        help="Service to restart (default: all)",
+    )
+    _add_wait_argument(parser_restart)
+
+    parser_stop = subparser_action.add_parser(
+        "stop", help="Stop all dev services (or a specific one)"
+    )
+    parser_stop.add_argument(
+        "stop_service",
+        metavar="service",
+        nargs="?",
+        choices=SERVICES,
+        help="Service to stop (default: all)",
+    )
+    _add_wait_argument(parser_stop)
+
+    parser_start = subparser_action.add_parser(
+        "start", help="Start stopped dev services (or a specific one)"
+    )
+    parser_start.add_argument(
+        "start_service",
+        metavar="service",
+        nargs="?",
+        choices=SERVICES,
+        help="Service to start (default: all)",
+    )
+    _add_wait_argument(parser_start)
+
+    parser_config = subparser_action.add_parser(
+        "config", help="Show key properties (URL, admin user/password, ...) of a service"
+    )
+    # dest is 'config_service' to avoid clobbering the top-level 'service' subparser dest.
+    parser_config.add_argument(
+        "config_service",
+        metavar="service",
+        nargs="?",
+        choices=SERVICES,
+        help="Service to describe (default: all services as a table)",
+    )
+
+
+def execute_action(service, action, _operation, args):
+    if service != "dev":
+        return None
+    if action == "init":
+        return dev_init(args)
+    if action == "status":
+        return dev_status(args)
+    if action == "config":
+        return dev_config(args)
+    if action == "restart":
+        return dev_restart(args)
+    if action == "stop":
+        return dev_stop(args)
+    if action == "start":
+        return dev_start(args)
+    return None
+
+
+def dev_init(args):
+    services = args.get("only") or SERVICES
+    _check_preconditions(services)
+    summary = {}
+    if "postgresql" in services:
+        summary["postgresql"] = _init_postgres(args)
+    if "openldap" in services:
+        summary["openldap"] = _init_openldap(args)
+    if "keycloak" in services:
+        summary["keycloak"] = _init_keycloak(args)
+    if "jenkins" in services:
+        summary["jenkins"] = _init_jenkins(args)
+    if "sonarqube" in services:
+        summary["sonarqube"] = _init_sonarqube(args)
+    if "gitlab" in services:
+        summary["gitlab"] = _init_gitlab(args)
+    if "harbor" in services:
+        summary["harbor"] = _init_harbor(args)
+    if "argocd" in services:
+        summary["argocd"] = _init_argocd(args)
+    utils.info("[dev] Developer environment ready")
+    return summary
+
+
+# --------------------------------------------------------------------------- #
+# Status
+# --------------------------------------------------------------------------- #
+# svc, pod, (port option key, env, default), scheme, health path
+_STATUS_SPECS = [
+    ("postgresql", "ligoj-db", ("db_port", "DB_PORT", "5432"), "tcp", None),
+    ("openldap", "openldap", ("ldap_port", "LDAP_PORT", "1389"), "tcp", None),
+    ("keycloak", "keycloak", ("keycloak_port", "KEYCLOAK_PORT", "9083"), "http", "/realms/master"),
+    ("jenkins", "jenkins", ("jenkins_port", "JENKINS_PORT", "8080"), "http", "/login"),
+    ("sonarqube", "sonarqube", ("sonar_port", "SONAR_PORT", "9000"), "http", "/api/system/status"),
+    ("gitlab", "gitlab", ("gitlab_port", "GITLAB_PORT", "8929"), "http", "/-/health"),
+    ("harbor", "harbor", ("harbor_port", "HARBOR_PORT", "8088"), "http", "/api/v2.0/health"),
+    ("argocd", "argocd", ("argocd_port", "ARGOCD_PORT", "8083"), "http", "/healthz"),
+]
+_ENDPOINT_KEYS = {
+    "postgresql": "db_url",
+    "openldap": "ldap_url",
+    "keycloak": "keycloak_endpoint",
+    "jenkins": "jenkins_endpoint",
+    "sonarqube": "sonar_endpoint",
+    "gitlab": "gitlab_endpoint",
+    "harbor": "harbor_endpoint",
+    "argocd": "argocd_endpoint",
+}
+_PORT_SPECS = {spec[0]: spec[2] for spec in _STATUS_SPECS}
+_PODS = {spec[0]: spec[1] for spec in _STATUS_SPECS}
+
+
+def _service_port(svc, args):
+    key, env, default = _PORT_SPECS[svc]
+    return str(_dev_get(args, key, env, default))
+
+
+def _service_url(svc, args):
+    return _dev_stored(_ENDPOINT_KEYS[svc]) or _default_url(svc, _service_port(svc, args), args)
+
+
+def dev_status(args):
+    rows = [_service_status(spec, args) for spec in _STATUS_SPECS]
+    _print_status_table(rows)
+    return False
+
+
+def dev_restart(args):
+    wait = args.get("wait")
+    svc = args.get("restart_service")
+    services = [svc] if svc else SERVICES
+    for service in services:
+        _restart_service(service)
+    if wait != 0:
+        _await_services(services, args, True, wait)
+    utils.info("[dev] Restart complete")
+    return False
+
+
+def _restart_service(svc):
+    if svc in KIND_SERVICES:
+        if shutil.which("kind") is None or KIND_CLUSTER not in _kind(
+            "get", "clusters", check=False
+        ).stdout.split():
+            utils.warn(f"[dev] {svc}: kind cluster absent, run 'dev init --only {svc}' first")
+            return
+        utils.info(f"[dev] Restart {svc} workloads (kind rollout) ...")
+        _kind_node_start()
+        _kubectl("-n", svc, "rollout", "restart", "deployment,statefulset", check=False, stream=True)
+        return
+    pod = _PODS[svc]
+    if not _pod_exists(pod):
+        utils.warn(f"[dev] {svc}: pod '{pod}' does not exist, run 'dev init --only {svc}' first")
+        return
+    utils.info(f"[dev] Restart pod '{pod}' ...")
+    _podman("pod", "restart", pod, stream=True)
+
+
+def dev_stop(args):
+    wait = args.get("wait")
+    svc = args.get("stop_service")
+    services = [svc] if svc else SERVICES
+    if svc:
+        _stop_service(svc)
+    else:
+        # Stop the kube-play pods individually and the whole kind cluster via its node (which
+        # pauses Harbor + ArgoCD together while preserving their replica counts).
+        for service in SERVICES:
+            if service not in KIND_SERVICES:
+                _stop_service(service)
+        _stop_kind_node()
+    if wait != 0:
+        _await_services(services, args, False, wait)
+    utils.info("[dev] Stop complete (run 'dev init' to bring services back up)")
+    return False
+
+
+def _stop_service(svc):
+    if svc in KIND_SERVICES:
+        if shutil.which("kind") is None or KIND_CLUSTER not in _kind(
+            "get", "clusters", check=False
+        ).stdout.split():
+            utils.warn(f"[dev] {svc}: kind cluster absent, nothing to stop")
+            return
+        utils.info(f"[dev] Stop {svc} workloads (scale to 0) ...")
+        _kubectl(
+            "-n", svc, "scale", "deployment,statefulset", "--all", "--replicas=0",
+            check=False, stream=True,
+        )
+        return
+    pod = _PODS[svc]
+    if not _pod_exists(pod):
+        utils.warn(f"[dev] {svc}: pod '{pod}' does not exist")
+        return
+    utils.info(f"[dev] Stop pod '{pod}' ...")
+    _podman("pod", "stop", pod, stream=True)
+
+
+def _stop_kind_node():
+    if shutil.which("kind") is None or KIND_CLUSTER not in _kind(
+        "get", "clusters", check=False
+    ).stdout.split():
+        return
+    node = f"{KIND_CLUSTER}-control-plane"
+    if _container_is_running(node):
+        utils.info(f"[dev] Stop kind node '{node}' (Harbor + ArgoCD) ...")
+        _podman("stop", node, check=False)
+
+
+def dev_start(args):
+    wait = args.get("wait")
+    svc = args.get("start_service")
+    services = [svc] if svc else SERVICES
+    for service in services:
+        _start_service(service)
+    if wait != 0:
+        _await_services(services, args, True, wait)
+    utils.info("[dev] Start complete")
+    return False
+
+
+def _start_service(svc):
+    if svc in KIND_SERVICES:
+        if shutil.which("kind") is None or KIND_CLUSTER not in _kind(
+            "get", "clusters", check=False
+        ).stdout.split():
+            utils.warn(f"[dev] {svc}: kind cluster absent, run 'dev init --only {svc}' first")
+            return
+        _kind_node_start()  # start the node if it was stopped (whole-cluster stop)
+        utils.info(f"[dev] Start {svc} workloads (scale to 1) ...")
+        _kubectl(
+            "-n", svc, "scale", "deployment,statefulset", "--all", "--replicas=1",
+            check=False, stream=True,
+        )
+        return
+    pod = _PODS[svc]
+    if not _pod_exists(pod):
+        utils.warn(f"[dev] {svc}: pod '{pod}' does not exist, run 'dev init --only {svc}' first")
+        return
+    utils.info(f"[dev] Start pod '{pod}' ...")
+    _podman("pod", "start", pod, stream=True)
+
+
+def _service_healthy(svc, args):
+    # A host-side health probe: HTTP for web services, TCP connect for PostgreSQL/LDAP.
+    spec = next(s for s in _STATUS_SPECS if s[0] == svc)
+    scheme, path = spec[3], spec[4]
+    url = _service_url(svc, args)
+    if scheme == "tcp":
+        parsed = urlparse(url)
+        return _probe_tcp(parsed.hostname or "localhost", parsed.port or int(_service_port(svc, args)))
+    return _probe_http(url.rstrip("/") + path)
+
+
+def _service_status(spec, args):
+    svc, pod, _ports, _scheme, _path = spec
+    url = _service_url(svc, args)
+    runtime = _runtime_status(svc, pod)
+    healthy = _service_healthy(svc, args)
+    return {
+        "service": svc,
+        "status": "running (kind)" if svc in KIND_SERVICES and runtime == "running" else runtime,
+        "status_level": {"running": "ok", "stopped": "warn", "absent": "bad"}.get(runtime, "warn"),
+        "health": "OK" if healthy else "DOWN",
+        "health_level": "ok" if healthy else "bad",
+        "url": url,
+    }
+
+
+def _default_url(svc, port, args):
+    if svc == "postgresql":
+        db = _dev_get(args, "db_name", "POSTGRES_DB", "ligoj")
+        return f"postgresql://localhost:{port}/{db}"
+    if svc == "openldap":
+        return f"ldap://localhost:{port}"
+    return f"http://localhost:{port}"
+
+
+def _runtime_status(svc, pod):
+    if svc in KIND_SERVICES:
+        if shutil.which("kind") is None or shutil.which("kubectl") is None:
+            return "unknown"
+        clusters = _kind("get", "clusters", check=False).stdout.split()
+        if KIND_CLUSTER not in clusters:
+            return "absent"
+        # Cluster is up; is this service's namespace actually running a pod?
+        result = _kubectl(
+            "-n", svc, "get", "pods", "--field-selector=status.phase=Running",
+            "--no-headers", check=False,
+        )
+        return "running" if result.returncode == 0 and result.stdout.strip() else "absent"
+    if shutil.which("podman") is None:
+        return "unknown"
+    if not _pod_exists(pod):
+        return "absent"
+    return "running" if _pod_running(pod) else "stopped"
+
+
+def _probe_http(url):
+    try:
+        return requests.get(url, timeout=4, allow_redirects=False).status_code < 500
+    except requests.RequestException:
+        return False
+
+
+def _probe_tcp(host, port):
+    try:
+        with socket.create_connection((host, int(port)), timeout=4):
+            return True
+    except OSError:
+        return False
+
+
+def _color(text, level):
+    palette = {"ok": Fore.GREEN, "warn": Fore.YELLOW, "bad": Fore.RED}
+    if utils.no_color or level not in palette:
+        return text
+    return f"{palette[level]}{text}{Style.RESET_ALL}"
+
+
+def _print_status_table(rows):
+    cols = ["SERVICE", "STATUS", "HEALTH", "URL"]
+    data = [[r["service"], r["status"], r["health"], r["url"]] for r in rows]
+    widths = [max(len(cols[i]), *(len(row[i]) for row in data)) for i in range(len(cols))]
+    print("  ".join(cols[i].ljust(widths[i]) for i in range(len(cols))))
+    print("  ".join("-" * widths[i] for i in range(len(cols))))
+    for r, row in zip(rows, data):
+        print(
+            "  ".join(
+                [
+                    row[0].ljust(widths[0]),
+                    _color(row[1].ljust(widths[1]), r["status_level"]),
+                    _color(row[2].ljust(widths[2]), r["health_level"]),
+                    row[3].ljust(widths[3]),
+                ]
+            )
+        )
+
+
+def dev_config(args):
+    svc = args.get("config_service")
+    if not svc:
+        _print_config_table(args)
+        return False
+    props = _service_config(svc, args)
+    label_width = max((len(label) for label, _ in props), default=0)
+    print(f"# {svc}")
+    for label, value in props:
+        print(f"{label.ljust(label_width)}  {value}")
+    return False
+
+
+def _config_row(svc, args):
+    props = dict(_service_config(svc, args))
+    return [
+        svc,
+        props.get("url", "-"),
+        props.get("admin user") or props.get("user") or "-",
+        props.get("admin password") or props.get("password") or "-",
+        props.get("api token") or props.get("client secret") or "-",
+    ]
+
+
+def _print_config_table(args):
+    cols = ["SERVICE", "URL", "USER", "PASSWORD", "TOKEN/SECRET"]
+    rows = [_config_row(svc, args) for svc in SERVICES]
+    widths = [max(len(cols[i]), *(len(r[i]) for r in rows)) for i in range(len(cols))]
+    print("  ".join(cols[i].ljust(widths[i]) for i in range(len(cols))))
+    print("  ".join("-" * widths[i] for i in range(len(cols))))
+    for r in rows:
+        print("  ".join(r[i].ljust(widths[i]) for i in range(len(cols))))
+
+
+def _service_config(svc, args):
+    url = _service_url(svc, args)
+    port = _service_port(svc, args)
+    if svc == "postgresql":
+        return [
+            ("url", url),
+            ("host", "localhost"),
+            ("port", port),
+            ("database", _dev_get(args, "db_name", "POSTGRES_DB", "ligoj")),
+            ("user", _dev_get(args, "db_user", "POSTGRES_USER", "ligoj")),
+            ("password", _dev_get(args, "db_password", "POSTGRES_PASSWORD", "ligoj")),
+        ]
+    if svc == "openldap":
+        admin = _dev_get(args, "ldap_admin_user", "LDAP_ADMIN_USERNAME", "Manager")
+        root = _dev_get(args, "ldap_root", "LDAP_ROOT", "dc=sample,dc=com")
+        return [
+            ("url", url),
+            ("admin user", admin),
+            ("admin password", _dev_get(args, "ldap_admin_password", "LDAP_ADMIN_PASSWORD", "-")),
+            ("bind DN", f"cn={admin},{root}"),
+            ("base DN", root),
+        ]
+    if svc == "keycloak":
+        return [
+            ("url", url),
+            ("admin user", _dev_get(args, "keycloak_admin_user", "KC_BOOTSTRAP_ADMIN_USERNAME", "admin")),
+            ("admin password", _dev_get(args, "keycloak_admin_password", "KC_BOOTSTRAP_ADMIN_PASSWORD", "admin")),
+            ("realm", _dev_stored("keycloak_realm") or KEYCLOAK_REALM),
+            ("issuer URI", _dev_stored("keycloak_issuer_uri") or f"{url}/realms/{KEYCLOAK_REALM}"),
+            ("client id", _dev_stored("keycloak_client_id") or KEYCLOAK_CLIENT),
+            ("client secret", _dev_stored("keycloak_client_secret") or "-"),
+        ]
+    if svc == "jenkins":
+        return [
+            ("url", url),
+            ("admin user", _dev_get(args, "jenkins_api_user", "JENKINS_API_USER", "admin")),
+            ("admin password", _dev_stored("jenkins_admin_password") or "-"),
+            ("api token", _dev_stored("jenkins_api_token") or "-"),
+        ]
+    if svc == "sonarqube":
+        return [
+            ("url", url),
+            ("admin user", "admin"),
+            ("admin password", _dev_stored("sonar_admin_password") or "-"),
+            ("api token", _dev_stored("sonar_api_token") or "-"),
+        ]
+    if svc == "gitlab":
+        ssh_port = _dev_get(args, "gitlab_ssh_port", "GITLAB_SSH_PORT", "2289")
+        return [
+            ("url", url),
+            ("admin user", "root"),
+            ("admin password", _dev_stored("gitlab_root_password") or "-"),
+            ("ssh", f"ssh://git@localhost:{ssh_port}"),
+        ]
+    if svc == "harbor":
+        return [
+            ("url", url),
+            ("registry", f"localhost:{port}"),
+            ("admin user", _dev_stored("harbor_admin_user") or "admin"),
+            ("admin password", _dev_stored("harbor_admin_password") or "-"),
+        ]
+    if svc == "argocd":
+        return [
+            ("url", url),
+            ("admin user", "admin"),
+            ("admin password", _dev_stored("argocd_admin_password") or "-"),
+            ("account", _dev_stored("argocd_account") or ARGOCD_ACCOUNT),
+            ("role", ARGOCD_ROLE),
+            ("api token", _dev_stored("argocd_api_token") or "-"),
+        ]
+    return [("url", url)]
+
+
+# --------------------------------------------------------------------------- #
+# Pre-conditions
+# --------------------------------------------------------------------------- #
+def _check_preconditions(services):
+    # The init phase bootstraps its own tooling: missing CLIs are installed (Homebrew on
+    # macOS/Linux) and the podman machine is initialized/started as needed.
+    utils.info("[dev] Check pre-conditions ...")
+    _ensure_podman()
+    if set(KIND_SERVICES) & set(services):
+        for tool in ("kind", "helm", "kubectl"):
+            _ensure_tool(tool)
+        utils.info("[dev] kind, helm and kubectl are available (for Harbor/ArgoCD)")
+
+
+def _brew_install(package):
+    if shutil.which("brew") is None:
+        raise ValueError(
+            f"[dev] '{package}' is missing and Homebrew is not available to install it. "
+            f"Install Homebrew (https://brew.sh) then 'brew install {package}', or add it to PATH."
+        )
+    utils.info(f"[dev] Installing '{package}' with Homebrew ...")
+    _run(["brew", "install", package], stream=True)
+
+
+def _ensure_tool(tool, package=None):
+    if shutil.which(tool) is not None:
+        return
+    _brew_install(package or tool)
+    if shutil.which(tool) is None:
+        raise ValueError(f"[dev] '{tool}' is still not on PATH after installation")
+
+
+def _ensure_podman():
+    _ensure_tool("podman")
+    # Reachable already? (Linux native podman, or a running machine on macOS/Windows.)
+    if _podman("info", "--format", "{{.Host.Arch}}", check=False).returncode == 0:
+        utils.info("[dev] podman is available")
+        return
+    machines = _podman("machine", "list", "--format", "{{.Name}}", check=False).stdout.strip()
+    if not machines:
+        utils.info("[dev] Initialize podman machine ...")
+        _podman("machine", "init", stream=True)
+    utils.info("[dev] Start podman machine ...")
+    _podman("machine", "start", check=False, stream=True)
+    result = _podman("info", "--format", "{{.Host.Arch}}", check=False)
+    if result.returncode != 0:
+        raise ValueError(
+            f"[dev] podman is still not ready after machine start: {(result.stderr or '').strip()}"
+        )
+    utils.info("[dev] podman is available")
+
+
+# --------------------------------------------------------------------------- #
+# PostgreSQL (ligoj-db)
+# --------------------------------------------------------------------------- #
+def _init_postgres(args):
+    utils.info("[dev] === PostgreSQL (ligoj-db) ===")
+    recreate = args.get("recreate", False)
+    image_override = _dev_get(args, "db_image", "DB_IMAGE", None)
+    port = int(_dev_get(args, "db_port", "DB_PORT", "5432"))
+    # Defaults match what ligoj-api expects (jdbc.username/password=ligoj, see ligoj/DOC.md).
+    db_user = _dev_get(args, "db_user", "POSTGRES_USER", "ligoj")
+    db_password = _dev_get(args, "db_password", "POSTGRES_PASSWORD", "ligoj")
+    db_name = _dev_get(args, "db_name", "POSTGRES_DB", "ligoj")
+
+    # Keep data under a sub-dir so the volume/bind root stays writable by postgres.
+    pgdata = "/var/lib/postgresql/data/pgdata"
+    data_source = None
+    recovered_image = None
+    if _container_exists(POSTGRES_CONTAINER):
+        # Recover settings the existing (raw) container was created with, so the
+        # migration keeps the same database, image (major version) and data location.
+        db_user = _container_env(POSTGRES_CONTAINER, "POSTGRES_USER") or db_user
+        db_password = _container_env(POSTGRES_CONTAINER, "POSTGRES_PASSWORD") or db_password
+        db_name = _container_env(POSTGRES_CONTAINER, "POSTGRES_DB") or db_name
+        pgdata = _container_env(POSTGRES_CONTAINER, "PGDATA") or pgdata
+        recovered_image = _container_image(POSTGRES_CONTAINER)
+        mount = _container_mounts(POSTGRES_CONTAINER).get("/var/lib/postgresql/data")
+        if mount and (mount[0] or mount[1]):
+            data_source = mount[0] or mount[1]
+            kind = "volume" if mount[0] else "directory"
+            utils.info(f"[dev] Reusing existing persistent {kind} '{data_source}'")
+    if data_source is None:
+        data_source = POSTGRES_VOLUME
+    image = image_override or recovered_image or POSTGRES_DEFAULT_IMAGE
+
+    volume, named = _data_volume(data_source)
+    env = {
+        "POSTGRES_USER": db_user,
+        "POSTGRES_PASSWORD": db_password,
+        "POSTGRES_DB": db_name,
+        "PGDATA": pgdata,
+    }
+    manifest = _pod_manifest(
+        POSTGRES_CONTAINER,
+        image,
+        [(5432, port)],
+        env=env,
+        volumes=[volume],
+        mounts=[{"name": volume["name"], "mountPath": "/var/lib/postgresql/data"}],
+    )
+    if _pod_will_create(POSTGRES_CONTAINER, recreate):
+        _ensure_image(image)
+    _kube_apply(POSTGRES_CONTAINER, manifest, recreate, named)
+
+    for name, value in (
+        ("db_host", "localhost"),
+        ("db_port", port),
+        ("db_name", db_name),
+        ("db_user", db_user),
+        ("db_password", db_password),
+        ("db_url", f"postgresql://{db_user}@localhost:{port}/{db_name}"),
+    ):
+        _dev_set(name, value)
+
+    wait = args.get("wait")
+    if wait != 0:
+        _wait_postgres(POSTGRES_CONTAINER, db_user, db_name, wait)
+    utils.info(
+        f"[dev] PostgreSQL available on localhost:{port}, database '{db_name}' (user '{db_user}')"
+    )
+    return {
+        "endpoint": f"postgresql://localhost:{port}/{db_name}",
+        "database": db_name,
+        "user": db_user,
+        "data": data_source,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# OpenLDAP
+# --------------------------------------------------------------------------- #
+def _init_openldap(args):
+    utils.info("[dev] === OpenLDAP ===")
+    recreate = args.get("recreate", False)
+    image = _dev_get(args, "ldap_image", "LDAP_IMAGE", LDAP_DEFAULT_IMAGE)
+    port = int(_dev_get(args, "ldap_port", "LDAP_PORT", "1389"))
+    admin_user = _dev_get(args, "ldap_admin_user", "LDAP_ADMIN_USERNAME", "Manager")
+    root = _dev_get(args, "ldap_root", "LDAP_ROOT", "dc=sample,dc=com")
+
+    password = _dev_get(args, "ldap_admin_password", "LDAP_ADMIN_PASSWORD", None)
+    if not password and _container_exists("openldap"):
+        password = _container_env("openldap", "LDAP_ADMIN_PASSWORD")
+        admin_user = _container_env("openldap", "LDAP_ADMIN_USERNAME") or admin_user
+        root = _container_env("openldap", "LDAP_ROOT") or root
+    if not password:
+        password = _generate_secret()
+        utils.info("[dev] No LDAP admin password found, generated one in [dev]")
+    _dev_set("ldap_admin_password", password)
+
+    env = {
+        "LDAP_ADMIN_USERNAME": admin_user,
+        "LDAP_ADMIN_PASSWORD": password,
+        "LDAP_ROOT": root,
+        "LDAP_USERS": "customuser",
+        "LDAP_PASSWORDS": "custompassword",
+    }
+    volumes = [{"name": "data", "persistentVolumeClaim": {"claimName": "openldap_data"}}]
+    mounts = [{"name": "data", "mountPath": "/bitnami/openldap"}]
+    named = ["openldap_data"]
+    schema_dir = os.path.expanduser(
+        _dev_get(args, "ldap_schema_dir", "LDAP_SCHEMA_DIR", LDAP_DEFAULT_SCHEMA_DIR)
+    )
+    if os.path.isdir(schema_dir):
+        utils.info(f"[dev] Mount LDAP custom schema from {schema_dir}")
+        volumes.append({"name": "schema", "hostPath": {"path": schema_dir}})
+        mounts.append({"name": "schema", "mountPath": "/schema"})
+
+    manifest = _pod_manifest("openldap", image, [(1389, port)], env=env, volumes=volumes, mounts=mounts)
+    if _pod_will_create("openldap", recreate):
+        _ensure_image(image)
+    _kube_apply("openldap", manifest, recreate, named)
+
+    endpoint = f"ldap://localhost:{port}"
+    _dev_set("ldap_url", endpoint)
+    _dev_set("ldap_port", port)
+    _dev_set("ldap_admin_user", admin_user)
+    _dev_set("ldap_root", root)
+    utils.info(f"[dev] OpenLDAP available on {endpoint} (bind cn={admin_user},{root})")
+    return {"endpoint": endpoint, "admin_user": f"cn={admin_user},{root}", "root": root}
+
+
+# --------------------------------------------------------------------------- #
+# Keycloak
+# --------------------------------------------------------------------------- #
+def _init_keycloak(args):
+    utils.info("[dev] === Keycloak ===")
+    recreate = args.get("recreate", False)
+    image = _dev_get(args, "keycloak_image", "KEYCLOAK_IMAGE", KEYCLOAK_DEFAULT_IMAGE)
+    port = int(_dev_get(args, "keycloak_port", "KEYCLOAK_PORT", "9083"))
+    admin_user = _dev_get(args, "keycloak_admin_user", "KC_BOOTSTRAP_ADMIN_USERNAME", "admin")
+    admin_password = _dev_get(
+        args, "keycloak_admin_password", "KC_BOOTSTRAP_ADMIN_PASSWORD", "admin"
+    )
+    if _container_exists(KEYCLOAK_CONTAINER):
+        admin_user = _container_env(KEYCLOAK_CONTAINER, "KC_BOOTSTRAP_ADMIN_USERNAME") or admin_user
+        admin_password = (
+            _container_env(KEYCLOAK_CONTAINER, "KC_BOOTSTRAP_ADMIN_PASSWORD") or admin_password
+        )
+
+    env = {
+        "KC_BOOTSTRAP_ADMIN_USERNAME": admin_user,
+        "KC_BOOTSTRAP_ADMIN_PASSWORD": admin_password,
+    }
+    manifest = _pod_manifest(
+        KEYCLOAK_CONTAINER,
+        image,
+        [(8080, port)],
+        env=env,
+        args=["start-dev"],
+        volumes=[{"name": "data", "persistentVolumeClaim": {"claimName": KEYCLOAK_VOLUME}}],
+        mounts=[{"name": "data", "mountPath": "/opt/keycloak/data"}],
+    )
+    if _pod_will_create(KEYCLOAK_CONTAINER, recreate):
+        _ensure_image(image)
+    _kube_apply(KEYCLOAK_CONTAINER, manifest, recreate, [KEYCLOAK_VOLUME])
+
+    base = f"http://localhost:{port}"
+    _dev_set("keycloak_endpoint", base)
+    _dev_set("keycloak_admin_user", admin_user)
+    _dev_set("keycloak_admin_password", admin_password)
+
+    wait = args.get("wait")
+    if wait == 0:
+        utils.warn("[dev] --wait 0, skipping Keycloak realm/client configuration")
+        return {"endpoint": base}
+
+    _wait_http(f"{base}/realms/master", "Keycloak", wait)
+    token = _kc_admin_token(base, admin_user, admin_password)
+    _kc_ensure_realm(base, token, KEYCLOAK_REALM)
+    _kc_ensure_ldap_federation(base, token, args)
+    secret = _kc_ensure_client(base, token)
+
+    issuer = f"{base}/realms/{KEYCLOAK_REALM}"
+    _dev_set("keycloak_realm", KEYCLOAK_REALM)
+    _dev_set("keycloak_client_id", KEYCLOAK_CLIENT)
+    _dev_set("keycloak_client_secret", secret)
+    _dev_set("keycloak_issuer_uri", issuer)
+
+    properties = _kc_spring_properties(issuer, secret)
+    utils.info("[dev] Keycloak configured. Sample Spring Boot properties:")
+    print(f"\n{properties}\n")
+    return {
+        "endpoint": base,
+        "realm": KEYCLOAK_REALM,
+        "client_id": KEYCLOAK_CLIENT,
+        "issuer_uri": issuer,
+    }
+
+
+def _kc_headers(token):
+    return {"Authorization": f"Bearer {token}", "Content-Type": utils.MIME_JSON}
+
+
+def _kc_admin_token(base, user, password):
+    response = requests.post(
+        f"{base}/realms/master/protocol/openid-connect/token",
+        data={
+            "grant_type": "password",
+            "client_id": "admin-cli",
+            "username": user,
+            "password": password,
+        },
+        timeout=30,
+    )
+    if response.status_code != 200:
+        raise ValueError(
+            f"[dev] Keycloak admin login failed (HTTP {response.status_code}): {response.text}"
+        )
+    return response.json()["access_token"]
+
+
+def _kc_ensure_realm(base, token, realm):
+    existing = requests.get(f"{base}/admin/realms/{realm}", headers=_kc_headers(token), timeout=30)
+    if existing.status_code == 200:
+        utils.info(f"[dev] Keycloak realm '{realm}' already exists")
+        return
+    utils.info(f"[dev] Create Keycloak realm '{realm}' ...")
+    response = requests.post(
+        f"{base}/admin/realms",
+        headers=_kc_headers(token),
+        json={"realm": realm, "enabled": True},
+        timeout=30,
+    )
+    if response.status_code not in (201, 409):
+        raise ValueError(
+            f"[dev] Unable to create realm '{realm}' (HTTP {response.status_code}): {response.text}"
+        )
+
+
+def _kc_ensure_ldap_federation(base, token, args):
+    realm = KEYCLOAK_REALM
+    ldap_user = _dev_get(args, "ldap_admin_user", "LDAP_ADMIN_USERNAME", "Manager")
+    ldap_root = _dev_get(args, "ldap_root", "LDAP_ROOT", "dc=sample,dc=com")
+    ldap_port = str(_dev_get(args, "ldap_port", "LDAP_PORT", "1389"))
+    ldap_password = _dev_get(args, "ldap_admin_password", "LDAP_ADMIN_PASSWORD", None) or (
+        _container_env("openldap", "LDAP_ADMIN_PASSWORD") or ""
+    )
+    # Keycloak runs in a pod, so it reaches the published LDAP port via the host gateway.
+    ldap_url = _dev_get(
+        args,
+        "keycloak_ldap_url",
+        "KEYCLOAK_LDAP_URL",
+        f"ldap://host.containers.internal:{ldap_port}",
+    )
+    bind_dn = f"cn={ldap_user},{ldap_root}"
+    if not ldap_password:
+        utils.warn("[dev] No LDAP admin password available; federation bind credential is empty")
+
+    components = requests.get(
+        f"{base}/admin/realms/{realm}/components",
+        headers=_kc_headers(token),
+        params={"type": "org.keycloak.storage.UserStorageProvider"},
+        timeout=30,
+    ).json()
+    if any(c.get("name") == "ldap" for c in components):
+        utils.info("[dev] Keycloak LDAP federation 'ldap' already exists")
+        return
+
+    realm_info = requests.get(
+        f"{base}/admin/realms/{realm}", headers=_kc_headers(token), timeout=30
+    ).json()
+    component = {
+        "name": "ldap",
+        "providerId": "ldap",
+        "providerType": "org.keycloak.storage.UserStorageProvider",
+        "parentId": realm_info.get("id", realm),
+        "config": {
+            "enabled": ["true"],
+            "vendor": ["other"],
+            "connectionUrl": [ldap_url],
+            "bindDn": [bind_dn],
+            "bindCredential": [ldap_password],
+            "editMode": ["READ_ONLY"],
+            "usersDn": [ldap_root],
+            "userObjectClasses": ["inetOrgPerson"],
+            "searchScope": ["2"],
+            "usernameLDAPAttribute": ["uid"],
+            "rdnLDAPAttribute": ["uid"],
+            "uuidLDAPAttribute": ["entryUUID"],
+            "importEnabled": ["true"],
+            "syncRegistrations": ["false"],
+            "pagination": ["true"],
+        },
+    }
+    utils.info(f"[dev] Create Keycloak LDAP federation -> {ldap_url} (bind {bind_dn}) ...")
+    response = requests.post(
+        f"{base}/admin/realms/{realm}/components",
+        headers=_kc_headers(token),
+        json=component,
+        timeout=30,
+    )
+    if response.status_code != 201:
+        raise ValueError(
+            f"[dev] Unable to create LDAP federation (HTTP {response.status_code}): {response.text}"
+        )
+
+
+def _kc_ensure_client(base, token):
+    realm = KEYCLOAK_REALM
+    representation = {
+        "clientId": KEYCLOAK_CLIENT,
+        "enabled": True,
+        "protocol": "openid-connect",
+        "publicClient": False,  # 'Client authentication' ON -> confidential
+        "standardFlowEnabled": True,
+        "directAccessGrantsEnabled": True,
+        "serviceAccountsEnabled": False,
+        "rootUrl": KEYCLOAK_ROOT_URL,
+        "baseUrl": KEYCLOAK_ROOT_URL,
+        "redirectUris": KEYCLOAK_REDIRECT_URIS,
+        "webOrigins": ["+"],
+        "attributes": {"post.logout.redirect.uris": "+"},
+    }
+    found = requests.get(
+        f"{base}/admin/realms/{realm}/clients",
+        headers=_kc_headers(token),
+        params={"clientId": KEYCLOAK_CLIENT},
+        timeout=30,
+    ).json()
+    if found:
+        uid = found[0]["id"]
+        utils.info(f"[dev] Keycloak client '{KEYCLOAK_CLIENT}' already exists, update ...")
+        requests.put(
+            f"{base}/admin/realms/{realm}/clients/{uid}",
+            headers=_kc_headers(token),
+            json={**found[0], **representation},
+            timeout=30,
+        )
+    else:
+        utils.info(f"[dev] Create Keycloak client '{KEYCLOAK_CLIENT}' ...")
+        response = requests.post(
+            f"{base}/admin/realms/{realm}/clients",
+            headers=_kc_headers(token),
+            json=representation,
+            timeout=30,
+        )
+        if response.status_code != 201:
+            raise ValueError(
+                f"[dev] Unable to create client (HTTP {response.status_code}): {response.text}"
+            )
+        found = requests.get(
+            f"{base}/admin/realms/{realm}/clients",
+            headers=_kc_headers(token),
+            params={"clientId": KEYCLOAK_CLIENT},
+            timeout=30,
+        ).json()
+        uid = found[0]["id"]
+
+    secret = (
+        requests.get(
+            f"{base}/admin/realms/{realm}/clients/{uid}/client-secret",
+            headers=_kc_headers(token),
+            timeout=30,
+        )
+        .json()
+        .get("value")
+    )
+    if not secret:
+        secret = (
+            requests.post(
+                f"{base}/admin/realms/{realm}/clients/{uid}/client-secret",
+                headers=_kc_headers(token),
+                timeout=30,
+            )
+            .json()
+            .get("value")
+        )
+    return secret
+
+
+def _kc_spring_properties(issuer, secret):
+    prefix = "spring.security.oauth2.client"
+    return "\n".join(
+        [
+            "security=OAuth2Bff",
+            "ligoj.security.oauth2.username-attribute = email",
+            "ligoj.security.login.url = /oauth2/authorization/keycloak",
+            f"{prefix}.provider.keycloak.issuer-uri={issuer}",
+            f"{prefix}.registration.keycloak.provider=keycloak",
+            f"{prefix}.registration.keycloak.authorization-grant-type=authorization_code",
+            f"{prefix}.registration.keycloak.client-id={KEYCLOAK_CLIENT}",
+            f"{prefix}.registration.keycloak.client-secret={secret}",
+            f"{prefix}.registration.keycloak.scope=openid",
+        ]
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Jenkins
+# --------------------------------------------------------------------------- #
+def _init_jenkins(args):
+    utils.info("[dev] === Jenkins ===")
+    image = _dev_get(args, "jenkins_image", "JENKINS_IMAGE", JENKINS_DEFAULT_IMAGE)
+    port = int(_dev_get(args, "jenkins_port", "JENKINS_PORT", "8080"))
+    agent_port = int(_dev_get(args, "jenkins_agent_port", "JENKINS_AGENT_PORT", "50000"))
+    recreate = args.get("recreate", False)
+    will_create = _pod_will_create("jenkins", recreate)
+    admin_user = _dev_get(args, "jenkins_api_user", "JENKINS_API_USER", None) or "admin"
+    # A provided JENKINS_API_TOKEN doubles as the admin password (back-compat); otherwise a
+    # password is generated. The admin is always provisioned so the setup wizard never blocks.
+    provided_token = _dev_get(args, "jenkins_api_token", "JENKINS_API_TOKEN", None)
+    admin_password = (
+        _dev_get(args, "jenkins_admin_password", "JENKINS_ADMIN_PASSWORD", None)
+        or provided_token
+        or _generate_secret()
+    )
+    if not will_create and not _dev_stored("jenkins_admin_password"):
+        utils.warn(
+            "[dev] Jenkins pod already exists but was not provisioned; run with --recreate to "
+            "set the admin user and generate an API token"
+        )
+
+    init_dir = _write_jenkins_init_groovy()
+    env = {
+        "JAVA_OPTS": "-Djenkins.install.runSetupWizard=false",
+        "JENKINS_DEV_ADMIN_USER": admin_user,
+        "JENKINS_DEV_ADMIN_TOKEN": admin_password,
+    }
+    volumes = [
+        {"name": "data", "persistentVolumeClaim": {"claimName": "jenkins_home"}},
+        {"name": "init", "hostPath": {"path": init_dir}},
+    ]
+    mounts = [
+        {"name": "data", "mountPath": "/var/jenkins_home"},
+        {"name": "init", "mountPath": "/usr/share/jenkins/ref/init.groovy.d", "readOnly": True},
+    ]
+    manifest = _pod_manifest(
+        "jenkins", image, [(8080, port), (50000, agent_port)], env=env, volumes=volumes, mounts=mounts
+    )
+    if will_create:
+        _ensure_image(image)
+    _kube_apply("jenkins", manifest, recreate, ["jenkins_home"])
+
+    endpoint = f"http://localhost:{port}"
+    _dev_set("jenkins_endpoint", endpoint)
+    _dev_set("jenkins_api_user", admin_user)
+    _dev_set("jenkins_admin_password", admin_password)
+    utils.info(f"[dev] Jenkins admin '{admin_user}' provisioned")
+
+    wait = args.get("wait")
+    if wait != 0:
+        _wait_http(f"{endpoint}/login", "Jenkins", wait)
+
+    # Generate an API token as needed (none provided/stored yet).
+    token = provided_token or _dev_stored("jenkins_api_token")
+    if wait != 0 and not token:
+        token = _jenkins_create_token(endpoint, admin_user, admin_password, JENKINS_TOKEN_NAME)
+        if token:
+            utils.info("[dev] Generated Jenkins API token in [dev] jenkins_api_token")
+    if token:
+        _dev_set("jenkins_api_token", token)
+    return {"endpoint": endpoint, "admin_user": admin_user, "api_token": bool(token)}
+
+
+def _write_jenkins_init_groovy():
+    init_dir = os.path.join(utils.user_home, ".ligoj", "dev", "jenkins", "init.groovy.d")
+    os.makedirs(init_dir, exist_ok=True)
+    groovy = """import jenkins.model.Jenkins
+import hudson.security.HudsonPrivateSecurityRealm
+import hudson.security.FullControlOnceLoggedInAuthorizationStrategy
+import jenkins.install.InstallState
+
+def token = System.getenv('JENKINS_DEV_ADMIN_TOKEN')
+if (token != null && token.length() > 0) {
+    def user = System.getenv('JENKINS_DEV_ADMIN_USER')
+    if (user == null || user.length() == 0) { user = 'admin' }
+    def jenkins = Jenkins.get()
+    def realm = new HudsonPrivateSecurityRealm(false)
+    realm.createAccount(user, token)
+    jenkins.setSecurityRealm(realm)
+    def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+    strategy.setAllowAnonymousRead(false)
+    jenkins.setAuthorizationStrategy(strategy)
+    if (!jenkins.getInstallState().isSetupComplete()) {
+        InstallState.INITIAL_SETUP_COMPLETED.initializeState()
+    }
+    jenkins.save()
+    println '[dev] Admin user ' + user + ' configured from JENKINS_DEV_ADMIN_TOKEN'
+}
+"""
+    with open(os.path.join(init_dir, "dev-security.groovy"), "w", encoding="utf-8") as f:
+        f.write(groovy)
+    return init_dir
+
+
+def _jenkins_create_token(endpoint, user, password, name):
+    # Reuse the jenkins plugin's crumb + generateNewToken flow.
+    from ligojcli.plugins import jenkins as jenkins_plugin
+
+    jenkins_plugin.jenkins_endpoint = endpoint
+    jenkins_plugin.jenkins_crumb = "auto"
+    try:
+        return jenkins_plugin.jenkins_create_api_token(name, user, password)
+    except Exception as error:  # noqa: BLE001 - token generation is best-effort
+        utils.warn(f"[dev] Could not generate a Jenkins API token: {error}")
+        return None
+
+
+# --------------------------------------------------------------------------- #
+# SonarQube
+# --------------------------------------------------------------------------- #
+def _init_sonarqube(args):
+    utils.info("[dev] === SonarQube ===")
+    image = _dev_get(args, "sonar_image", "SONAR_IMAGE", SONAR_DEFAULT_IMAGE)
+    port = int(_dev_get(args, "sonar_port", "SONAR_PORT", "9000"))
+    recreate = args.get("recreate", False)
+
+    volumes = [
+        {"name": "data", "persistentVolumeClaim": {"claimName": "sonarqube_data"}},
+        {"name": "extensions", "persistentVolumeClaim": {"claimName": "sonarqube_extensions"}},
+        {"name": "logs", "persistentVolumeClaim": {"claimName": "sonarqube_logs"}},
+    ]
+    mounts = [
+        {"name": "data", "mountPath": "/opt/sonarqube/data"},
+        {"name": "extensions", "mountPath": "/opt/sonarqube/extensions"},
+        {"name": "logs", "mountPath": "/opt/sonarqube/logs"},
+    ]
+    named = ["sonarqube_data", "sonarqube_extensions", "sonarqube_logs"]
+    manifest = _pod_manifest("sonarqube", image, [(9000, port)], volumes=volumes, mounts=mounts)
+    if _pod_will_create("sonarqube", recreate):
+        _ensure_image(image)
+    _kube_apply("sonarqube", manifest, recreate, named)
+
+    endpoint = f"http://localhost:{port}"
+    _dev_set("sonar_endpoint", endpoint)
+
+    wait = args.get("wait")
+    if wait == 0:
+        utils.warn("[dev] --wait 0, skipping SonarQube readiness and token creation")
+        return {"endpoint": endpoint}
+
+    _wait_sonar_up(endpoint, wait)
+    preferred = _dev_get(args, "sonar_admin_password", "SONAR_ADMIN_PASSWORD", None) or _generate_secret()
+    # Persist only once the password is known to work, so a rejected candidate never poisons [dev].
+    admin_password = _sonar_ensure_admin_password(endpoint, preferred)
+    _dev_set("sonar_admin_password", admin_password)
+    token = _sonar_create_token(endpoint, admin_password, SONAR_TOKEN_NAME)
+    _dev_set("sonar_api_token", token)
+    utils.info("[dev] SonarQube API token stored in [dev] sonar_api_token")
+    return {"endpoint": endpoint, "admin_user": "admin", "token_name": SONAR_TOKEN_NAME}
+
+
+def _sonar_valid(endpoint, user, password):
+    try:
+        response = requests.get(
+            f"{endpoint}/api/authentication/validate", auth=(user, password), timeout=30
+        )
+        return response.status_code == 200 and response.json().get("valid") is True
+    except requests.RequestException:
+        return False
+
+
+def _sonar_ensure_admin_password(endpoint, preferred):
+    # Idempotent: the preferred password is already in place.
+    if _sonar_valid(endpoint, "admin", preferred):
+        utils.info("[dev] SonarQube admin password already set, reuse it")
+        return preferred
+    # Change from the default admin/admin. If the preferred password is rejected by the
+    # password policy (e.g. missing special character), fall back to a generated compliant one.
+    last = None
+    for candidate in (preferred, _generate_secret(), _generate_secret()):
+        response = requests.post(
+            f"{endpoint}/api/users/change_password",
+            params={"login": "admin", "previousPassword": "admin", "password": candidate},
+            auth=("admin", "admin"),
+            timeout=30,
+        )
+        if response.status_code in (200, 204):
+            utils.info("[dev] Changed SonarQube default admin password")
+            return candidate
+        if response.status_code == 401:
+            raise ValueError(
+                "[dev] SonarQube 'admin/admin' is no longer valid and the configured password "
+                "does not match. Set [dev] sonar_admin_password to the current one, or run "
+                "'dev init --only sonarqube --recreate'"
+            )
+        last = f"HTTP {response.status_code}: {response.text}"
+        utils.warn(f"[dev] SonarQube rejected the admin password ({last}), retrying ...")
+    raise ValueError(f"[dev] Unable to set SonarQube admin password ({last})")
+
+
+def _sonar_create_token(endpoint, admin_password, name):
+    utils.info(f"[dev] Create SonarQube API token '{name}' ...")
+    # Tokens are write-once; revoke any previous one so generation is idempotent.
+    requests.post(
+        f"{endpoint}/api/user_tokens/revoke",
+        params={"name": name},
+        auth=("admin", admin_password),
+        timeout=30,
+    )
+    response = requests.post(
+        f"{endpoint}/api/user_tokens/generate",
+        params={"name": name},
+        auth=("admin", admin_password),
+        timeout=30,
+    )
+    if response.status_code not in (200, 201):
+        raise ValueError(
+            f"[dev] Unable to create SonarQube token (HTTP {response.status_code}): {response.text}"
+        )
+    return response.json()["token"]
+
+
+# --------------------------------------------------------------------------- #
+# GitLab CE
+# --------------------------------------------------------------------------- #
+def _init_gitlab(args):
+    utils.info("[dev] === GitLab CE ===")
+    recreate = args.get("recreate", False)
+    image = _dev_get(args, "gitlab_image", "GITLAB_IMAGE", GITLAB_DEFAULT_IMAGE)
+    port = int(_dev_get(args, "gitlab_port", "GITLAB_PORT", "8929"))
+    ssh_port = int(_dev_get(args, "gitlab_ssh_port", "GITLAB_SSH_PORT", "2289"))
+    root_password = _dev_get(args, "gitlab_root_password", "GITLAB_ROOT_PASSWORD", None)
+    if not root_password:
+        root_password = _generate_secret()
+        utils.info("[dev] Generated GitLab root password in [dev] gitlab_root_password")
+    _dev_set("gitlab_root_password", root_password)
+
+    external_url = f"http://localhost:{port}"
+    # Trim the omnibus footprint: single puma worker, no Prometheus, reduced sidekiq.
+    omnibus = "; ".join(
+        [
+            f"external_url '{external_url}'",
+            f"gitlab_rails['gitlab_shell_ssh_port'] = {ssh_port}",
+            f"gitlab_rails['initial_root_password'] = '{root_password}'",
+            "puma['worker_processes'] = 0",
+            "sidekiq['max_concurrency'] = 5",
+            "prometheus_monitoring['enable'] = false",
+        ]
+    )
+    env = {"GITLAB_OMNIBUS_CONFIG": omnibus}
+    volumes = [
+        {"name": "config", "persistentVolumeClaim": {"claimName": "gitlab_config"}},
+        {"name": "data", "persistentVolumeClaim": {"claimName": "gitlab_data"}},
+        {"name": "logs", "persistentVolumeClaim": {"claimName": "gitlab_logs"}},
+    ]
+    mounts = [
+        {"name": "config", "mountPath": "/etc/gitlab"},
+        {"name": "data", "mountPath": "/var/opt/gitlab"},
+        {"name": "logs", "mountPath": "/var/log/gitlab"},
+    ]
+    named = ["gitlab_config", "gitlab_data", "gitlab_logs"]
+    manifest = _pod_manifest(
+        "gitlab", image, [(port, port), (22, ssh_port)], env=env, volumes=volumes, mounts=mounts
+    )
+    if _pod_will_create("gitlab", recreate):
+        _ensure_image(image)
+    _kube_apply("gitlab", manifest, recreate, named)
+
+    _dev_set("gitlab_endpoint", external_url)
+    _dev_set("gitlab_ssh_port", ssh_port)
+
+    wait = args.get("wait")
+    if wait != 0:
+        # GitLab's first boot is slow (several minutes); don't fail the whole init on a timeout.
+        _wait_http(f"{external_url}/users/sign_in", "GitLab", wait, fatal=False)
+    utils.info(f"[dev] GitLab available on {external_url} (root / [dev] gitlab_root_password)")
+    return {"endpoint": external_url, "admin_user": "root", "ssh_port": ssh_port}
+
+
+# --------------------------------------------------------------------------- #
+# Harbor (kind + Helm)
+# --------------------------------------------------------------------------- #
+def _init_harbor(args):
+    utils.info("[dev] === Harbor (kind + Helm) ===")
+    recreate = args.get("recreate", False)
+    port = int(_dev_get(args, "harbor_port", "HARBOR_PORT", "8088"))
+    node_port = int(_dev_get(args, "harbor_node_port", "HARBOR_NODE_PORT", "30088"))
+    admin_password = _dev_get(args, "harbor_admin_password", "HARBOR_ADMIN_PASSWORD", None)
+    if not admin_password:
+        admin_password = _generate_secret()
+        utils.info("[dev] Generated Harbor admin password in [dev] harbor_admin_password")
+    _dev_set("harbor_admin_password", admin_password)
+    external_url = f"http://localhost:{port}"
+
+    redis_image = _dev_get(args, "harbor_redis_image", "HARBOR_REDIS_IMAGE", HARBOR_REDIS_IMAGE)
+    _ensure_kind_cluster(args, recreate)
+    _helm_repo(HARBOR_REPO_NAME, HARBOR_REPO_URL)
+    _harbor_helm_install(admin_password, node_port, external_url, args.get("wait"), redis_image)
+
+    _dev_set("harbor_endpoint", external_url)
+    _dev_set("harbor_admin_user", "admin")
+
+    wait = args.get("wait")
+    if wait != 0:
+        _wait_http(f"{external_url}/api/v2.0/systeminfo", "Harbor", wait, fatal=False)
+    utils.info(f"[dev] Harbor available on {external_url} (admin / [dev] harbor_admin_password)")
+    return {"endpoint": external_url, "admin_user": "admin", "cluster": f"kind-{KIND_CLUSTER}"}
+
+
+# --------------------------------------------------------------------------- #
+# ArgoCD (kind + Helm) - with a 'ligoj' role and LDAP federation
+# --------------------------------------------------------------------------- #
+def _init_argocd(args):
+    utils.info("[dev] === ArgoCD (kind + Helm) ===")
+    recreate = args.get("recreate", False)
+    port = int(_dev_get(args, "argocd_port", "ARGOCD_PORT", "8083"))
+    node_port = int(_dev_get(args, "argocd_node_port", "ARGOCD_NODE_PORT", "30083"))
+    external_url = f"http://localhost:{port}"
+
+    _ensure_kind_cluster(args, recreate)
+    _helm_repo(ARGOCD_REPO_NAME, ARGOCD_REPO_URL)
+    # Dex (inside kind) reaches the published OpenLDAP via the podman host IP.
+    ldap = {
+        "host": (_kind_host_ip() or "host.containers.internal"),
+        "port": str(_dev_get(args, "ldap_port", "LDAP_PORT", "1389")),
+        "user": _dev_get(args, "ldap_admin_user", "LDAP_ADMIN_USERNAME", "Manager"),
+        "root": _dev_get(args, "ldap_root", "LDAP_ROOT", "dc=sample,dc=com"),
+        "password": _dev_get(args, "ldap_admin_password", "LDAP_ADMIN_PASSWORD", None) or "",
+    }
+    _argocd_helm_install(external_url, node_port, ldap, args.get("wait"))
+
+    _dev_set("argocd_endpoint", external_url)
+    _dev_set("argocd_admin_user", "admin")
+    _dev_set("argocd_account", ARGOCD_ACCOUNT)
+
+    wait = args.get("wait")
+    if wait == 0:
+        utils.warn("[dev] --wait 0, skipping ArgoCD token creation")
+        return {"endpoint": external_url}
+
+    _wait_http(f"{external_url}/healthz", "ArgoCD", wait, fatal=False)
+    admin_password = _argocd_admin_password()
+    if admin_password:
+        _dev_set("argocd_admin_password", admin_password)
+    token = _dev_stored("argocd_api_token")
+    if not token and admin_password:
+        token = _argocd_create_token(external_url, "admin", admin_password, ARGOCD_ACCOUNT)
+        if token:
+            utils.info("[dev] Generated ArgoCD API token for 'ligoj' in [dev] argocd_api_token")
+    if token:
+        _dev_set("argocd_api_token", token)
+    utils.info(
+        f"[dev] ArgoCD available on {external_url} (admin / [dev] argocd_admin_password; "
+        f"account '{ARGOCD_ACCOUNT}' bound to '{ARGOCD_ROLE}', LDAP federation via Dex)"
+    )
+    return {
+        "endpoint": external_url,
+        "admin_user": "admin",
+        "account": ARGOCD_ACCOUNT,
+        "role": ARGOCD_ROLE,
+    }
+
+
+def _argocd_helm_install(external_url, node_port, ldap, wait):
+    dex_config = (
+        "connectors:\n"
+        "- type: ldap\n"
+        "  id: ldap\n"
+        "  name: LDAP\n"
+        "  config:\n"
+        f"    host: {ldap['host']}:{ldap['port']}\n"
+        "    insecureNoSSL: true\n"
+        f"    bindDN: cn={ldap['user']},{ldap['root']}\n"
+        f"    bindPW: {ldap['password']}\n"
+        "    userSearch:\n"
+        f"      baseDN: {ldap['root']}\n"
+        '      filter: "(objectClass=inetOrgPerson)"\n'
+        "      username: uid\n"
+        "      idAttr: uid\n"
+        "      emailAttr: mail\n"
+        "      nameAttr: cn\n"
+        "    groupSearch:\n"
+        f"      baseDN: {ldap['root']}\n"
+        '      filter: "(objectClass=groupOfNames)"\n'
+        "      userMatchers:\n"
+        "      - userAttr: DN\n"
+        "        groupAttr: member\n"
+        "      nameAttr: cn\n"
+    )
+    # A 'ligoj' role with broad permissions, bound to the 'ligoj' account/LDAP group.
+    policy_csv = (
+        "p, role:ligoj, applications, *, */*, allow\n"
+        "p, role:ligoj, projects, get, *, allow\n"
+        "p, role:ligoj, clusters, get, *, allow\n"
+        "p, role:ligoj, repositories, *, *, allow\n"
+        "g, ligoj, role:ligoj\n"
+    )
+    values = {
+        "configs": {
+            "cm": {
+                "url": external_url,
+                "accounts.ligoj": "apiKey, login",
+                "dex.config": dex_config,
+            },
+            "params": {"server.insecure": "true"},
+            "rbac": {"policy.default": "role:readonly", "policy.csv": policy_csv},
+        },
+        "server": {"service": {"type": "NodePort", "nodePortHttp": node_port}},
+        # Trim the footprint: optional components off.
+        "applicationSet": {"enabled": False},
+        "notifications": {"enabled": False},
+    }
+    os.makedirs(K8S_DIR, exist_ok=True)
+    values_path = os.path.join(K8S_DIR, "argocd-values.yaml")
+    with open(values_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(values, f, sort_keys=False)
+    utils.info("[dev] helm upgrade --install argocd ...")
+    _helm(
+        "upgrade",
+        "--install",
+        ARGOCD_RELEASE,
+        ARGOCD_CHART,
+        "--namespace",
+        ARGOCD_NAMESPACE,
+        "--create-namespace",
+        "--kube-context",
+        f"kind-{KIND_CLUSTER}",
+        "--values",
+        values_path,
+        "--force-conflicts",  # argocd-server co-owns argocd-cm fields; force SSA on re-runs
+        *_helm_wait_flags(wait),
+        stream=True,
+    )
+
+
+def _argocd_admin_password():
+    result = _kubectl(
+        "-n",
+        ARGOCD_NAMESPACE,
+        "get",
+        "secret",
+        "argocd-initial-admin-secret",
+        "-o",
+        "jsonpath={.data.password}",
+        check=False,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return base64.b64decode(result.stdout.strip()).decode()
+    return None
+
+
+def _argocd_create_token(url, admin_user, admin_password, account):
+    try:
+        session = requests.post(
+            f"{url}/api/v1/session",
+            json={"username": admin_user, "password": admin_password},
+            timeout=15,
+        )
+        if session.status_code != 200:
+            utils.warn(f"[dev] ArgoCD admin login failed (HTTP {session.status_code})")
+            return None
+        admin_token = session.json()["token"]
+        response = requests.post(
+            f"{url}/api/v1/account/{account}/token",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"name": ARGOCD_TOKEN_NAME},
+            timeout=15,
+        )
+        if response.status_code != 200:
+            utils.warn(
+                f"[dev] Could not create ArgoCD token (HTTP {response.status_code}): {response.text}"
+            )
+            return None
+        return response.json()["token"]
+    except requests.RequestException as error:
+        utils.warn(f"[dev] Could not create ArgoCD token: {error}")
+        return None
+
+
+def _ensure_kind_cluster(args, recreate):
+    clusters = _kind("get", "clusters").stdout.split()
+    if KIND_CLUSTER in clusters and recreate:
+        utils.info(f"[dev] Delete kind cluster '{KIND_CLUSTER}' ...")
+        _kind("delete", "cluster", "--name", KIND_CLUSTER, stream=True)
+        clusters = []
+    if KIND_CLUSTER in clusters:
+        utils.info(f"[dev] Reusing kind cluster '{KIND_CLUSTER}'")
+        _kind_node_start()
+        return
+    # Bake every kind-service host<->nodePort mapping in at creation (they are immutable after).
+    mappings = [
+        {
+            "containerPort": int(_dev_get(args, nk, ne, nd)),
+            "hostPort": int(_dev_get(args, hk, he, hd)),
+            "protocol": "TCP",
+        }
+        for hk, he, hd, nk, ne, nd in KIND_PORT_MAPPINGS
+    ]
+    config = {
+        "kind": "Cluster",
+        "apiVersion": "kind.x-k8s.io/v1alpha4",
+        "nodes": [{"role": "control-plane", "extraPortMappings": mappings}],
+    }
+    os.makedirs(K8S_DIR, exist_ok=True)
+    config_path = os.path.join(K8S_DIR, "kind-config.yaml")
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
+    utils.info(f"[dev] Create kind cluster '{KIND_CLUSTER}' (podman provider) ...")
+    _kind("create", "cluster", "--name", KIND_CLUSTER, "--config", config_path, stream=True)
+
+
+def _helm_repo(name, url):
+    utils.info(f"[dev] Add/refresh Helm repo '{name}' ...")
+    _helm("repo", "add", name, url, check=False)
+    _helm("repo", "update", name, stream=True)
+
+
+def _kubectl(*cmd, check=True, stream=False):
+    return _run(["kubectl", "--context", f"kind-{KIND_CLUSTER}", *cmd], check=check, stream=stream)
+
+
+def _kind_host_ip():
+    # Address of the podman host as reachable from inside the kind cluster (for LDAP, etc.).
+    node = f"{KIND_CLUSTER}-control-plane"
+    result = _podman("exec", node, "getent", "ahostsv4", "host.containers.internal", check=False)
+    if result.returncode == 0 and result.stdout.split():
+        return result.stdout.split()[0]
+    return None
+
+
+def _container_is_running(name):
+    result = _podman("inspect", "--format", "{{.State.Running}}", name, check=False)
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def _kind_node_start():
+    # After a podman machine restart the kind node is stopped and its kubeconfig is stale; start
+    # the node, refresh the kubeconfig (the API port may change) and wait for the API to answer.
+    node = f"{KIND_CLUSTER}-control-plane"
+    if _container_exists(node) and not _container_is_running(node):
+        utils.info(f"[dev] Start stopped kind node '{node}' ...")
+        _podman("start", node, check=False)
+    start = time.time()
+    while time.time() - start < 90:
+        _kind("export", "kubeconfig", "--name", KIND_CLUSTER, check=False)
+        if _kubectl("get", "--raw=/readyz", check=False).returncode == 0:
+            return
+        time.sleep(3)
+    utils.warn("[dev] kind API server is not ready yet; cluster operations may fail")
+
+
+def _harbor_helm_install(admin_password, node_port, external_url, wait, redis_image):
+    repo, sep, tag = redis_image.rpartition(":")
+    if not sep:  # no tag in the reference
+        repo, tag = redis_image, "latest"
+    values = {
+        "expose": {
+            "type": "nodePort",
+            "tls": {"enabled": False},
+            "nodePort": {"ports": {"http": {"nodePort": node_port}}},
+        },
+        "externalURL": external_url,
+        "harborAdminPassword": admin_password,
+        # Minimal install: optional scanner/metrics off; arm64-native redis (see above).
+        "trivy": {"enabled": False},
+        "metrics": {"enabled": False},
+        "redis": {"internal": {"image": {"repository": repo, "tag": tag}}},
+    }
+    os.makedirs(K8S_DIR, exist_ok=True)
+    values_path = os.path.join(K8S_DIR, "harbor-values.yaml")
+    with open(values_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(values, f, sort_keys=False)
+    utils.info("[dev] helm upgrade --install harbor ...")
+    _helm(
+        "upgrade",
+        "--install",
+        HARBOR_RELEASE,
+        HARBOR_CHART,
+        "--namespace",
+        HARBOR_NAMESPACE,
+        "--create-namespace",
+        "--kube-context",
+        f"kind-{KIND_CLUSTER}",
+        "--values",
+        values_path,
+        "--force-conflicts",  # take over server-side-apply field ownership on re-runs
+        *_helm_wait_flags(wait),
+        stream=True,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# podman / kube-play / kind / helm helpers
+# --------------------------------------------------------------------------- #
+def _run(cmd, check=True, stream=False, env=None) -> subprocess.CompletedProcess:
+    utils.debug("[dev] $ " + " ".join(cmd))
+    run_env = {**os.environ, **env} if env else None
+    if stream:
+        proc = subprocess.run(cmd, env=run_env)
+        if check and proc.returncode != 0:
+            raise ValueError(f"[dev] Command failed: {' '.join(cmd)}")
+        return proc
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=run_env)
+    if check and proc.returncode != 0:
+        raise ValueError(f"[dev] Command failed: {' '.join(cmd)}\n{(proc.stderr or '').strip()}")
+    return proc
+
+
+def _podman(*cmd, check=True, stream=False) -> subprocess.CompletedProcess:
+    return _run(["podman", *cmd], check=check, stream=stream)
+
+
+def _kind(*cmd, check=True, stream=False) -> subprocess.CompletedProcess:
+    # kind drives podman as its node provider.
+    return _run(["kind", *cmd], check=check, stream=stream, env={"KIND_EXPERIMENTAL_PROVIDER": "podman"})
+
+
+def _helm(*cmd, check=True, stream=False) -> subprocess.CompletedProcess:
+    return _run(["helm", *cmd], check=check, stream=stream)
+
+
+def _ensure_image(image):
+    if _podman("image", "exists", image, check=False).returncode == 0:
+        utils.info(f"[dev] Image '{image}' already present")
+        return
+    utils.info(f"[dev] Pull image '{image}' ...")
+    _podman("pull", image, stream=True)
+
+
+def _ensure_volume(name):
+    if _podman("volume", "exists", name, check=False).returncode != 0:
+        utils.info(f"[dev] Create volume '{name}' ...")
+        _podman("volume", "create", name)
+
+
+def _container_exists(name):
+    return _podman("container", "exists", name, check=False).returncode == 0
+
+
+def _pod_exists(name):
+    return _podman("pod", "exists", name, check=False).returncode == 0
+
+
+def _pod_running(name):
+    status = (
+        _podman("pod", "ps", "--filter", f"name=^{name}$", "--format", "{{.Status}}").stdout.strip()
+    )
+    return status.lower().startswith(("running", "degraded"))
+
+
+def _pod_will_create(name, recreate):
+    return recreate or not _pod_exists(name)
+
+
+def _pod_container(pod):
+    # podman kube play names a Pod's container '<pod>-<container>'; we use container name == pod.
+    return f"{pod}-{pod}"
+
+
+def _container_env(name, key):
+    result = _podman(
+        "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", name, check=False
+    )
+    if result.returncode == 0:
+        prefix = f"{key}="
+        for line in result.stdout.splitlines():
+            if line.startswith(prefix):
+                return line[len(prefix) :]
+    return None
+
+
+def _container_image(name):
+    result = _podman("inspect", "--format", "{{.ImageName}}", name, check=False)
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return None
+
+
+def _container_mounts(name):
+    # Map each mount destination -> (named volume or "", host source).
+    result = _podman(
+        "inspect",
+        "--format",
+        "{{range .Mounts}}{{.Destination}}|{{.Name}}|{{.Source}}{{println}}{{end}}",
+        name,
+        check=False,
+    )
+    mounts = {}
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            parts = line.split("|")
+            if len(parts) == 3 and parts[0]:
+                mounts[parts[0]] = (parts[1], parts[2])
+    return mounts
+
+
+def _data_volume(data_source):
+    # Build a single data volume entry; returns (volume_dict, named_volumes_to_ensure).
+    if "/" in data_source:  # host path (named volumes cannot contain '/')
+        return {"name": "data", "hostPath": {"path": data_source}}, []
+    return {"name": "data", "persistentVolumeClaim": {"claimName": data_source}}, [data_source]
+
+
+def _pod_manifest(name, image, ports, env=None, args=None, volumes=None, mounts=None):
+    container = {"name": name, "image": image}
+    if args:
+        container["args"] = list(args)
+    if ports:
+        container["ports"] = [
+            {"containerPort": int(cp), "hostPort": int(hp)} for cp, hp in ports
+        ]
+    if env:
+        container["env"] = [{"name": k, "value": str(v)} for k, v in env.items()]
+    if mounts:
+        container["volumeMounts"] = mounts
+    spec = {"restartPolicy": "Always", "containers": [container]}
+    if volumes:
+        spec["volumes"] = volumes
+    return {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": name,
+            "labels": {"app": name, "app.kubernetes.io/managed-by": "ligoj-dev"},
+        },
+        "spec": spec,
+    }
+
+
+def _manifest_path(name):
+    os.makedirs(K8S_DIR, exist_ok=True)
+    return os.path.join(K8S_DIR, f"{name}.yaml")
+
+
+def _kube_apply(name, manifest, recreate, named_volumes=()):
+    path = _manifest_path(name)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(manifest, f, sort_keys=False)
+    # PVC claimNames map to podman volumes; pre-create them so existing data is reused.
+    for vol in named_volumes:
+        _ensure_volume(vol)
+    # Migrate away from a legacy standalone container of the same name (raw-container era).
+    if _container_exists(name) and not _pod_exists(name):
+        utils.info(f"[dev] Removing legacy container '{name}' (migrating to a pod) ...")
+        _podman("rm", "-f", name)
+    if _pod_exists(name):
+        if recreate:
+            utils.info(f"[dev] Replace pod '{name}' ...")
+            _podman("kube", "play", "--replace", path, stream=True)
+            return True
+        if _pod_running(name):
+            utils.info(f"[dev] Pod '{name}' already running, reuse (use --recreate to rebuild)")
+            return False
+        utils.info(f"[dev] Start existing pod '{name}' ...")
+        _podman("pod", "start", name)
+        return False
+    utils.info(f"[dev] Apply pod '{name}' ...")
+    _podman("kube", "play", path, stream=True)
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# [dev] credentials helpers
+# --------------------------------------------------------------------------- #
+def _dev_get(args, name, env_variable_name, default):
+    value = args.get(name)
+    if value is None or value == "":
+        value = os.environ.get(env_variable_name)
+    if value is None or value == "":
+        value = utils.ini_credentials.get(DEV_SECTION, name, fallback=None)
+    if value is None or value == "":
+        return default
+    return utils.cleanup_ini_value(value)
+
+
+def _dev_set(name, value):
+    if not utils.ini_credentials.has_section(DEV_SECTION):
+        utils.ini_credentials.add_section(DEV_SECTION)
+    utils.ini_credentials.set(DEV_SECTION, name, str(value))
+    utils.ini_credentials_write()
+
+
+def _dev_stored(name):
+    # Value already written to the [dev] section by a previous init (no env/default).
+    return utils.cleanup_ini_value(utils.ini_credentials.get(DEV_SECTION, name, fallback=None))
+
+
+# Special characters kept shell/LDAP friendly and free of '%' (ConfigParser interpolation).
+SECRET_SPECIALS = "-_.@#+=!?*"
+
+
+def _generate_secret(length=24):
+    alphabet = string.ascii_letters + string.digits + SECRET_SPECIALS
+    while True:
+        candidate = "".join(secrets.choice(alphabet) for _ in range(length))
+        # Guarantee complexity (SonarQube requires at least one special character).
+        if (
+            any(c.islower() for c in candidate)
+            and any(c.isupper() for c in candidate)
+            and any(c.isdigit() for c in candidate)
+            and any(c in SECRET_SPECIALS for c in candidate)
+        ):
+            return candidate
+
+
+# --------------------------------------------------------------------------- #
+# waiting / live progress
+#
+# A wait value of None means "until done or Ctrl+C" (infinite), 0 means "no wait", and a positive
+# integer means "up to that many seconds". Waits stream live progress and handle Ctrl+C cleanly.
+# --------------------------------------------------------------------------- #
+def _deadline(wait):
+    # wait: None (infinite) or a positive number of seconds (callers handle wait == 0 themselves).
+    return None if wait is None else time.time() + wait
+
+
+def _await(label, ready, deadline, poll=2.0, progress=15.0):
+    start = time.time()
+    next_progress = start + progress
+    bound = "no limit" if deadline is None else f"{max(0, int(deadline - start))}s max"
+    utils.info(f"[dev] Waiting for {label} ({bound}) ...")
+    try:
+        while True:
+            ok, detail = ready()
+            now = time.time()
+            elapsed = int(now - start)
+            suffix = f" - {detail}" if detail else ""
+            if ok:
+                utils.info(f"[dev] {label} ready after {elapsed}s{suffix}")
+                return True
+            if deadline is not None and now >= deadline:
+                utils.warn(f"[dev] {label} not ready after {elapsed}s")
+                return False
+            if now >= next_progress:
+                next_progress = now + progress
+                left = "" if deadline is None else f", {max(0, int(deadline - now))}s left"
+                utils.info(f"[dev] {label} ... still waiting {elapsed}s{left}{suffix}")
+            time.sleep(poll)
+    except KeyboardInterrupt:
+        utils.warn(f"[dev] {label}: interrupted (the operation keeps running in the background)")
+        raise SystemExit(130)
+
+
+def _helm_wait_flags(wait):
+    if wait == 0:
+        return []  # return as soon as the chart is applied, without waiting for readiness
+    seconds = 86400 if wait is None else max(wait, 600)
+    return ["--wait", "--timeout", f"{seconds}s"]
+
+
+def _await_services(services, args, want_healthy, wait):
+    # Share one deadline across the whole operation; want_healthy True waits for up, False for down.
+    deadline = _deadline(wait)
+    for svc in services:
+        label = f"{svc} ({'up' if want_healthy else 'down'})"
+        _await(label, lambda s=svc: (_service_healthy(s, args) is want_healthy, ""), deadline)
+
+
+def _wait_http(url, name, wait, fatal=True):
+    def ready():
+        try:
+            response = requests.get(url, timeout=5, allow_redirects=False)
+            return (response.status_code < 500, f"HTTP {response.status_code}")
+        except requests.RequestException:
+            return (False, "unreachable")
+
+    if _await(name, ready, _deadline(wait)):
+        return
+    if fatal:
+        raise ValueError(f"[dev] {name} did not become ready in time")
+
+
+def _wait_sonar_up(endpoint, wait):
+    def ready():
+        try:
+            response = requests.get(f"{endpoint}/api/system/status", timeout=5)
+            if response.status_code == 200:
+                status = response.json().get("status")
+                return (status == "UP", status or "")
+            return (False, f"HTTP {response.status_code}")
+        except requests.RequestException:
+            return (False, "unreachable")
+
+    if not _await("SonarQube", ready, _deadline(wait)):
+        raise ValueError("[dev] SonarQube did not become ready in time")
+
+
+def _wait_postgres(pod, user, database, wait):
+    container = _pod_container(pod)
+
+    def ready():
+        result = _podman("exec", container, "pg_isready", "-U", user, "-d", database, check=False)
+        return (result.returncode == 0, "")
+
+    if not _await("PostgreSQL", ready, _deadline(wait)):
+        raise ValueError("[dev] PostgreSQL did not become ready in time")
