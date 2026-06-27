@@ -41,7 +41,7 @@
     },
     {
         "parameter": "service:id:ldap:password",
-        "text": "u-=*HKum+Nwz?yYk4Jej"
+        "text": "secret"
     },
     {
         "parameter": "service:id:ldap:people-class",
@@ -69,7 +69,7 @@
     },
     {
         "parameter": "service:id:ldap:url",
-        "text": "ldap://localhost:1389,ldap://localhost:2389"
+        "text": "ldap://localhost:1389"
     },
     {
         "parameter": "service:id:ldap:user-dn",
