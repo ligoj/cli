@@ -10,19 +10,19 @@ NODE = "service:registry:harbor:local"
 
 
 def run(args):
-    url = _common.dev_value(args, "harbor_endpoint", "HARBOR_ENDPOINT", "http://localhost:8088")
+    # Only url/user/password are node-level; type and registry are subscription-level parameters.
     _common.upsert_node(
         NODE,
         "Harbor Local (CLI)",
         {
-            "service:registry:harbor:url": url,
+            "service:registry:harbor:url": _common.dev_value(
+                args, "harbor_endpoint", "HARBOR_ENDPOINT", "http://localhost:8088"
+            ),
             "service:registry:harbor:user": _common.dev_value(
                 args, "harbor_admin_user", "HARBOR_ADMIN_USER", "admin"
             ),
             "service:registry:harbor:password": _common.dev_value(
                 args, "harbor_admin_password", "HARBOR_ADMIN_PASSWORD", None
             ),
-            "service:registry:harbor:type": "docker",
-            "service:registry:harbor:registry": _common.host_of(url),
         },
     )

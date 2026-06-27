@@ -844,8 +844,70 @@ def _init_openldap(args):
     _dev_set("ldap_port", port)
     _dev_set("ldap_admin_user", admin_user)
     _dev_set("ldap_root", root)
+
+    # Seed the base DIT (OUs + sample users) so the structure referenced by the LDAP node and the
+    # `dev demo` commands exists. bitnami only imports /ldifs on a first, empty-volume boot, so apply
+    # it ourselves (idempotently) on every init to also heal an already-populated volume.
+    wait = args.get("wait")
+    ldif = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "ldap", "dev.ldif")
+    if wait != 0 and os.path.isfile(ldif):
+        container = _pod_container("openldap")
+        if _wait_ldap(container, port, wait):
+            _ldap_import(container, port, f"cn={admin_user},{root}", password, ldif)
+
     utils.info(f"[dev] OpenLDAP available on {endpoint} (bind cn={admin_user},{root})")
     return {"endpoint": endpoint, "admin_user": f"cn={admin_user},{root}", "root": root}
+
+
+def _wait_ldap(container, port, wait):
+    def ready():
+        result = _podman(
+            "exec",
+            container,
+            "ldapsearch",
+            "-x",
+            "-H",
+            f"ldap://localhost:{port}",
+            "-b",
+            "",
+            "-s",
+            "base",
+            "namingContexts",
+            check=False,
+        )
+        return (result.returncode == 0, "")
+
+    if _await("OpenLDAP", ready, _deadline(wait)):
+        return True
+    utils.warn("[dev] OpenLDAP not ready in time; skipping base DIT import")
+    return False
+
+
+def _ldap_import(container, port, admin_dn, password, ldif_host_path):
+    utils.info("[dev] Import base DIT into LDAP (OUs + sample users) ...")
+    _podman("cp", ldif_host_path, f"{container}:/tmp/ligoj-base.ldif", check=False)
+    result = _podman(
+        "exec",
+        container,
+        "ldapadd",
+        "-c",
+        "-x",
+        "-H",
+        f"ldap://localhost:{port}",
+        "-D",
+        admin_dn,
+        "-w",
+        password,
+        "-f",
+        "/tmp/ligoj-base.ldif",
+        check=False,
+    )
+    # ldapadd -c exits 68 (LDAP_ALREADY_EXISTS) when entries already exist: idempotent, not an error.
+    if result.returncode in (0, 68):
+        utils.info("[dev] LDAP base DIT ensured")
+    else:
+        detail = (result.stderr or result.stdout or "").strip()
+        utils.warn(f"[dev] LDAP base DIT import returned {result.returncode}: {detail[:300]}")
 
 
 # --------------------------------------------------------------------------- #

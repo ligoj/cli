@@ -4,7 +4,6 @@
 # Shared helpers for the per-plugin demo modules.
 #
 import os
-from urllib.parse import urlparse
 
 from ligojcli.plugins import dev, ligoj, utils
 
@@ -22,16 +21,13 @@ def dev_value(args, name, env, default=None):
     return dev._dev_get(args, name, env, default)
 
 
-def host_of(url):
-    """`http://localhost:8088` -> `localhost:8088` (the docker registry host)."""
-    return urlparse(url).netloc or url
-
-
-def upsert_node(node_id, name, params, required=None):
+def upsert_node(node_id, name, params, required=None, mode="LINK"):
     """Create/update a Ligoj node from a {parameter: value} mapping.
 
     Skips (with a warning) when a required value is missing, so the demo of one plugin never
-    aborts the whole run because, say, the related dev service was not initialized yet.
+    aborts the whole run because, say, the related dev service was not initialized yet. The default
+    mode is LINK: the tool service nodes (build/scm/registry) are 'link' refined, so a child node
+    must not exceed that (mode 'all' is rejected with invalid-mode).
     """
     keys = list(params) if required is None else required
     missing = [key for key in keys if not params.get(key)]
@@ -42,4 +38,4 @@ def upsert_node(node_id, name, params, required=None):
         )
         return None
     parameters = [{"parameter": key, "text": str(value)} for key, value in params.items() if value]
-    return ligoj.node_upsert(node_id, name, parameters, "ALL")
+    return ligoj.node_upsert(node_id, name, parameters, mode)

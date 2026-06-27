@@ -1,0 +1,71 @@
+# Base Directory Information Tree for the local Ligoj dev LDAP (node service:id:ldap:local).
+#
+# `dev init` imports this idempotently (ldapadd -c) onto the bitnami-created root
+# dc=sample,dc=com, so the OUs referenced by docs/nodes/ldap.local.json and the
+# `dev demo` plugin-id-ldap commands exist before the LDAP node becomes the primary IAM.
+# It also seeds two reference accounts (ligoj-admin / ligoj-user, password == uid).
+
+dn: ou=groups,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: groups
+
+dn: ou=project,ou=groups,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: project
+
+dn: ou=projects,ou=groups,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: projects
+
+dn: ou=tools,ou=groups,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: tools
+
+dn: ou=quarantine,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: quarantine
+
+dn: ou=people,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=external,ou=people,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: external
+
+dn: ou=technical-users,ou=people,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: technical-users
+
+dn: ou=internal,ou=people,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: internal
+
+dn: ou=department1,ou=internal,ou=people,dc=sample,dc=com
+objectClass: organizationalUnit
+ou: department1
+
+dn: cn=Sample Group,ou=groups,dc=sample,dc=com
+objectClass: groupOfUniqueNames
+cn: Sample Group
+uniqueMember: uid=none
+uniqueMember: uid=ligoj-user,ou=department1,ou=internal,ou=people,dc=sample,dc=com
+uniqueMember: uid=ligoj-admin,ou=department1,ou=internal,ou=people,dc=sample,dc=com
+
+dn: uid=ligoj-admin,ou=department1,ou=internal,ou=people,dc=sample,dc=com
+objectClass: inetOrgPerson
+uid: ligoj-admin
+cn: Admin Ligoj
+sn: Ligoj
+givenName: Admin
+mail: ligoj-admin@sample.com
+userPassword: ligoj-admin
+
+dn: uid=ligoj-user,ou=department1,ou=internal,ou=people,dc=sample,dc=com
+objectClass: inetOrgPerson
+uid: ligoj-user
+cn: user Ligoj
+sn: Ligoj
+givenName: user
+mail: ligoj-user@sample.com
+userPassword: ligoj-user
