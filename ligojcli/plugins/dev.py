@@ -27,6 +27,7 @@ import shutil
 import socket
 import string
 import subprocess
+import sys
 import time
 from urllib.parse import urlparse
 
@@ -78,6 +79,7 @@ LDAP_DEFAULT_SCHEMA_DIR = (
 )
 SONAR_TOKEN_NAME = "ligoj-dev"
 JENKINS_TOKEN_NAME = "ligoj-dev"
+GITLAB_TOKEN_NAME = "ligoj-dev"
 
 # Harbor and ArgoCD run on a shared kind cluster (the services that need a real cluster).
 HARBOR_CHART = "harbor/harbor"
@@ -141,7 +143,7 @@ def configure(subparser_service):
         help="Delete and recreate the pods/cluster (named volumes are kept)",
     )
     parser_action.add_argument("--ldap-port", help="Host port for OpenLDAP (default 1389)")
-    parser_action.add_argument("--jenkins-port", help="Host port for Jenkins HTTP (default 8080)")
+    parser_action.add_argument("--jenkins-port", help="Host port for Jenkins HTTP (default 8085)")
     parser_action.add_argument("--sonar-port", help="Host port for SonarQube (default 9000)")
     parser_action.add_argument("--db-port", help="Host port for PostgreSQL (default 5432)")
     parser_action.add_argument("--keycloak-port", help="Host port for Keycloak (default 9083)")
@@ -190,6 +192,25 @@ def configure(subparser_service):
     )
     _add_wait_argument(parser_start)
 
+    parser_demo = subparser_action.add_parser(
+        "demo",
+        help="Configure installed Ligoj plugins (nodes, IAM, sample data) for local development",
+    )
+    parser_demo.add_argument(
+        "--only",
+        "-O",
+        nargs="*",
+        help="Only configure these plugin artifacts (e.g. plugin-id-ldap plugin-build-jenkins)",
+    )
+    parser_demo.add_argument(
+        "--list",
+        "-L",
+        action="store_true",
+        default=False,
+        help="List installed plugins (with their demo availability) and exit, no changes",
+    )
+    _add_wait_argument(parser_demo)
+
     parser_config = subparser_action.add_parser(
         "config", help="Show key properties (URL, admin user/password, ...) of a service"
     )
@@ -218,6 +239,11 @@ def execute_action(service, action, _operation, args):
         return dev_stop(args)
     if action == "start":
         return dev_start(args)
+    if action == "demo":
+        # Lazy import: only needed for this action, and it talks to the Ligoj REST API.
+        from ligojcli import dev_demo
+
+        return dev_demo.demo(args)
     return None
 
 
@@ -253,7 +279,7 @@ _STATUS_SPECS = [
     ("postgresql", "ligoj-db", ("db_port", "DB_PORT", "5432"), "tcp", None),
     ("openldap", "openldap", ("ldap_port", "LDAP_PORT", "1389"), "tcp", None),
     ("keycloak", "keycloak", ("keycloak_port", "KEYCLOAK_PORT", "9083"), "http", "/realms/master"),
-    ("jenkins", "jenkins", ("jenkins_port", "JENKINS_PORT", "8080"), "http", "/login"),
+    ("jenkins", "jenkins", ("jenkins_port", "JENKINS_PORT", "8085"), "http", "/login"),
     ("sonarqube", "sonarqube", ("sonar_port", "SONAR_PORT", "9000"), "http", "/api/system/status"),
     ("gitlab", "gitlab", ("gitlab_port", "GITLAB_PORT", "8929"), "http", "/-/health"),
     ("harbor", "harbor", ("harbor_port", "HARBOR_PORT", "8088"), "http", "/api/v2.0/health"),
@@ -302,14 +328,17 @@ def dev_restart(args):
 
 def _restart_service(svc):
     if svc in KIND_SERVICES:
-        if shutil.which("kind") is None or KIND_CLUSTER not in _kind(
-            "get", "clusters", check=False
-        ).stdout.split():
+        if (
+            shutil.which("kind") is None
+            or KIND_CLUSTER not in _kind("get", "clusters", check=False).stdout.split()
+        ):
             utils.warn(f"[dev] {svc}: kind cluster absent, run 'dev init --only {svc}' first")
             return
         utils.info(f"[dev] Restart {svc} workloads (kind rollout) ...")
         _kind_node_start()
-        _kubectl("-n", svc, "rollout", "restart", "deployment,statefulset", check=False, stream=True)
+        _kubectl(
+            "-n", svc, "rollout", "restart", "deployment,statefulset", check=False, stream=True
+        )
         return
     pod = _PODS[svc]
     if not _pod_exists(pod):
@@ -340,15 +369,22 @@ def dev_stop(args):
 
 def _stop_service(svc):
     if svc in KIND_SERVICES:
-        if shutil.which("kind") is None or KIND_CLUSTER not in _kind(
-            "get", "clusters", check=False
-        ).stdout.split():
+        if (
+            shutil.which("kind") is None
+            or KIND_CLUSTER not in _kind("get", "clusters", check=False).stdout.split()
+        ):
             utils.warn(f"[dev] {svc}: kind cluster absent, nothing to stop")
             return
         utils.info(f"[dev] Stop {svc} workloads (scale to 0) ...")
         _kubectl(
-            "-n", svc, "scale", "deployment,statefulset", "--all", "--replicas=0",
-            check=False, stream=True,
+            "-n",
+            svc,
+            "scale",
+            "deployment,statefulset",
+            "--all",
+            "--replicas=0",
+            check=False,
+            stream=True,
         )
         return
     pod = _PODS[svc]
@@ -360,9 +396,10 @@ def _stop_service(svc):
 
 
 def _stop_kind_node():
-    if shutil.which("kind") is None or KIND_CLUSTER not in _kind(
-        "get", "clusters", check=False
-    ).stdout.split():
+    if (
+        shutil.which("kind") is None
+        or KIND_CLUSTER not in _kind("get", "clusters", check=False).stdout.split()
+    ):
         return
     node = f"{KIND_CLUSTER}-control-plane"
     if _container_is_running(node):
@@ -384,16 +421,23 @@ def dev_start(args):
 
 def _start_service(svc):
     if svc in KIND_SERVICES:
-        if shutil.which("kind") is None or KIND_CLUSTER not in _kind(
-            "get", "clusters", check=False
-        ).stdout.split():
+        if (
+            shutil.which("kind") is None
+            or KIND_CLUSTER not in _kind("get", "clusters", check=False).stdout.split()
+        ):
             utils.warn(f"[dev] {svc}: kind cluster absent, run 'dev init --only {svc}' first")
             return
         _kind_node_start()  # start the node if it was stopped (whole-cluster stop)
         utils.info(f"[dev] Start {svc} workloads (scale to 1) ...")
         _kubectl(
-            "-n", svc, "scale", "deployment,statefulset", "--all", "--replicas=1",
-            check=False, stream=True,
+            "-n",
+            svc,
+            "scale",
+            "deployment,statefulset",
+            "--all",
+            "--replicas=1",
+            check=False,
+            stream=True,
         )
         return
     pod = _PODS[svc]
@@ -411,7 +455,9 @@ def _service_healthy(svc, args):
     url = _service_url(svc, args)
     if scheme == "tcp":
         parsed = urlparse(url)
-        return _probe_tcp(parsed.hostname or "localhost", parsed.port or int(_service_port(svc, args)))
+        return _probe_tcp(
+            parsed.hostname or "localhost", parsed.port or int(_service_port(svc, args))
+        )
     return _probe_http(url.rstrip("/") + path)
 
 
@@ -448,8 +494,13 @@ def _runtime_status(svc, pod):
             return "absent"
         # Cluster is up; is this service's namespace actually running a pod?
         result = _kubectl(
-            "-n", svc, "get", "pods", "--field-selector=status.phase=Running",
-            "--no-headers", check=False,
+            "-n",
+            svc,
+            "get",
+            "pods",
+            "--field-selector=status.phase=Running",
+            "--no-headers",
+            check=False,
         )
         return "running" if result.returncode == 0 and result.stdout.strip() else "absent"
     if shutil.which("podman") is None:
@@ -559,8 +610,14 @@ def _service_config(svc, args):
     if svc == "keycloak":
         return [
             ("url", url),
-            ("admin user", _dev_get(args, "keycloak_admin_user", "KC_BOOTSTRAP_ADMIN_USERNAME", "admin")),
-            ("admin password", _dev_get(args, "keycloak_admin_password", "KC_BOOTSTRAP_ADMIN_PASSWORD", "admin")),
+            (
+                "admin user",
+                _dev_get(args, "keycloak_admin_user", "KC_BOOTSTRAP_ADMIN_USERNAME", "admin"),
+            ),
+            (
+                "admin password",
+                _dev_get(args, "keycloak_admin_password", "KC_BOOTSTRAP_ADMIN_PASSWORD", "admin"),
+            ),
             ("realm", _dev_stored("keycloak_realm") or KEYCLOAK_REALM),
             ("issuer URI", _dev_stored("keycloak_issuer_uri") or f"{url}/realms/{KEYCLOAK_REALM}"),
             ("client id", _dev_stored("keycloak_client_id") or KEYCLOAK_CLIENT),
@@ -775,7 +832,9 @@ def _init_openldap(args):
         volumes.append({"name": "schema", "hostPath": {"path": schema_dir}})
         mounts.append({"name": "schema", "mountPath": "/schema"})
 
-    manifest = _pod_manifest("openldap", image, [(1389, port)], env=env, volumes=volumes, mounts=mounts)
+    manifest = _pod_manifest(
+        "openldap", image, [(1389, port)], env=env, volumes=volumes, mounts=mounts
+    )
     if _pod_will_create("openldap", recreate):
         _ensure_image(image)
     _kube_apply("openldap", manifest, recreate, named)
@@ -1061,7 +1120,7 @@ def _kc_spring_properties(issuer, secret):
 def _init_jenkins(args):
     utils.info("[dev] === Jenkins ===")
     image = _dev_get(args, "jenkins_image", "JENKINS_IMAGE", JENKINS_DEFAULT_IMAGE)
-    port = int(_dev_get(args, "jenkins_port", "JENKINS_PORT", "8080"))
+    port = int(_dev_get(args, "jenkins_port", "JENKINS_PORT", "8085"))
     agent_port = int(_dev_get(args, "jenkins_agent_port", "JENKINS_AGENT_PORT", "50000"))
     recreate = args.get("recreate", False)
     will_create = _pod_will_create("jenkins", recreate)
@@ -1095,7 +1154,12 @@ def _init_jenkins(args):
         {"name": "init", "mountPath": "/usr/share/jenkins/ref/init.groovy.d", "readOnly": True},
     ]
     manifest = _pod_manifest(
-        "jenkins", image, [(8080, port), (50000, agent_port)], env=env, volumes=volumes, mounts=mounts
+        "jenkins",
+        image,
+        [(8080, port), (50000, agent_port)],
+        env=env,
+        volumes=volumes,
+        mounts=mounts,
     )
     if will_create:
         _ensure_image(image)
@@ -1200,7 +1264,9 @@ def _init_sonarqube(args):
         return {"endpoint": endpoint}
 
     _wait_sonar_up(endpoint, wait)
-    preferred = _dev_get(args, "sonar_admin_password", "SONAR_ADMIN_PASSWORD", None) or _generate_secret()
+    preferred = (
+        _dev_get(args, "sonar_admin_password", "SONAR_ADMIN_PASSWORD", None) or _generate_secret()
+    )
     # Persist only once the password is known to work, so a rejected candidate never poisons [dev].
     admin_password = _sonar_ensure_admin_password(endpoint, preferred)
     _dev_set("sonar_admin_password", admin_password)
@@ -1324,8 +1390,76 @@ def _init_gitlab(args):
     if wait != 0:
         # GitLab's first boot is slow (several minutes); don't fail the whole init on a timeout.
         _wait_http(f"{external_url}/users/sign_in", "GitLab", wait, fatal=False)
+
+    # Provision a personal access token for 'root' (GitLab has no username/password API to mint one,
+    # so we use the Rails runner) and store it in [dev] gitlab_token for the CLI / 'dev demo'. Only
+    # (re)generate when the stored token is missing, expired or revoked; reuse it otherwise.
+    token = _dev_get(args, "gitlab_token", "GITLAB_TOKEN", None)
+    if wait != 0:
+        if token and _gitlab_token_valid(external_url, token):
+            utils.debug("[dev] Existing GitLab token still valid, reusing it")
+        else:
+            if token:
+                utils.info("[dev] Stored GitLab token is missing or expired, generating a new one")
+            token = _gitlab_create_token(_pod_container("gitlab"), GITLAB_TOKEN_NAME)
+            if token:
+                utils.info("[dev] Generated GitLab personal access token in [dev] gitlab_token")
+    if token:
+        _dev_set("gitlab_token", token)
+
     utils.info(f"[dev] GitLab available on {external_url} (root / [dev] gitlab_root_password)")
-    return {"endpoint": external_url, "admin_user": "root", "ssh_port": ssh_port}
+    return {
+        "endpoint": external_url,
+        "admin_user": "root",
+        "ssh_port": ssh_port,
+        "token": bool(token),
+    }
+
+
+def _gitlab_token_valid(url, token):
+    # A live, non-expired, non-revoked PAT authenticates; an expired/revoked/unknown one returns 401.
+    try:
+        response = requests.get(
+            f"{url}/api/v4/personal_access_tokens/self",
+            headers={"PRIVATE-TOKEN": token},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return False
+    if response.status_code == 401:
+        return False
+    if response.status_code == 200:
+        data = response.json()
+        return bool(data.get("active", True)) and not data.get("revoked", False)
+    # Authenticated but, e.g., lacking scope for this endpoint: the token still exists and is valid.
+    return True
+
+
+def _gitlab_create_token(container, name):
+    # Create (idempotently) a non-expiring-as-possible PAT for 'root' via the Rails console. Old
+    # tokens of the same name are removed first so re-runs do not pile up duplicates.
+    utils.info(f"[dev] Generate GitLab personal access token '{name}' ...")
+    script = (
+        "user = User.find_by_username('root'); "
+        f"user.personal_access_tokens.where(name: '{name}').delete_all; "
+        "token = user.personal_access_tokens.create!("
+        f"name: '{name}', scopes: ['api', 'read_api', 'read_repository', 'write_repository'], "
+        "expires_at: 365.days.from_now); "
+        "puts token.token"
+    )
+    result = _podman("exec", container, "gitlab-rails", "runner", script, check=False)
+    if result.returncode != 0:
+        utils.warn(f"[dev] Could not generate GitLab token: {(result.stderr or '').strip()}")
+        return None
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    for candidate in reversed(lines):
+        if candidate.startswith("glpat-"):
+            return candidate
+    # Older GitLab versions emit a bare 20+ char token without the 'glpat-' prefix.
+    if lines and " " not in lines[-1] and len(lines[-1]) >= 20:
+        return lines[-1]
+    utils.warn("[dev] GitLab token generation produced no recognizable token output")
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -1663,7 +1797,9 @@ def _podman(*cmd, check=True, stream=False) -> subprocess.CompletedProcess:
 
 def _kind(*cmd, check=True, stream=False) -> subprocess.CompletedProcess:
     # kind drives podman as its node provider.
-    return _run(["kind", *cmd], check=check, stream=stream, env={"KIND_EXPERIMENTAL_PROVIDER": "podman"})
+    return _run(
+        ["kind", *cmd], check=check, stream=stream, env={"KIND_EXPERIMENTAL_PROVIDER": "podman"}
+    )
 
 
 def _helm(*cmd, check=True, stream=False) -> subprocess.CompletedProcess:
@@ -1693,9 +1829,9 @@ def _pod_exists(name):
 
 
 def _pod_running(name):
-    status = (
-        _podman("pod", "ps", "--filter", f"name=^{name}$", "--format", "{{.Status}}").stdout.strip()
-    )
+    status = _podman(
+        "pod", "ps", "--filter", f"name=^{name}$", "--format", "{{.Status}}"
+    ).stdout.strip()
     return status.lower().startswith(("running", "degraded"))
 
 
@@ -1757,9 +1893,7 @@ def _pod_manifest(name, image, ports, env=None, args=None, volumes=None, mounts=
     if args:
         container["args"] = list(args)
     if ports:
-        container["ports"] = [
-            {"containerPort": int(cp), "hostPort": int(hp)} for cp, hp in ports
-        ]
+        container["ports"] = [{"containerPort": int(cp), "hostPort": int(hp)} for cp, hp in ports]
     if env:
         container["env"] = [{"name": k, "value": str(v)} for k, v in env.items()]
     if mounts:
@@ -1860,16 +1994,40 @@ def _generate_secret(length=24):
 # A wait value of None means "until done or Ctrl+C" (infinite), 0 means "no wait", and a positive
 # integer means "up to that many seconds". Waits stream live progress and handle Ctrl+C cleanly.
 # --------------------------------------------------------------------------- #
+_POLL = 2.0
+# Heartbeat cadence for non-interactive output (logs/CI), where we cannot refresh a line in place.
+_HEARTBEAT = 15
+
+
 def _deadline(wait):
     # wait: None (infinite) or a positive number of seconds (callers handle wait == 0 themselves).
     return None if wait is None else time.time() + wait
 
 
-def _await(label, ready, deadline, poll=2.0, progress=15.0):
+def _live():
+    # Live, in-place rendering only makes sense on an interactive terminal.
+    return sys.stdout.isatty()
+
+
+def _live_write(text):
+    # Overwrite the current line in place (carriage return + clear to end of line).
+    sys.stdout.write("\r\033[K" + text)
+    sys.stdout.flush()
+
+
+def _live_clear(tty):
+    if tty:
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+
+
+def _await(label, ready, deadline, poll=_POLL):
     start = time.time()
-    next_progress = start + progress
+    tty = _live()
     bound = "no limit" if deadline is None else f"{max(0, int(deadline - start))}s max"
-    utils.info(f"[dev] Waiting for {label} ({bound}) ...")
+    if not tty:
+        utils.info(f"[dev] Waiting for {label} ({bound}) ...")
+    heartbeat = 0
     try:
         while True:
             ok, detail = ready()
@@ -1877,17 +2035,22 @@ def _await(label, ready, deadline, poll=2.0, progress=15.0):
             elapsed = int(now - start)
             suffix = f" - {detail}" if detail else ""
             if ok:
+                _live_clear(tty)
                 utils.info(f"[dev] {label} ready after {elapsed}s{suffix}")
                 return True
             if deadline is not None and now >= deadline:
-                utils.warn(f"[dev] {label} not ready after {elapsed}s")
+                _live_clear(tty)
+                utils.warn(f"[dev] {label} not ready after {elapsed}s{suffix}")
                 return False
-            if now >= next_progress:
-                next_progress = now + progress
-                left = "" if deadline is None else f", {max(0, int(deadline - now))}s left"
+            left = "" if deadline is None else f", {max(0, int(deadline - now))}s left"
+            if tty:
+                _live_write(_color(f"[dev] {label} … waiting {elapsed}s{left}{suffix}", "warn"))
+            elif elapsed - heartbeat >= _HEARTBEAT:
+                heartbeat = elapsed
                 utils.info(f"[dev] {label} ... still waiting {elapsed}s{left}{suffix}")
             time.sleep(poll)
     except KeyboardInterrupt:
+        _live_clear(tty)
         utils.warn(f"[dev] {label}: interrupted (the operation keeps running in the background)")
         raise SystemExit(130)
 
@@ -1899,12 +2062,101 @@ def _helm_wait_flags(wait):
     return ["--wait", "--timeout", f"{seconds}s"]
 
 
+def _service_down(svc):
+    # 'down' is decided by the pod/cluster runtime, not a host probe: a lingering rootless
+    # port-forwarder (or a foreign service bound to the same port) can keep a host probe
+    # reporting 'up' forever, so a probe-based wait would never finish.
+    return _runtime_status(svc, _PODS[svc]) != "running"
+
+
 def _await_services(services, args, want_healthy, wait):
-    # Share one deadline across the whole operation; want_healthy True waits for up, False for down.
-    deadline = _deadline(wait)
+    # Poll every service together and render one live, in-place status block (instead of a line
+    # per attempt). 'up' is checked with a host health probe; 'down' with the runtime state.
+    target = "up" if want_healthy else "down"
+    if want_healthy:
+
+        def check(svc):
+            return _service_healthy(svc, args)
+    else:
+
+        def check(svc):
+            return _service_down(svc)
+
+    _await_many(services, check, _deadline(wait), target)
+
+
+def _await_many(services, check, deadline, target):
+    start = time.time()
+    tty = _live()
+    status = {svc: "pending" for svc in services}
+    done = {}
+    bound = "no limit" if deadline is None else f"{max(0, int(deadline - start))}s max"
+    utils.info(f"[dev] Waiting for {len(services)} service(s) to be {target} ({bound}) ...")
+    height = 0
+    try:
+        while True:
+            elapsed = int(time.time() - start)
+            for svc in services:
+                if status[svc] == "pending" and check(svc):
+                    status[svc] = "ready"
+                    done[svc] = elapsed
+                    if not tty:
+                        utils.info(f"[dev]   {svc}: {target} after {elapsed}s")
+            if deadline is not None and time.time() >= deadline:
+                for svc in services:
+                    if status[svc] == "pending":
+                        status[svc] = "timeout"
+                        done[svc] = elapsed
+                        if not tty:
+                            utils.warn(f"[dev]   {svc}: still not {target} after {elapsed}s")
+            if tty:
+                height = _render_status_block(
+                    services, status, done, elapsed, deadline, target, height
+                )
+            if all(state != "pending" for state in status.values()):
+                break
+            time.sleep(_POLL)
+    except KeyboardInterrupt:
+        if tty:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        pending = [s for s in services if status[s] == "pending"]
+        utils.warn(
+            f"[dev] interrupted while waiting for {', '.join(pending)} to be {target} "
+            "(the operation keeps running in the background)"
+        )
+        raise SystemExit(130)
+
+    ready = [s for s in services if status[s] == "ready"]
+    if len(ready) == len(services):
+        utils.info(f"[dev] All {len(ready)} service(s) {target}")
+    else:
+        failed = [s for s in services if status[s] != "ready"]
+        utils.warn(
+            f"[dev] {len(ready)}/{len(services)} service(s) {target}; "
+            f"still not {target}: {', '.join(failed)}"
+        )
+
+
+def _render_status_block(services, status, done, elapsed, deadline, target, prev_height):
+    name_w = max((len(svc) for svc in services), default=0)
+    left = "" if deadline is None else f", {max(0, int(deadline - time.time()))}s left"
+    lines = []
     for svc in services:
-        label = f"{svc} ({'up' if want_healthy else 'down'})"
-        _await(label, lambda s=svc: (_service_healthy(s, args) is want_healthy, ""), deadline)
+        state = status[svc]
+        if state == "ready":
+            cell = _color(f"✓ {target} ({done[svc]}s)", "ok")
+        elif state == "timeout":
+            cell = _color(f"✗ still not {target} ({done[svc]}s)", "bad")
+        else:
+            cell = _color(f"… waiting {elapsed}s{left}", "warn")
+        lines.append(f"  {svc.ljust(name_w)}  {cell}")
+    if prev_height:
+        sys.stdout.write(f"\033[{prev_height}A")
+    for line in lines:
+        sys.stdout.write("\r\033[K" + line + "\n")
+    sys.stdout.flush()
+    return len(lines)
 
 
 def _wait_http(url, name, wait, fatal=True):

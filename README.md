@@ -1787,7 +1787,7 @@ get a clear message to install the tool yourself.) Each service streams live pro
 | `postgresql` | `ligoj-db`    | `5432`       | `postgres:17`                         | `ligoj/ligoj` user/db (what `ligoj-api` expects), persistent volume `ligoj_db_data` |
 | `openldap`   | `openldap`    | `1389`       | `bitnamilegacy/openldap:latest`       | `Manager` / `dc=sample,dc=com`; generates the admin password if missing; volume `openldap_data` |
 | `keycloak`   | `keycloak`    | `9083`       | `quay.io/keycloak/keycloak:26.6.1`    | realm `ligoj`, LDAP user federation, confidential `ligoj` client; prints Spring Boot properties |
-| `jenkins`    | `jenkins`     | `8080`       | `jenkins/jenkins:2.570-slim-jdk25`    | volume `jenkins_home`; provisions the admin user and generates an API token |
+| `jenkins`    | `jenkins`     | `8085`       | `jenkins/jenkins:2.570-slim-jdk25`    | volume `jenkins_home`; provisions the admin user and generates an API token |
 | `sonarqube`  | `sonarqube`   | `9000`       | `sonarqube:26.6.0.123539-community`   | changes the default admin password and creates an API token |
 | `gitlab`     | `gitlab`      | `8929` (+ssh `2289`) | `gitlab/gitlab-ce:latest`     | omnibus CE (single container), trimmed footprint; root password in `[dev]` |
 | `harbor`     | `harbor` (Helm, on `kind`) | `8088`  | `goharbor/harbor` chart            | minimal Harbor (no trivy/metrics); admin password in `[dev]` |
@@ -1820,10 +1820,11 @@ In return, `dev init` **writes** to `[dev]`: `db_*` (host/port/name/user/passwor
 `ldap_admin_password`, `keycloak_endpoint` / `keycloak_admin_password` / `keycloak_client_secret` /
 `keycloak_issuer_uri`, `jenkins_endpoint` / `jenkins_admin_password` / `jenkins_api_token`,
 `sonar_endpoint` / `sonar_admin_password` / `sonar_api_token`, `gitlab_endpoint` /
-`gitlab_root_password`, `harbor_endpoint` / `harbor_admin_password`, and `argocd_endpoint` /
-`argocd_admin_password` / `argocd_account` / `argocd_api_token`. For **Jenkins**, **SonarQube** and
-**ArgoCD** an API token is generated (and reused on later runs), so `--profile dev` can drive their
-APIs straight away.
+`gitlab_root_password` / `gitlab_token`, `harbor_endpoint` / `harbor_admin_password`, and
+`argocd_endpoint` / `argocd_admin_password` / `argocd_account` / `argocd_api_token`. For **Jenkins**,
+**SonarQube**, **GitLab** and **ArgoCD** an API token is generated (and reused on later runs), so
+`--profile dev` can drive their APIs straight away. The **GitLab** token is a `root` personal access
+token minted via the Rails console (`api`, `read_api`, `read_repository`, `write_repository` scopes).
 
 ```bash
 # Bring up the whole local stack (Harbor pulls in a kind cluster)
@@ -1857,7 +1858,7 @@ SERVICE     STATUS          HEALTH  URL
 postgresql  running         OK      postgresql://ligoj@localhost:5432/ligoj
 openldap    running         OK      ldap://localhost:1389
 keycloak    running         OK      http://localhost:9083
-jenkins     running         OK      http://localhost:8080
+jenkins     running         OK      http://localhost:8085
 sonarqube   running         OK      http://localhost:9000
 gitlab      running         OK      http://localhost:8929
 harbor      running (kind)  OK      http://localhost:8088
@@ -1891,7 +1892,7 @@ SERVICE     URL                                      USER     PASSWORD  TOKEN/SE
 ----------  ---------------------------------------  -------  --------  ------------
 postgresql  postgresql://ligoj@localhost:5432/ligoj  ligoj    ligoj     -
 keycloak    http://localhost:9083                    admin    admin     z1n7…
-jenkins     http://localhost:8080                    admin    cfu_…     11651…
+jenkins     http://localhost:8085                    admin    cfu_…     11651…
 sonarqube   http://localhost:9000                    admin    v1JE…     squ_…
 …
 ```
@@ -1937,6 +1938,38 @@ up, additionally re-running the chart upgrades and token/realm steps.)
 All of `init`, `start`, `stop` and `restart` take `--wait` and stream **live progress** while waiting
 for the target state (services up, or down for `stop`): omit it to wait until done (or Ctrl+C), `0`
 to return immediately, or `N` to cap the wait at N seconds — e.g. `dev restart --wait 120`.
+
+## Configure Ligoj with `dev demo`
+
+While `dev init` brings up the backing **services**, `dev demo` configures a **running Ligoj
+instance** to use them. The Ligoj API can run either as a container or from IntelliJ — the command
+only needs it reachable at the configured `--endpoint` (default `http://localhost:8080/ligoj`).
+
+```bash
+ligoj dev demo            # configure every installed plugin that has a demo
+ligoj dev demo --list     # just list installed plugins (id, name, version) and exit
+ligoj dev demo --only plugin-id-ldap plugin-build-jenkins
+```
+
+It (1) checks Ligoj is up via `/manage/health`, (2) lists the installed plugins with
+[`plugin list`](#plugin), then (3) runs the demo registered for each one. Connection values
+(URLs, users, passwords/tokens) are read back from the `[dev]` credentials section that `dev init`
+wrote, so the created nodes point at the local services.
+
+Each plugin's demo lives in its own module under `ligojcli/dev_demo/`:
+
+| Plugin artifact               | What the demo does                                                                      |
+| ----------------------------- | --------------------------------------------------------------------------------------- |
+| `plugin-id-ldap`              | Upserts the `service:id:ldap:local` node (from [docs/nodes/ldap.local.json](docs/nodes/ldap.local.json), with the live URL / bind DN / password), makes it the primary IAM, restarts the context, then creates the reference OUs, company/group container scopes and technical groups |
+| `plugin-build-jenkins`        | Upserts the `service:build:jenkins:local` node (url / user / api-token)                  |
+| `plugin-scm-gitlab`           | Upserts the `service:scm:gitlab:local` node (url / user / auth-key)                      |
+| `plugin-registry-harbor`      | Upserts the `service:registry:harbor:local` node (url / user / password / type / registry) |
+| `plugin-registry-artifactory` | Upserts the `service:registry:artifactory:local` node (url / user / password)            |
+
+Each demo is idempotent (nodes are upserted, OUs/scopes/groups skip when they already exist), so
+re-running is safe. A plugin whose required values are missing (e.g. no Jenkins API token in `[dev]`)
+is skipped with a warning instead of aborting the run. Use `--wait` to bound the LDAP context restart
+(defaults to 60s).
 
 ## Keycloak realm, federation and client
 
