@@ -1786,11 +1786,13 @@ get a clear message to install the tool yourself.) Each service streams live pro
 | ------------ | ------------- | ------------ | ------------------------------------- | -------------------------- |
 | `postgresql` | `ligoj-db`    | `5432`       | `postgres:17`                         | `ligoj/ligoj` user/db (what `ligoj-api` expects), persistent volume `ligoj_db_data` |
 | `openldap`   | `openldap`    | `1389`       | `bitnamilegacy/openldap:latest`       | `Manager` / `dc=sample,dc=com`; generates the admin password if missing; volume `openldap_data` |
-| `keycloak`   | `keycloak`    | `9083`       | `quay.io/keycloak/keycloak:26.6.1`    | realm `ligoj`, LDAP user federation, confidential `ligoj` client; prints Spring Boot properties |
+| `keycloak`   | `keycloak`    | `9083`       | `quay.io/keycloak/keycloak:26.6.1`    | **backed by the shared `postgresql`** (dedicated `keycloak` database); realm `ligoj`, LDAP user federation, confidential `ligoj` client; prints Spring Boot properties |
 | `jenkins`    | `jenkins`     | `8085`       | `jenkins/jenkins:2.570-slim-jdk25`    | volume `jenkins_home`; provisions the admin user and generates an API token |
-| `sonarqube`  | `sonarqube`   | `9000`       | `sonarqube:26.6.0.123539-community`   | changes the default admin password and creates an API token |
+| `sonarqube`  | `sonarqube`   | `9000`       | `sonarqube:26.6.0.123539-community`   | **backed by the shared `postgresql`** (dedicated `sonarqube` database); changes the default admin password and creates an API token |
 | `gitlab`     | `gitlab`      | `8929` (+ssh `2289`) | `gitlab/gitlab-ce:latest`     | omnibus CE (single container), trimmed footprint; root password in `[dev]` |
 | `harbor`     | `harbor` (Helm, on `kind`) | `8088`  | `goharbor/harbor` chart            | minimal Harbor (no trivy/metrics); admin password in `[dev]` |
+| `nexus`      | `nexus`       | `8181`       | `sonatype/nexus3:latest`              | volume `nexus_data`; resets the generated initial admin password and stores it in `[dev]` (host `8181` leaves `8081` free for the Ligoj API) |
+| `artifactory`| `artifactory` | `8082`       | `jfrog/artifactory-oss:latest`        | **backed by the shared `postgresql`** (dedicated `artifactory` database, Derby is refused), volume `artifactory_data`; admin `password` in `[dev]` |
 | `argocd`     | `argocd` (Helm, on `kind`) | `8083`  | `argo/argo-cd` chart               | `role:ligoj` RBAC + `ligoj` account & API token; Dex **LDAP federation** to OpenLDAP |
 
 ## Options
@@ -1800,7 +1802,7 @@ get a clear message to install the tool yourself.) Each service streams live pro
 | `--only`, `-O` | Limit to a subset, e.g. `--only postgresql keycloak` (default: all)        |
 | `--recreate`, `-R` | Delete and recreate the pods / kind cluster (named volumes are kept)    |
 | `--wait`, `-w` | How long to wait for readiness, with **live progress**: omit = wait until done or Ctrl+C; `0` = no wait (skip readiness/token steps); `N` = up to N seconds. Also accepted by `start` / `stop` / `restart`. |
-| `--ldap-port` / `--jenkins-port` / `--sonar-port` / `--db-port` / `--keycloak-port` / `--gitlab-port` / `--harbor-port` / `--argocd-port` | Override a host port |
+| `--ldap-port` / `--jenkins-port` / `--sonar-port` / `--db-port` / `--keycloak-port` / `--gitlab-port` / `--harbor-port` / `--nexus-port` / `--artifactory-port` / `--argocd-port` | Override a host port |
 
 Every value can also be set in the `[dev]` section or as an environment variable. The credentials
 are **read** before a secret is generated, so you stay in control:
@@ -1809,19 +1811,25 @@ are **read** before a secret is generated, so you stay in control:
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | `postgresql` | `DB_IMAGE`·`db_image`, `DB_PORT`·`db_port`, `POSTGRES_USER`·`db_user`, `POSTGRES_PASSWORD`·`db_password`, `POSTGRES_DB`·`db_name` |
 | `openldap`   | `LDAP_IMAGE`·`ldap_image`, `LDAP_PORT`·`ldap_port`, `LDAP_ADMIN_USERNAME`·`ldap_admin_user`, `LDAP_ROOT`·`ldap_root`, `LDAP_ADMIN_PASSWORD`·`ldap_admin_password`, `LDAP_SCHEMA_DIR`·`ldap_schema_dir` |
-| `keycloak`   | `KEYCLOAK_IMAGE`·`keycloak_image`, `KEYCLOAK_PORT`·`keycloak_port`, `KC_BOOTSTRAP_ADMIN_USERNAME`·`keycloak_admin_user`, `KC_BOOTSTRAP_ADMIN_PASSWORD`·`keycloak_admin_password`, `KEYCLOAK_LDAP_URL`·`keycloak_ldap_url` |
+| `keycloak`   | `KEYCLOAK_IMAGE`·`keycloak_image`, `KEYCLOAK_PORT`·`keycloak_port`, `KC_BOOTSTRAP_ADMIN_USERNAME`·`keycloak_admin_user`, `KC_BOOTSTRAP_ADMIN_PASSWORD`·`keycloak_admin_password`, `KEYCLOAK_LDAP_URL`·`keycloak_ldap_url`, `KEYCLOAK_DB_PASSWORD`·`keycloak_db_password` (shared-DB role) |
 | `jenkins`    | `JENKINS_IMAGE`·`jenkins_image`, `JENKINS_PORT`·`jenkins_port`, `JENKINS_API_USER`·`jenkins_api_user`, `JENKINS_ADMIN_PASSWORD`·`jenkins_admin_password`, `JENKINS_API_TOKEN`·`jenkins_api_token` |
-| `sonarqube`  | `SONAR_IMAGE`·`sonar_image`, `SONAR_PORT`·`sonar_port`, `SONAR_ADMIN_PASSWORD`·`sonar_admin_password` |
+| `sonarqube`  | `SONAR_IMAGE`·`sonar_image`, `SONAR_PORT`·`sonar_port`, `SONAR_ADMIN_PASSWORD`·`sonar_admin_password`, `SONAR_DB_PASSWORD`·`sonar_db_password` (shared-DB role) |
 | `gitlab`     | `GITLAB_IMAGE`·`gitlab_image`, `GITLAB_PORT`·`gitlab_port`, `GITLAB_SSH_PORT`·`gitlab_ssh_port`, `GITLAB_ROOT_PASSWORD`·`gitlab_root_password` |
 | `harbor`     | `HARBOR_PORT`·`harbor_port`, `HARBOR_NODE_PORT`·`harbor_node_port`, `HARBOR_ADMIN_PASSWORD`·`harbor_admin_password`, `HARBOR_REDIS_IMAGE`·`harbor_redis_image` |
+| `nexus`      | `NEXUS_IMAGE`·`nexus_image`, `NEXUS_PORT`·`nexus_port`, `NEXUS_ADMIN_PASSWORD`·`nexus_admin_password` |
+| `artifactory`| `ARTIFACTORY_IMAGE`·`artifactory_image`, `ARTIFACTORY_PORT`·`artifactory_port`, `ARTIFACTORY_USER`·`artifactory_user`, `ARTIFACTORY_PASSWORD`·`artifactory_password`, `ARTIFACTORY_DB_PASSWORD`·`artifactory_db_password` (shared-DB role) |
 | `argocd`     | `ARGOCD_PORT`·`argocd_port`, `ARGOCD_NODE_PORT`·`argocd_node_port` (LDAP fields reuse the `openldap` keys) |
 
 In return, `dev init` **writes** to `[dev]`: `db_*` (host/port/name/user/password/url), `ldap_url` and
 `ldap_admin_password`, `keycloak_endpoint` / `keycloak_admin_password` / `keycloak_client_secret` /
-`keycloak_issuer_uri`, `jenkins_endpoint` / `jenkins_admin_password` / `jenkins_api_token`,
-`sonar_endpoint` / `sonar_admin_password` / `sonar_api_token`, `gitlab_endpoint` /
-`gitlab_root_password` / `gitlab_token`, `harbor_endpoint` / `harbor_admin_password`, and
-`argocd_endpoint` / `argocd_admin_password` / `argocd_account` / `argocd_api_token`. For **Jenkins**,
+`keycloak_issuer_uri` / `keycloak_db_password`, `jenkins_endpoint` / `jenkins_admin_password` / `jenkins_api_token`,
+`sonar_endpoint` / `sonar_admin_password` / `sonar_api_token` / `sonar_db_password`, `gitlab_endpoint` /
+`gitlab_root_password` / `gitlab_token`, `harbor_endpoint` / `harbor_admin_password`,
+`nexus_endpoint` / `nexus_admin_password`, `artifactory_endpoint` / `artifactory_password` /
+`artifactory_db_password`, and
+`argocd_endpoint` / `argocd_admin_password` / `argocd_account` / `argocd_api_token`. **Keycloak**,
+**SonarQube** and **Artifactory** each get a dedicated role + database in the shared `postgresql`
+(reached from their pods via `host.containers.internal`). For **Jenkins**,
 **SonarQube**, **GitLab** and **ArgoCD** an API token is generated (and reused on later runs), so
 `--profile dev` can drive their APIs straight away. The **GitLab** token is a `root` personal access
 token minted via the Rails console (`api`, `read_api`, `read_repository`, `write_repository` scopes).
@@ -1862,6 +1870,8 @@ jenkins     running         OK      http://localhost:8085
 sonarqube   running         OK      http://localhost:9000
 gitlab      running         OK      http://localhost:8929
 harbor      running (kind)  OK      http://localhost:8088
+nexus       running         OK      http://localhost:8181
+artifactory running         OK      http://localhost:8082/artifactory
 ```
 
 `STATUS` is the pod (or, for Harbor, the kind cluster) state — `running` / `stopped` / `absent`;
@@ -1881,7 +1891,8 @@ admin password  v1JE…
 api token       squ_…
 ```
 
-Works for `postgresql`, `openldap`, `keycloak`, `jenkins`, `sonarqube`, `gitlab` and `harbor`. Each
+Works for `postgresql`, `openldap`, `keycloak`, `jenkins`, `sonarqube`, `gitlab`, `harbor`, `nexus`,
+`artifactory` and `argocd`. Each
 service adds its own relevant fields — e.g. PostgreSQL the host/port/database, OpenLDAP the bind/base
 DN, Keycloak the realm + issuer URI + client id/secret, GitLab the SSH URL, Harbor the registry host.
 
@@ -1963,7 +1974,8 @@ Each plugin's demo lives in its own module under `ligojcli/dev_demo/`:
 | `plugin-id-ldap`              | Upserts the `service:id:ldap:local` node (from [docs/nodes/ldap.local.json](docs/nodes/ldap.local.json), with the live URL / bind DN / password), makes it the primary IAM, restarts the context, then creates the reference OUs, company/group container scopes and technical groups |
 | `plugin-build-jenkins`        | Upserts the `service:build:jenkins:local` node (url / user / api-token)                  |
 | `plugin-scm-gitlab`           | Upserts the `service:scm:gitlab:local` node (url / user / auth-key)                      |
-| `plugin-registry-harbor`      | Upserts the `service:registry:harbor:local` node (url / user / password / type / registry) |
+| `plugin-registry-harbor`      | Upserts the `service:registry:harbor:local` node (url / user / password)                |
+| `plugin-registry-nexus`       | Upserts the `service:registry:nexus:local` node (url / user / password)                 |
 | `plugin-registry-artifactory` | Upserts the `service:registry:artifactory:local` node (url / user / password)            |
 
 Each demo is idempotent (nodes are upserted, OUs/scopes/groups skip when they already exist), so
@@ -1995,6 +2007,44 @@ spring.security.oauth2.client.registration.keycloak.client-id=ligoj
 spring.security.oauth2.client.registration.keycloak.client-secret=<generated>
 spring.security.oauth2.client.registration.keycloak.scope=openid
 ```
+
+## Debug the Ligoj apps from the IDE (`dev debug`) — macOS
+
+While `dev init` brings up the backing **services**, `dev debug` drives the local **application**
+stack you actually debug: IntelliJ IDEA plus the two Ligoj Spring Boot apps and the Vite dev server.
+
+| Component       | Started by `dev debug`                                  | Endpoint / path |
+| --------------- | ------------------------------------------------------- | --------------- |
+| IntelliJ IDEA   | `open -a "IntelliJ IDEA" <project>` (if stopped)        | `~/git/ligoj` |
+| `ligoj-api`     | the **dedicated launcher app**, in Debug mode           | `http://localhost:8081/ligoj-api` |
+| `ligoj-ui`      | the **dedicated launcher app**, in Debug mode           | `http://localhost:8080/ligoj` |
+| Vite (app-ui)   | `npm run dev` in `app-ui/src/main/webapp`               | `http://localhost:5173/ligoj/` |
+
+```bash
+ligoj dev debug init       # compile the dedicated launcher app (one-time; re-run after renaming a config)
+ligoj dev debug start      # open IntelliJ + Debug-launch the API/UI + start Vite (only those stopped)
+ligoj dev debug status     # show what is running (process) and reachable (port), no changes
+ligoj dev debug stop       # stop the API/UI/Vite apps (IntelliJ stays open to protect unsaved work)
+ligoj dev debug restart    # stop then start the apps
+ligoj dev debug start -w 60 # same live '--wait' as the other dev commands (0 = no wait)
+```
+
+**Why `init` / the launcher app.** IntelliJ has no headless "run this configuration" command, and
+scripting its UI needs the broad macOS **Accessibility** permission (control any app + read the
+screen). Instead of granting that to your whole terminal, `dev debug init` compiles a tiny dedicated
+app (default `~/Applications/Ligoj Debug.app`) that drives IntelliJ's *Run ▶ Debug…* chooser for
+`ligoj-api` / `ligoj-ui` (skipping any already running). You grant Accessibility to **that app only**
+— the first `dev debug start` triggers the macOS prompt — and can then revoke your terminal's grant.
+
+Everything else needs no permission: all four components are detected by process
+(`org.ligoj.boot.api.Application` / `…web.Application`, the project's vite process) and by TCP port,
+so `status`/`stop`/`restart` cover them however they were started. `stop` (and the stop half of
+`restart`) terminates the API/UI processes even though the IDE launched them. Overridable via
+`[dev]`/env: `LIGOJ_PROJECT_DIR`·`ligoj_project_dir`, `IDEA_APP`·`idea_app`,
+`LIGOJ_DEBUG_APP`·`ligoj_debug_app` (launcher app location).
+
+> The Ligoj API dev app binds `8081`, so the `nexus` service publishes `8181` (not its own `8081`) to
+> avoid the clash — run both at once without conflict.
 
 ## Harbor and ArgoCD on kind
 

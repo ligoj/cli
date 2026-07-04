@@ -11,14 +11,21 @@
 # cluster) for every self-contained service, and a small `kind` cluster (podman
 # provider) created on demand only for Harbor, which needs a real cluster:
 #   * postgresql - 'ligoj-db' PostgreSQL (ligoj/ligoj), persistent; an existing
-#                  data directory/volume and image are preserved on migration.
+#                  data directory/volume and image are preserved on migration. Also
+#                  hosts a dedicated database for Keycloak, SonarQube and Artifactory.
 #   * openldap   - reads ldap_admin_password / LDAP_ADMIN_PASSWORD (generated when missing).
-#   * keycloak   - 'ligoj' realm + LDAP federation + confidential 'ligoj' client;
-#                  prints sample Spring Boot properties (see commands/README.md).
+#   * keycloak   - backed by the shared PostgreSQL; 'ligoj' realm + LDAP federation +
+#                  confidential 'ligoj' client; prints Spring Boot properties.
 #   * jenkins    - admin password set from JENKINS_API_TOKEN when available.
-#   * sonarqube  - changes the default admin password and creates an API token.
+#   * sonarqube  - backed by the shared PostgreSQL; changes the default admin
+#                  password and creates an API token.
 #   * gitlab     - GitLab CE omnibus (single container), persistent.
 #   * harbor     - Helm chart on a kind cluster (podman), exposed via nodePort.
+#   * nexus      - Sonatype Nexus Repository Manager; admin password reset from the
+#                  generated initial password and stored in [dev].
+#   * artifactory- JFrog Artifactory OSS backed by the shared PostgreSQL (Derby is
+#                  refused by recent versions), persistent.
+#   * argocd     - Helm chart on the shared kind cluster, with a 'ligoj' role.
 #
 import base64
 import os
@@ -48,6 +55,8 @@ SERVICES = [
     "sonarqube",
     "gitlab",
     "harbor",
+    "nexus",
+    "artifactory",
     "argocd",
 ]
 # Services that need the real (kind) cluster instead of `podman kube play`.
@@ -59,9 +68,14 @@ SONAR_DEFAULT_IMAGE = "sonarqube:26.6.0.123539-community"
 POSTGRES_DEFAULT_IMAGE = "postgres:17"
 KEYCLOAK_DEFAULT_IMAGE = "quay.io/keycloak/keycloak:26.6.1"
 GITLAB_DEFAULT_IMAGE = "gitlab/gitlab-ce:latest"
+NEXUS_DEFAULT_IMAGE = "docker.io/sonatype/nexus3:latest"
+ARTIFACTORY_DEFAULT_IMAGE = "releases-docker.jfrog.io/jfrog/artifactory-oss:latest"
 
 POSTGRES_CONTAINER = "ligoj-db"
 POSTGRES_VOLUME = "ligoj_db_data"
+# Other service pods (SonarQube, Artifactory, ...) reuse this shared PostgreSQL, reaching its
+# host-published port via the podman host gateway (same name Keycloak uses for LDAP federation).
+SHARED_DB_HOST = "host.containers.internal"
 
 KEYCLOAK_CONTAINER = "keycloak"
 KEYCLOAK_VOLUME = "keycloak_data"
@@ -149,6 +163,10 @@ def configure(subparser_service):
     parser_action.add_argument("--keycloak-port", help="Host port for Keycloak (default 9083)")
     parser_action.add_argument("--gitlab-port", help="Host port for GitLab HTTP (default 8929)")
     parser_action.add_argument("--harbor-port", help="Host port for Harbor (default 8088)")
+    parser_action.add_argument("--nexus-port", help="Host port for Nexus HTTP (default 8181)")
+    parser_action.add_argument(
+        "--artifactory-port", help="Host port for Artifactory HTTP (default 8082)"
+    )
     parser_action.add_argument("--argocd-port", help="Host port for ArgoCD (default 8083)")
     _add_wait_argument(parser_action)
 
@@ -211,6 +229,26 @@ def configure(subparser_service):
     )
     _add_wait_argument(parser_demo)
 
+    parser_debug = subparser_action.add_parser(
+        "debug", help="Manage the IDE app stack (IntelliJ + Ligoj API/UI + Vite); macOS only"
+    )
+    debug_sub = parser_debug.add_subparsers(title="command", dest="operation")
+    debug_sub.add_parser(
+        "init",
+        help="Compile the dedicated debug launcher app (grant it Accessibility, not the terminal)",
+    )
+    debug_start = debug_sub.add_parser(
+        "start", help="Start IntelliJ and the Ligoj API/UI/Vite apps (only those stopped)"
+    )
+    _add_wait_argument(debug_start)
+    debug_stop = debug_sub.add_parser(
+        "stop", help="Stop the Ligoj API/UI/Vite apps (IntelliJ stays open)"
+    )
+    _add_wait_argument(debug_stop)
+    debug_restart = debug_sub.add_parser("restart", help="Restart the Ligoj API/UI/Vite apps")
+    _add_wait_argument(debug_restart)
+    debug_sub.add_parser("status", help="Show the IDE app stack status")
+
     parser_config = subparser_action.add_parser(
         "config", help="Show key properties (URL, admin user/password, ...) of a service"
     )
@@ -244,6 +282,11 @@ def execute_action(service, action, _operation, args):
         from ligojcli import dev_demo
 
         return dev_demo.demo(args)
+    if action == "debug":
+        # Lazy import: drives the local IDE app stack (IntelliJ + Ligoj API/UI + Vite).
+        from ligojcli import dev_debug
+
+        return dev_debug.execute(args)
     return None
 
 
@@ -265,6 +308,10 @@ def dev_init(args):
         summary["gitlab"] = _init_gitlab(args)
     if "harbor" in services:
         summary["harbor"] = _init_harbor(args)
+    if "nexus" in services:
+        summary["nexus"] = _init_nexus(args)
+    if "artifactory" in services:
+        summary["artifactory"] = _init_artifactory(args)
     if "argocd" in services:
         summary["argocd"] = _init_argocd(args)
     utils.info("[dev] Developer environment ready")
@@ -283,6 +330,14 @@ _STATUS_SPECS = [
     ("sonarqube", "sonarqube", ("sonar_port", "SONAR_PORT", "9000"), "http", "/api/system/status"),
     ("gitlab", "gitlab", ("gitlab_port", "GITLAB_PORT", "8929"), "http", "/-/health"),
     ("harbor", "harbor", ("harbor_port", "HARBOR_PORT", "8088"), "http", "/api/v2.0/health"),
+    ("nexus", "nexus", ("nexus_port", "NEXUS_PORT", "8181"), "http", "/service/rest/v1/status"),
+    (
+        "artifactory",
+        "artifactory",
+        ("artifactory_port", "ARTIFACTORY_PORT", "8082"),
+        "http",
+        "/api/system/ping",
+    ),
     ("argocd", "argocd", ("argocd_port", "ARGOCD_PORT", "8083"), "http", "/healthz"),
 ]
 _ENDPOINT_KEYS = {
@@ -293,6 +348,8 @@ _ENDPOINT_KEYS = {
     "sonarqube": "sonar_endpoint",
     "gitlab": "gitlab_endpoint",
     "harbor": "harbor_endpoint",
+    "nexus": "nexus_endpoint",
+    "artifactory": "artifactory_endpoint",
     "argocd": "argocd_endpoint",
 }
 _PORT_SPECS = {spec[0]: spec[2] for spec in _STATUS_SPECS}
@@ -482,6 +539,9 @@ def _default_url(svc, port, args):
         return f"postgresql://localhost:{port}/{db}"
     if svc == "openldap":
         return f"ldap://localhost:{port}"
+    if svc == "artifactory":
+        # The REST API (and the Ligoj node URL) live under the /artifactory context path.
+        return f"http://localhost:{port}/artifactory"
     return f"http://localhost:{port}"
 
 
@@ -652,6 +712,22 @@ def _service_config(svc, args):
             ("admin user", _dev_stored("harbor_admin_user") or "admin"),
             ("admin password", _dev_stored("harbor_admin_password") or "-"),
         ]
+    if svc == "nexus":
+        return [
+            ("url", url),
+            ("admin user", _dev_stored("nexus_admin_user") or "admin"),
+            ("admin password", _dev_stored("nexus_admin_password") or "-"),
+        ]
+    if svc == "artifactory":
+        return [
+            ("url", url),
+            ("admin user", _dev_get(args, "artifactory_user", "ARTIFACTORY_USER", "admin")),
+            (
+                "admin password",
+                _dev_stored("artifactory_password")
+                or _dev_get(args, "artifactory_password", "ARTIFACTORY_PASSWORD", "-"),
+            ),
+        ]
     if svc == "argocd":
         return [
             ("url", url),
@@ -794,6 +870,101 @@ def _init_postgres(args):
 
 
 # --------------------------------------------------------------------------- #
+# Shared PostgreSQL provisioning (for SonarQube, Artifactory, ...)
+# --------------------------------------------------------------------------- #
+def _shared_db_provision(args, db_name, key_prefix, wait=None):
+    """Ensure a dedicated role + database for another service in the shared 'ligoj-db' PostgreSQL.
+
+    Returns a connection dict ``{host, port, name, user, password}`` the service can consume, or
+    ``None`` when the shared PostgreSQL is absent/unreachable (the caller decides how to degrade).
+    The service reaches the server at ``host.containers.internal:<db_port>`` (its own pod cannot use
+    localhost). The role password is generated once and kept in ``[dev] <key_prefix>_password``.
+    """
+    if not _pod_exists(POSTGRES_CONTAINER):
+        utils.warn(
+            f"[dev] Shared PostgreSQL '{POSTGRES_CONTAINER}' not found; run "
+            f"'dev init --only postgresql' first to back {db_name} with it (skipping DB setup)"
+        )
+        return None
+    superuser = _dev_get(args, "db_user", "POSTGRES_USER", "ligoj")
+    port = str(_dev_get(args, "db_port", "DB_PORT", "5432"))
+    container = _pod_container(POSTGRES_CONTAINER)
+    if not _wait_shared_pg(container, superuser, wait):
+        utils.warn(f"[dev] Shared PostgreSQL not ready; skipping {db_name} database setup")
+        return None
+    user = db_name
+    password = (
+        _dev_get(args, f"{key_prefix}_password", f"{key_prefix.upper()}_PASSWORD", None)
+        or _generate_secret()
+    )
+    if not _ensure_database(container, superuser, db_name, user, password):
+        return None
+    _dev_set(f"{key_prefix}_password", password)
+    utils.info(f"[dev] Shared PostgreSQL database '{db_name}' ready (user '{user}')")
+    return {
+        "host": SHARED_DB_HOST,
+        "port": port,
+        "name": db_name,
+        "user": user,
+        "password": password,
+    }
+
+
+def _wait_shared_pg(container, superuser, wait):
+    def ready():
+        result = _podman("exec", container, "pg_isready", "-U", superuser, check=False)
+        return (result.returncode == 0, "")
+
+    # The shared server is normally already up (initialized earlier in the same 'dev init').
+    return _await("PostgreSQL (shared)", ready, _deadline(0 if wait == 0 else 120))
+
+
+def _ensure_database(container, superuser, db, user, password):
+    # Idempotent: create the login role (or refresh its password), then the database it owns.
+    # Generated secrets never contain a single quote (see SECRET_SPECIALS), so literal-quoting is safe.
+    role_sql = (
+        "DO $$ BEGIN "
+        f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{user}') THEN "
+        f"CREATE ROLE \"{user}\" LOGIN PASSWORD '{password}'; "
+        f"ELSE ALTER ROLE \"{user}\" WITH LOGIN PASSWORD '{password}'; "
+        "END IF; END $$;"
+    )
+    role = _podman(
+        "exec",
+        container,
+        "psql",
+        "-U",
+        superuser,
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        role_sql,
+        check=False,
+    )
+    if role.returncode != 0:
+        utils.warn(f"[dev] Could not ensure DB role '{user}': {(role.stderr or '').strip()[:200]}")
+        return False
+    create = _podman(
+        "exec",
+        container,
+        "psql",
+        "-U",
+        superuser,
+        "-d",
+        "postgres",
+        "-c",
+        f'CREATE DATABASE "{db}" OWNER "{user}"',
+        check=False,
+    )
+    if create.returncode == 0 or "already exists" in (create.stderr or "").lower():
+        return True
+    utils.warn(f"[dev] Could not create database '{db}': {(create.stderr or '').strip()[:200]}")
+    return False
+
+
+# --------------------------------------------------------------------------- #
 # OpenLDAP
 # --------------------------------------------------------------------------- #
 def _init_openldap(args):
@@ -922,6 +1093,7 @@ def _init_keycloak(args):
     admin_password = _dev_get(
         args, "keycloak_admin_password", "KC_BOOTSTRAP_ADMIN_PASSWORD", "admin"
     )
+    wait = args.get("wait")
     if _container_exists(KEYCLOAK_CONTAINER):
         admin_user = _container_env(KEYCLOAK_CONTAINER, "KC_BOOTSTRAP_ADMIN_USERNAME") or admin_user
         admin_password = (
@@ -932,6 +1104,20 @@ def _init_keycloak(args):
         "KC_BOOTSTRAP_ADMIN_USERNAME": admin_user,
         "KC_BOOTSTRAP_ADMIN_PASSWORD": admin_password,
     }
+    # Back Keycloak with the shared 'ligoj-db' PostgreSQL instead of the (dev-only) embedded H2.
+    db = _shared_db_provision(args, "keycloak", "keycloak_db", wait)
+    if db:
+        env.update(
+            {
+                "KC_DB": "postgres",
+                "KC_DB_URL": f"jdbc:postgresql://{db['host']}:{db['port']}/{db['name']}",
+                "KC_DB_USERNAME": db["user"],
+                "KC_DB_PASSWORD": db["password"],
+            }
+        )
+    else:
+        utils.warn("[dev] Keycloak falls back to the embedded H2 database (dev only)")
+
     manifest = _pod_manifest(
         KEYCLOAK_CONTAINER,
         image,
@@ -950,7 +1136,6 @@ def _init_keycloak(args):
     _dev_set("keycloak_admin_user", admin_user)
     _dev_set("keycloak_admin_password", admin_password)
 
-    wait = args.get("wait")
     if wait == 0:
         utils.warn("[dev] --wait 0, skipping Keycloak realm/client configuration")
         return {"endpoint": base}
@@ -1300,6 +1485,19 @@ def _init_sonarqube(args):
     image = _dev_get(args, "sonar_image", "SONAR_IMAGE", SONAR_DEFAULT_IMAGE)
     port = int(_dev_get(args, "sonar_port", "SONAR_PORT", "9000"))
     recreate = args.get("recreate", False)
+    wait = args.get("wait")
+
+    # Back SonarQube with the shared 'ligoj-db' PostgreSQL instead of the (eval-only) embedded H2.
+    db = _shared_db_provision(args, "sonarqube", "sonar_db", wait)
+    env = {}
+    if db:
+        env = {
+            "SONAR_JDBC_URL": f"jdbc:postgresql://{db['host']}:{db['port']}/{db['name']}",
+            "SONAR_JDBC_USERNAME": db["user"],
+            "SONAR_JDBC_PASSWORD": db["password"],
+        }
+    else:
+        utils.warn("[dev] SonarQube falls back to the embedded H2 database (not recommended)")
 
     volumes = [
         {"name": "data", "persistentVolumeClaim": {"claimName": "sonarqube_data"}},
@@ -1312,7 +1510,9 @@ def _init_sonarqube(args):
         {"name": "logs", "mountPath": "/opt/sonarqube/logs"},
     ]
     named = ["sonarqube_data", "sonarqube_extensions", "sonarqube_logs"]
-    manifest = _pod_manifest("sonarqube", image, [(9000, port)], volumes=volumes, mounts=mounts)
+    manifest = _pod_manifest(
+        "sonarqube", image, [(9000, port)], env=env, volumes=volumes, mounts=mounts
+    )
     if _pod_will_create("sonarqube", recreate):
         _ensure_image(image)
     _kube_apply("sonarqube", manifest, recreate, named)
@@ -1320,7 +1520,6 @@ def _init_sonarqube(args):
     endpoint = f"http://localhost:{port}"
     _dev_set("sonar_endpoint", endpoint)
 
-    wait = args.get("wait")
     if wait == 0:
         utils.warn("[dev] --wait 0, skipping SonarQube readiness and token creation")
         return {"endpoint": endpoint}
@@ -1522,6 +1721,143 @@ def _gitlab_create_token(container, name):
         return lines[-1]
     utils.warn("[dev] GitLab token generation produced no recognizable token output")
     return None
+
+
+# --------------------------------------------------------------------------- #
+# Nexus (Sonatype Repository Manager)
+# --------------------------------------------------------------------------- #
+def _init_nexus(args):
+    utils.info("[dev] === Nexus (Repository Manager) ===")
+    recreate = args.get("recreate", False)
+    image = _dev_get(args, "nexus_image", "NEXUS_IMAGE", NEXUS_DEFAULT_IMAGE)
+    # Host port 8181 (not Nexus's own 8081) to leave 8081 free for the Ligoj API dev app.
+    port = int(_dev_get(args, "nexus_port", "NEXUS_PORT", "8181"))
+
+    volumes = [{"name": "data", "persistentVolumeClaim": {"claimName": "nexus_data"}}]
+    mounts = [{"name": "data", "mountPath": "/nexus-data"}]
+    manifest = _pod_manifest("nexus", image, [(8081, port)], volumes=volumes, mounts=mounts)
+    if _pod_will_create("nexus", recreate):
+        _ensure_image(image)
+    _kube_apply("nexus", manifest, recreate, ["nexus_data"])
+
+    endpoint = f"http://localhost:{port}"
+    _dev_set("nexus_endpoint", endpoint)
+    _dev_set("nexus_admin_user", "admin")
+
+    wait = args.get("wait")
+    if wait == 0:
+        utils.warn("[dev] --wait 0, skipping Nexus readiness and admin password setup")
+        return {"endpoint": endpoint}
+
+    _wait_http(f"{endpoint}/service/rest/v1/status", "Nexus", wait, fatal=False)
+    # Reuse the stored/configured password if it already works, else reset the generated initial one.
+    preferred = (
+        _dev_get(args, "nexus_admin_password", "NEXUS_ADMIN_PASSWORD", None)
+        or _dev_stored("nexus_admin_password")
+        or _generate_secret()
+    )
+    admin_password = _nexus_ensure_admin_password(endpoint, _pod_container("nexus"), preferred)
+    _dev_set("nexus_admin_password", admin_password)
+    utils.info(f"[dev] Nexus available on {endpoint} (admin / [dev] nexus_admin_password)")
+    return {"endpoint": endpoint, "admin_user": "admin"}
+
+
+def _nexus_valid(endpoint, user, password):
+    try:
+        response = requests.get(
+            f"{endpoint}/service/rest/v1/security/users",
+            params={"userId": "admin"},
+            auth=(user, password),
+            timeout=15,
+        )
+        return response.status_code == 200
+    except requests.RequestException:
+        return False
+
+
+def _nexus_ensure_admin_password(endpoint, container, preferred):
+    # Idempotent: the preferred password already authenticates.
+    if _nexus_valid(endpoint, "admin", preferred):
+        utils.info("[dev] Nexus admin password already set, reuse it")
+        return preferred
+    # First boot: Nexus writes a random admin password to /nexus-data/admin.password and removes it
+    # after the first change. Read it, then swap it for our known/generated one.
+    result = _podman("exec", container, "cat", "/nexus-data/admin.password", check=False)
+    initial = result.stdout.strip() if result.returncode == 0 else ""
+    if not initial:
+        utils.warn(
+            "[dev] Nexus initial admin password not found (already changed?); "
+            "set [dev] nexus_admin_password to the current one or run --recreate"
+        )
+        return preferred
+    response = requests.put(
+        f"{endpoint}/service/rest/v1/security/users/admin/change-password",
+        auth=("admin", initial),
+        headers={"Content-Type": "text/plain"},
+        data=preferred,
+        timeout=30,
+    )
+    if response.status_code in (200, 204):
+        utils.info("[dev] Changed Nexus default admin password")
+        return preferred
+    utils.warn(
+        f"[dev] Could not change Nexus admin password (HTTP {response.status_code}); "
+        "keeping the initial one in [dev] nexus_admin_password"
+    )
+    return initial
+
+
+# --------------------------------------------------------------------------- #
+# Artifactory (JFrog OSS)
+# --------------------------------------------------------------------------- #
+def _init_artifactory(args):
+    utils.info("[dev] === Artifactory (OSS) ===")
+    recreate = args.get("recreate", False)
+    image = _dev_get(args, "artifactory_image", "ARTIFACTORY_IMAGE", ARTIFACTORY_DEFAULT_IMAGE)
+    port = int(_dev_get(args, "artifactory_port", "ARTIFACTORY_PORT", "8082"))
+    admin_user = _dev_get(args, "artifactory_user", "ARTIFACTORY_USER", "admin")
+    # Artifactory OSS ships with a well-known admin/password that stays valid for the REST API.
+    admin_password = _dev_get(args, "artifactory_password", "ARTIFACTORY_PASSWORD", "password")
+    wait = args.get("wait")
+
+    # Recent Artifactory refuses the embedded Derby DB, so it must use the shared PostgreSQL.
+    db = _shared_db_provision(args, "artifactory", "artifactory_db", wait)
+    if db is None:
+        utils.warn(
+            "[dev] Skipping Artifactory: it requires the shared PostgreSQL. Run "
+            "'dev init --only postgresql' first, then 'dev init --only artifactory'"
+        )
+        return {"skipped": "shared PostgreSQL unavailable"}
+
+    env = {
+        "JF_SHARED_DATABASE_TYPE": "postgresql",
+        "JF_SHARED_DATABASE_DRIVER": "org.postgresql.Driver",
+        "JF_SHARED_DATABASE_URL": f"jdbc:postgresql://{db['host']}:{db['port']}/{db['name']}",
+        "JF_SHARED_DATABASE_USERNAME": db["user"],
+        "JF_SHARED_DATABASE_PASSWORD": db["password"],
+    }
+    volumes = [{"name": "data", "persistentVolumeClaim": {"claimName": "artifactory_data"}}]
+    mounts = [{"name": "data", "mountPath": "/var/opt/jfrog/artifactory"}]
+    # The unified JFrog router (and the UI) listen on 8082 and route /artifactory to the service.
+    manifest = _pod_manifest(
+        "artifactory", image, [(8082, port)], env=env, volumes=volumes, mounts=mounts
+    )
+    if _pod_will_create("artifactory", recreate):
+        _ensure_image(image)
+    _kube_apply("artifactory", manifest, recreate, ["artifactory_data"])
+
+    endpoint = f"http://localhost:{port}/artifactory"
+    _dev_set("artifactory_endpoint", endpoint)
+    _dev_set("artifactory_user", admin_user)
+    _dev_set("artifactory_password", admin_password)
+
+    if wait != 0:
+        # Artifactory's first boot is slow (DB migration + access bootstrap); never fatal.
+        _wait_http(f"{endpoint}/api/system/ping", "Artifactory", wait, fatal=False)
+    utils.info(
+        f"[dev] Artifactory available on {endpoint} ({admin_user} / [dev] artifactory_password)"
+    )
+    return {"endpoint": endpoint, "admin_user": admin_user}
 
 
 # --------------------------------------------------------------------------- #

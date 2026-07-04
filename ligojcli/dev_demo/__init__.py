@@ -12,6 +12,7 @@ from ligojcli.dev_demo import (
     plugin_id_ldap,
     plugin_registry_artifactory,
     plugin_registry_harbor,
+    plugin_registry_nexus,
     plugin_scm_gitlab,
 )
 from ligojcli.plugins import ligoj, utils
@@ -24,6 +25,7 @@ REGISTRY = {
         plugin_build_jenkins,
         plugin_scm_gitlab,
         plugin_registry_harbor,
+        plugin_registry_nexus,
         plugin_registry_artifactory,
     )
 }

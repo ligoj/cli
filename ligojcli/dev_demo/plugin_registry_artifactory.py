@@ -3,9 +3,9 @@
 #
 # Demo setup for plugin-registry-artifactory: register the local Artifactory node.
 #
-# Artifactory is not part of `dev init`, so this uses generic localhost defaults (override with the
-# ARTIFACTORY_* env vars or the [dev] credentials section). Parameters mirror the sibling registry
-# plugins (url/user/password).
+# The endpoint and credentials come from `dev init --only artifactory` (stored in the [dev] section);
+# the defaults below apply when Artifactory was not initialized by this CLI. Only url/user/password
+# are node-level; type and registry are subscription-level parameters.
 #
 from ligojcli.dev_demo import _common
 
@@ -22,7 +22,7 @@ def run(args):
                 args,
                 "artifactory_endpoint",
                 "ARTIFACTORY_ENDPOINT",
-                "http://localhost:8081/artifactory",
+                "http://localhost:8082/artifactory",
             ),
             "service:registry:artifactory:user": _common.dev_value(
                 args, "artifactory_user", "ARTIFACTORY_USER", "admin"
