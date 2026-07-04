@@ -21,6 +21,14 @@ def dev_value(args, name, env, default=None):
     return dev._dev_get(args, name, env, default)
 
 
+def load_node(filename):
+    """Load a bundled node sample (docs/nodes/<filename>) as a {parameter: value} mapping."""
+    entries = utils.load_json_from_url_or_file_with_interpolation(
+        bundled_path("docs", "nodes", filename), {}
+    )
+    return {entry["parameter"]: entry.get("text") for entry in entries if entry.get("parameter")}
+
+
 def upsert_node(node_id, name, params, required=None, mode="LINK"):
     """Create/update a Ligoj node from a {parameter: value} mapping.
 

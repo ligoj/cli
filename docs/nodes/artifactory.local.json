@@ -1,0 +1,14 @@
+[
+    {
+        "parameter": "service:registry:artifactory:url",
+        "text": "http://localhost:8082/artifactory"
+    },
+    {
+        "parameter": "service:registry:artifactory:user",
+        "text": "admin"
+    },
+    {
+        "parameter": "service:registry:artifactory:password",
+        "text": "password"
+    }
+]

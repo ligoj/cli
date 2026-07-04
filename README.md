@@ -81,7 +81,7 @@ Options are sourced in the following order of priority, from highest to lowest:
 
 ### Configuration files
 
-Sections in these `.ini` files correspond to profile names. The default profile name is `default` and is used when no `--profile` option and no `LIGOJ_PROFILE` are provided.
+Sections in these `.ini` files correspond to profile names. When neither the `--profile` option nor the `LIGOJ_PROFILE` environment variable is provided, the default profile is `default` — except for the [`dev`](#dev-environment) command, which defaults to the `dev` profile. See [Profile](#profile) for the full resolution order.
 
 In the file `~/.ligoj/config`, default configurations can be specified. No secrets are sourced from this file.
 
@@ -225,11 +225,25 @@ ligoj --api-local-roles session get
 
 ### Profile
 
-Ligoj profile name to read from [configuration files](#configuration-files),  `credentials`, `config`, and `sessions`. Use the `--profile` option. This option can also be specified with environment variable `LIGOJ_PROFILE`. The default is `default`.
+A **profile** is a named section shared across the three `.ini` files under `~/.ligoj/` ([`config`, `credentials`, `sessions`](#configuration-files)): the settings, secrets, and session for a given profile all live under the same `[<profile>]` section. Profiles let you keep several isolated sets of endpoints and credentials — for example one per Ligoj instance, or one for the local [dev environment](#dev-environment) — and switch between them without editing files.
+
+Select the profile with the `--profile` option or the `LIGOJ_PROFILE` environment variable:
 
 ```bash
-ligoj --profile some ....
+ligoj --profile some node list
+# or
+LIGOJ_PROFILE=some ligoj node list
 ```
+
+The profile name is resolved in the following order (first match wins):
+
+1. The `--profile` command-line option.
+2. The `LIGOJ_PROFILE` environment variable.
+3. The default profile, which depends on the command:
+   - **`default`** for every command,
+   - **`dev`** for the [`dev`](#dev-environment) command — its local development stack reads and writes the `[dev]` section populated by `dev init`.
+
+For example, `ligoj dev demo` uses the `[dev]` profile automatically, while `ligoj node list` uses `[default]`; either can still be overridden with `--profile` or `LIGOJ_PROFILE`.
 
 ### From
 
@@ -1762,8 +1776,9 @@ ligoj build:job get --node "service:build:jenkins:dev" --id "my-app"
 # Dev environment
 
 `dev init` brings up, on **Kubernetes**, the backing services a Ligoj developer needs and wires the
-resulting endpoints and credentials into the **`[dev]` section** of `~/.ligoj/credentials`. The
-generated `[dev]` profile can then be reused by any other command with `--profile dev`.
+resulting endpoints and credentials into the **`[dev]` section** of `~/.ligoj/credentials`. Every
+`dev` command uses the `dev` [profile](#profile) by default (no `--profile` needed), and the
+generated `[dev]` profile can be reused by any other command with `--profile dev`.
 
 > Unlike every other command, `dev` is purely local and does **not** require `LIGOJ_ENDPOINT`.
 
@@ -1975,8 +1990,8 @@ Each plugin's demo lives in its own module under `ligojcli/dev_demo/`:
 | `plugin-build-jenkins`        | Upserts the `service:build:jenkins:local` node (url / user / api-token)                  |
 | `plugin-scm-gitlab`           | Upserts the `service:scm:gitlab:local` node (url / user / auth-key)                      |
 | `plugin-registry-harbor`      | Upserts the `service:registry:harbor:local` node (url / user / password)                |
-| `plugin-registry-nexus`       | Upserts the `service:registry:nexus:local` node (url / user / password)                 |
-| `plugin-registry-artifactory` | Upserts the `service:registry:artifactory:local` node (url / user / password)            |
+| `plugin-registry-nexus`       | Upserts the `service:registry:nexus:local` node (from [docs/nodes/nexus.local.json](docs/nodes/nexus.local.json), with the live url / user / password) |
+| `plugin-registry-artifactory` | Upserts the `service:registry:artifactory:local` node (from [docs/nodes/artifactory.local.json](docs/nodes/artifactory.local.json), with the live url / user / password) |
 
 Each demo is idempotent (nodes are upserted, OUs/scopes/groups skip when they already exist), so
 re-running is safe. A plugin whose required values are missing (e.g. no Jenkins API token in `[dev]`)

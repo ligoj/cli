@@ -1,0 +1,14 @@
+[
+    {
+        "parameter": "service:registry:nexus:url",
+        "text": "http://localhost:8181"
+    },
+    {
+        "parameter": "service:registry:nexus:user",
+        "text": "admin"
+    },
+    {
+        "parameter": "service:registry:nexus:password",
+        "text": "admin"
+    }
+]

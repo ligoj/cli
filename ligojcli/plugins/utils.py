@@ -33,6 +33,9 @@ UPDATE_MODE_DEFAULT = UPDATE_MODE_CREATE
 MIME_JSON = "application/json"
 MIME_URL_ENCODED = "application/x-www-form-urlencoded"
 DEFAULT_LIGOJ_PROFILE = "default"
+# The `dev` command works against a local development stack, so it uses its own profile by default
+# (separate credentials/session/config) unless --profile or LIGOJ_PROFILE says otherwise.
+DEFAULT_DEV_PROFILE = "dev"
 
 log_level: str = "INFO"
 no_color: bool = True
@@ -126,7 +129,8 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
 
     ini_read()
 
-    ini_profile = get_config(args, "profile", "LIGOJ_PROFILE", DEFAULT_LIGOJ_PROFILE)
+    default_profile = DEFAULT_DEV_PROFILE if args.get("service") == "dev" else DEFAULT_LIGOJ_PROFILE
+    ini_profile = get_config(args, "profile", "LIGOJ_PROFILE", default_profile)
     no_color = args["no_color"]
     buffer_log = str(get_config(args, "buffer-log", "LIGOJ_BUFFER_LOG", "True")).lower() in [
         "true",
