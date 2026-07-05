@@ -585,6 +585,53 @@ def _probe_tcp(host, port):
         return False
 
 
+# Artifactory's JFrog microservice mesh occasionally deadlocks on boot: the internal services fail to
+# join each other over localhost (they try the IPv6 ::1 loopback and get 'connection refused'), so the
+# container stays up but its router never binds :8082 — the port `dev` and the Ligoj node probe. A
+# healthy boot answers on :8082 within seconds (503 while starting), a hung one never does. When that
+# signature persists past a grace period, restart the pod once; a fresh boot usually wins the race.
+_ARTIFACTORY_HEAL_DEFAULT = 90
+
+
+def _artifactory_heal_after(args):
+    try:
+        return int(
+            _dev_get(
+                args,
+                "artifactory_heal_after",
+                "ARTIFACTORY_HEAL_AFTER",
+                str(_ARTIFACTORY_HEAL_DEFAULT),
+            )
+        )
+    except (TypeError, ValueError):
+        return _ARTIFACTORY_HEAL_DEFAULT
+
+
+def _artifactory_router_down(args):
+    # True only when :8082 refuses connections (the hung signature); a 503 while booting is 'up'.
+    url = _service_url("artifactory", args).rstrip("/") + "/api/system/ping"
+    try:
+        requests.get(url, timeout=4, allow_redirects=False)
+        return False
+    except requests.RequestException:
+        return True
+
+
+def _maybe_heal_artifactory(args, elapsed, healed):
+    # healed: single-element mutable flag so the pod is restarted at most once per wait.
+    after = _artifactory_heal_after(args)
+    if healed[0] or after <= 0 or elapsed < after:
+        return
+    if not _pod_exists("artifactory") or not _artifactory_router_down(args):
+        return
+    healed[0] = True
+    utils.warn(
+        f"[dev] Artifactory router still not listening after {elapsed}s (JFrog boot join "
+        "deadlock); restarting the pod once"
+    )
+    _podman("pod", "restart", "artifactory", check=False)
+
+
 def _color(text, level):
     palette = {"ok": Fore.GREEN, "warn": Fore.YELLOW, "bad": Fore.RED}
     if utils.no_color or level not in palette:
@@ -1835,6 +1882,10 @@ def _init_artifactory(args):
         "JF_SHARED_DATABASE_URL": f"jdbc:postgresql://{db['host']}:{db['port']}/{db['name']}",
         "JF_SHARED_DATABASE_USERNAME": db["user"],
         "JF_SHARED_DATABASE_PASSWORD": db["password"],
+        # Force IPv4 for the JVM services so they don't try the ::1 loopback when the microservices
+        # join over localhost (a frequent cause of the boot deadlock). The Go router isn't covered by
+        # this, so the wait also self-heals a stuck boot by restarting the pod once.
+        "EXTRA_JAVA_OPTIONS": "-Djava.net.preferIPv4Stack=true",
     }
     volumes = [{"name": "data", "persistentVolumeClaim": {"claimName": "artifactory_data"}}]
     mounts = [{"name": "data", "mountPath": "/var/opt/jfrog/artifactory"}]
@@ -1852,8 +1903,9 @@ def _init_artifactory(args):
     _dev_set("artifactory_password", admin_password)
 
     if wait != 0:
-        # Artifactory's first boot is slow (DB migration + access bootstrap); never fatal.
-        _wait_http(f"{endpoint}/api/system/ping", "Artifactory", wait, fatal=False)
+        # Artifactory's first boot is slow (DB migration + access bootstrap); never fatal, and it
+        # self-heals a hung JFrog mesh by restarting the pod once (see _maybe_heal_artifactory).
+        _wait_artifactory(args, wait)
     utils.info(
         f"[dev] Artifactory available on {endpoint} ({admin_user} / [dev] artifactory_password)"
     )
@@ -2472,9 +2524,15 @@ def _await_services(services, args, want_healthy, wait):
     # per attempt). 'up' is checked with a host health probe; 'down' with the runtime state.
     target = "up" if want_healthy else "down"
     if want_healthy:
+        start = time.time()
+        healed = [False]
 
         def check(svc):
-            return _service_healthy(svc, args)
+            if _service_healthy(svc, args):
+                return True
+            if svc == "artifactory":
+                _maybe_heal_artifactory(args, int(time.time() - start), healed)
+            return False
     else:
 
         def check(svc):
@@ -2569,6 +2627,23 @@ def _wait_http(url, name, wait, fatal=True):
         return
     if fatal:
         raise ValueError(f"[dev] {name} did not become ready in time")
+
+
+def _wait_artifactory(args, wait):
+    # Like _wait_http, but restarts the pod once if the JFrog router never comes up (boot deadlock).
+    start = time.time()
+    healed = [False]
+    url = _service_url("artifactory", args).rstrip("/") + "/api/system/ping"
+
+    def ready():
+        try:
+            code = requests.get(url, timeout=5, allow_redirects=False).status_code
+            return (code < 500, f"HTTP {code}")
+        except requests.RequestException:
+            _maybe_heal_artifactory(args, int(time.time() - start), healed)
+            return (False, "unreachable")
+
+    _await("Artifactory", ready, _deadline(wait))
 
 
 def _wait_sonar_up(endpoint, wait):

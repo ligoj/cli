@@ -1807,7 +1807,7 @@ get a clear message to install the tool yourself.) Each service streams live pro
 | `gitlab`     | `gitlab`      | `8929` (+ssh `2289`) | `gitlab/gitlab-ce:latest`     | omnibus CE (single container), trimmed footprint; root password in `[dev]` |
 | `harbor`     | `harbor` (Helm, on `kind`) | `8088`  | `goharbor/harbor` chart            | minimal Harbor (no trivy/metrics); admin password in `[dev]` |
 | `nexus`      | `nexus`       | `8181`       | `sonatype/nexus3:latest`              | volume `nexus_data`; resets the generated initial admin password and stores it in `[dev]` (host `8181` leaves `8081` free for the Ligoj API) |
-| `artifactory`| `artifactory` | `8082`       | `jfrog/artifactory-oss:latest`        | **backed by the shared `postgresql`** (dedicated `artifactory` database, Derby is refused), volume `artifactory_data`; admin `password` in `[dev]` |
+| `artifactory`| `artifactory` | `8082`       | `jfrog/artifactory-oss:latest`        | **backed by the shared `postgresql`** (dedicated `artifactory` database, Derby is refused), volume `artifactory_data`; admin `password` in `[dev]`. Forces IPv4 and **self-heals a hung boot** (see below) |
 | `argocd`     | `argocd` (Helm, on `kind`) | `8083`  | `argo/argo-cd` chart               | `role:ligoj` RBAC + `ligoj` account & API token; Dex **LDAP federation** to OpenLDAP |
 
 ## Options
@@ -1832,7 +1832,7 @@ are **read** before a secret is generated, so you stay in control:
 | `gitlab`     | `GITLAB_IMAGE`·`gitlab_image`, `GITLAB_PORT`·`gitlab_port`, `GITLAB_SSH_PORT`·`gitlab_ssh_port`, `GITLAB_ROOT_PASSWORD`·`gitlab_root_password` |
 | `harbor`     | `HARBOR_PORT`·`harbor_port`, `HARBOR_NODE_PORT`·`harbor_node_port`, `HARBOR_ADMIN_PASSWORD`·`harbor_admin_password`, `HARBOR_REDIS_IMAGE`·`harbor_redis_image` |
 | `nexus`      | `NEXUS_IMAGE`·`nexus_image`, `NEXUS_PORT`·`nexus_port`, `NEXUS_ADMIN_PASSWORD`·`nexus_admin_password` |
-| `artifactory`| `ARTIFACTORY_IMAGE`·`artifactory_image`, `ARTIFACTORY_PORT`·`artifactory_port`, `ARTIFACTORY_USER`·`artifactory_user`, `ARTIFACTORY_PASSWORD`·`artifactory_password`, `ARTIFACTORY_DB_PASSWORD`·`artifactory_db_password` (shared-DB role) |
+| `artifactory`| `ARTIFACTORY_IMAGE`·`artifactory_image`, `ARTIFACTORY_PORT`·`artifactory_port`, `ARTIFACTORY_USER`·`artifactory_user`, `ARTIFACTORY_PASSWORD`·`artifactory_password`, `ARTIFACTORY_DB_PASSWORD`·`artifactory_db_password` (shared-DB role), `ARTIFACTORY_HEAL_AFTER`·`artifactory_heal_after` (boot self-heal grace, default `90`, `0` disables) |
 | `argocd`     | `ARGOCD_PORT`·`argocd_port`, `ARGOCD_NODE_PORT`·`argocd_node_port` (LDAP fields reuse the `openldap` keys) |
 
 In return, `dev init` **writes** to `[dev]`: `db_*` (host/port/name/user/password/url), `ldap_url` and
@@ -1892,6 +1892,17 @@ artifactory running         OK      http://localhost:8082/artifactory
 `STATUS` is the pod (or, for Harbor, the kind cluster) state — `running` / `stopped` / `absent`;
 `HEALTH` is probed from your machine (an HTTP check for web services, a TCP connect for
 PostgreSQL/LDAP). It reads the ports/URLs recorded in `[dev]`, so it works without contacting podman.
+
+### Artifactory boot self-heal
+
+Artifactory's JFrog microservice mesh occasionally deadlocks on boot: the internal services fail to
+join over `localhost` (they try the IPv6 `::1` loopback and get *connection refused*), so the
+container stays up but its router never binds `:8082` — the port `dev` and the Ligoj node probe — and
+the readiness wait would otherwise hang forever. Two mitigations are built in: the pod is started
+with `-Djava.net.preferIPv4Stack=true`, and if the router is still not listening after a grace period
+(default **90 s**, set `ARTIFACTORY_HEAL_AFTER` seconds, `0` disables) the wait **restarts the pod
+once** — a fresh boot usually wins the race (~40 s). A healthy-but-slow boot (which answers `503`
+while starting) is never restarted.
 
 ## Per-service config
 
