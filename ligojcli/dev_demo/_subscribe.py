@@ -106,8 +106,12 @@ def _call(method, url, **kwargs):
         return None
 
 
-def nexus_ensure_repo(endpoint, user, password, rtype, name):
-    """Create a Nexus hosted repository of the given format. Returns its name, or None."""
+def nexus_ensure_repo(endpoint, user, password, rtype, name, docker_http_port=None):
+    """Create/update a Nexus hosted repository of the given format. Returns its name, or None.
+
+    For docker, `docker_http_port` opens a registry connector on that port so images can be pushed;
+    an existing repo is updated (PUT) to make sure the connector is present.
+    """
     recipe = {"maven": "maven/hosted", "docker": "docker/hosted"}.get(rtype)
     if not recipe:
         return None
@@ -128,20 +132,31 @@ def nexus_ensure_repo(endpoint, user, password, rtype, name):
         }
     else:  # docker
         body["docker"] = {"v1Enabled": False, "forceBasicAuth": True}
-    resp = _call(
-        "POST",
-        f"{endpoint}/service/rest/v1/repositories/{recipe}",
-        auth=(user, password),
-        json=body,
-    )
-    if resp is not None and (resp.status_code == 201 or _already_exists(resp)):
+        if docker_http_port:
+            body["docker"]["httpPort"] = int(docker_http_port)
+    base = f"{endpoint}/service/rest/v1/repositories/{recipe}"
+    resp = _call("POST", base, auth=(user, password), json=body)
+    if resp is not None and resp.status_code == 201:
+        return name
+    if resp is not None and _already_exists(resp):
+        # Ensure an existing docker repo has (the right) connector port.
+        if rtype == "docker" and docker_http_port:
+            _call("PUT", f"{base}/{name}", auth=(user, password), json=body)
         return name
     _warn_resource("nexus repo", name, rtype, resp)
     return None
 
 
 def artifactory_ensure_repo(endpoint, user, password, rtype, key):
-    """Create an Artifactory local repository of the given package type. Returns its key, or None."""
+    """Resolve an Artifactory local repository for a link subscription. Returns its key, or None.
+
+    On Artifactory Pro a missing repository is created via REST. On OSS both repository creation and
+    per-repository reads are Pro-only, so an existing repository (e.g. created by hand in the UI) is
+    detected through the OSS-compatible listing instead; Docker — which OSS does not support at all —
+    is skipped without noise.
+    """
+    if _artifactory_repo_exists(endpoint, user, password, key):
+        return key
     resp = _call(
         "PUT",
         f"{endpoint}/api/repositories/{key}",
@@ -149,16 +164,31 @@ def artifactory_ensure_repo(endpoint, user, password, rtype, key):
         json={"rclass": "local", "packageType": rtype},
         headers={"Content-Type": "application/json"},
     )
-    if resp is not None and "artifactory pro" in (resp.text or "").lower():
-        utils.warn(
-            f"[dev] artifactory repo '{key}' ({rtype}) skipped: creating a repository needs "
-            "Artifactory Pro (OSS has no repository REST API) — create it in the UI, then re-run"
-        )
-        return None
     if resp is not None and (resp.status_code in (200, 201) or _already_exists(resp)):
         return key
+    if resp is not None and "artifactory pro" in (resp.text or "").lower():
+        # Artifactory OSS: no repository-creation REST API.
+        if rtype == "docker":
+            return None  # OSS has no Docker package type; nothing to manage, skip quietly.
+        utils.warn(
+            f"[dev] artifactory: '{key}' ({rtype}) not found — create it once in the OSS UI "
+            "(OSS cannot create repositories via REST); it is then detected and linked on the "
+            "next 'dev demo' run"
+        )
+        return None
     _warn_resource("artifactory repo", key, rtype, resp)
     return None
+
+
+def _artifactory_repo_exists(endpoint, user, password, key):
+    """True when the repository exists, via the listing (OSS-compatible, unlike the per-repo read)."""
+    resp = _call("GET", f"{endpoint}/api/repositories", auth=(user, password))
+    if resp is None or resp.status_code != 200:
+        return False
+    try:
+        return any(repo.get("key") == key for repo in resp.json())
+    except ValueError:
+        return False
 
 
 def harbor_ensure_project(endpoint, user, password, name):

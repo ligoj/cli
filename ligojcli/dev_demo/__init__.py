@@ -10,12 +10,15 @@
 import concurrent.futures
 
 from ligojcli.dev_demo import (
+    _seed,
     _subscribe,
     plugin_build_jenkins,
     plugin_id_ldap,
+    plugin_qa_sonarqube,
     plugin_registry_artifactory,
     plugin_registry_harbor,
     plugin_registry_nexus,
+    plugin_scm_github,
     plugin_scm_gitlab,
 )
 from ligojcli.plugins import ligoj, utils
@@ -27,6 +30,8 @@ REGISTRY = {
         plugin_id_ldap,
         plugin_build_jenkins,
         plugin_scm_gitlab,
+        plugin_scm_github,
+        plugin_qa_sonarqube,
         plugin_registry_harbor,
         plugin_registry_nexus,
         plugin_registry_artifactory,
@@ -96,6 +101,11 @@ def _demo_projects_and_subscriptions(args, active):
                 future.result()
             except Exception as error:  # noqa: BLE001 - one plugin must not abort the others
                 utils.warn(f"[dev] {artifact}: subscribe failed: {error}")
+
+    # Fill the tools with demo data (images, artifacts, Sonar analysis, git mirrors). Skipped for a
+    # targeted `--only` run, which is meant to stay fast.
+    if not args.get("only"):
+        _seed.seed(args, _subscribe.LINK_PROJECT)
 
 
 def _check_ligoj_running():
