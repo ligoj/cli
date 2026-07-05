@@ -36,10 +36,11 @@ def subscribe(args, project):
     endpoint = _common.dev_value(args, "nexus_endpoint", "NEXUS_ENDPOINT", "http://localhost:8181")
     user = _common.dev_value(args, "nexus_admin_user", "NEXUS_ADMIN_USER", "admin")
     password = _common.dev_value(args, "nexus_admin_password", "NEXUS_ADMIN_PASSWORD", "admin")
+    docker_port = _common.dev_value(args, "nexus_docker_port", "NEXUS_DOCKER_PORT", "8182")
     _subscribe.registry_subscribe(
         project,
         NODE,
         lambda rtype: _subscribe.nexus_ensure_repo(
-            endpoint, user, password, rtype, f"{project}-{rtype}"
+            endpoint, user, password, rtype, f"{project}-{rtype}", docker_http_port=docker_port
         ),
     )
