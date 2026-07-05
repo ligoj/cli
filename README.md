@@ -1978,7 +1978,8 @@ ligoj dev demo --only plugin-id-ldap plugin-build-jenkins
 ```
 
 It (1) checks Ligoj is up via `/manage/health`, (2) lists the installed plugins with
-[`plugin list`](#plugin), then (3) runs the demo registered for each one. Connection values
+[`plugin list`](#plugin), (3) runs the demo registered for each one, then (4) creates the demo
+projects and their [link subscriptions](#demo-projects-and-link-subscriptions). Connection values
 (URLs, users, passwords/tokens) are read back from the `[dev]` credentials section that `dev init`
 wrote, so the created nodes point at the local services.
 
@@ -1997,6 +1998,38 @@ Each demo is idempotent (nodes are upserted, OUs/scopes/groups skip when they al
 re-running is safe. A plugin whose required values are missing (e.g. no Jenkins API token in `[dev]`)
 is skipped with a warning instead of aborting the run. Use `--wait` to bound the LDAP context restart
 (defaults to 60s).
+
+### Demo projects and link subscriptions
+
+After the nodes are configured, the demo also creates three projects — **Démo #1** (`demo-1`),
+**Démo #2** (`demo-2`) and **Démo #3** (`demo-3`) — owned by the current API user. (Ligoj project
+keys match `^([a-z]|\d+-?[a-z])[a-z\d\-]*$`, so `demo:1` is written `demo-1`.)
+
+Only **`demo-1`** receives subscriptions; `demo-2` / `demo-3` stay empty. For each active tool node a
+subscription is created in **`link` mode**, which requires the referenced resource to already exist
+on the remote tool — so the demo first provisions that resource via the tool's own REST API (using
+the `[dev]` credentials), then links it. The plugins are processed **in parallel, one worker per
+plugin**:
+
+| Plugin                        | Resource created on the tool                          | Link parameter(s)                        |
+| ----------------------------- | ----------------------------------------------------- | ---------------------------------------- |
+| `plugin-id-ldap`              | a group `demo-1` (Project scope)                      | `service:id:group`                       |
+| `plugin-build-jenkins`        | a free-style job `demo-1`                             | `service:build:jenkins:job`              |
+| `plugin-scm-gitlab`           | a project `demo-1`                                    | `service:scm:gitlab:repository`          |
+| `plugin-registry-harbor`      | a project `demo-1` (docker/OCI only)                  | `type` = `docker`, `registry`            |
+| `plugin-registry-nexus`       | hosted repositories `demo-1-docker`, `demo-1-maven`   | one subscription per type (`type`, `registry`) |
+| `plugin-registry-artifactory` | local repositories `demo-1-docker`, `demo-1-maven`    | one subscription per type (`type`, `registry`) |
+
+For registry plugins, the demo provisions and subscribes one repository **per supported type**
+(currently `docker` and `maven`, intersected with what the tool advertises — Harbor is docker-only).
+The supported types and the parameter definitions are discovered from the node itself
+(`node/<id>/parameter/link`), so the demo adapts to each plugin. Anything that cannot be created is
+skipped with a warning and never aborts the run — for example **Artifactory OSS** has no repository
+REST API (that is an Artifactory Pro feature), so its repositories must be created in the UI before
+those subscriptions can link.
+
+Every subscription is created idempotently and its status is refreshed (validated) right after
+linking.
 
 ## Keycloak realm, federation and client
 

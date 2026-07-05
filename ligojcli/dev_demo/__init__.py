@@ -7,7 +7,10 @@
 # installed plugins (id, name, version), then runs the demo defined for each one. Each plugin
 # demo lives in its own module under this package and is registered by Maven artifact id.
 #
+import concurrent.futures
+
 from ligojcli.dev_demo import (
+    _subscribe,
     plugin_build_jenkins,
     plugin_id_ldap,
     plugin_registry_artifactory,
@@ -42,6 +45,7 @@ def demo(args):
 
     only = set(args.get("only") or [])
     results = {}
+    active = []
     for entry in plugins:
         artifact = (entry.get("plugin") or {}).get("artifact")
         module = REGISTRY.get(artifact)
@@ -51,9 +55,12 @@ def demo(args):
         try:
             module.run(args)
             results[artifact] = "ok"
+            active.append((artifact, module))
         except Exception as error:  # noqa: BLE001 - one plugin must not abort the whole run
             utils.warn(f"[dev] {artifact}: demo failed: {error}")
             results[artifact] = f"failed: {error}"
+
+    _demo_projects_and_subscriptions(args, active)
 
     if not results:
         utils.warn("[dev] No installed plugin matched a known demo")
@@ -61,6 +68,34 @@ def demo(args):
         done = sum(1 for state in results.values() if state == "ok")
         utils.info(f"[dev] Demo complete: {done}/{len(results)} plugin(s) configured")
     return results or False
+
+
+def _demo_projects_and_subscriptions(args, active):
+    """Create the demo projects, then link each active plugin's node to demo-1 in parallel."""
+    utils.info("[dev] === Demo projects ===")
+    _subscribe.ensure_projects(ligoj.ligoj_api_user)
+
+    subscribers = [
+        (artifact, module) for artifact, module in active if hasattr(module, "subscribe")
+    ]
+    if not subscribers:
+        return
+    utils.info(
+        f"[dev] === Linking {len(subscribers)} plugin(s) to project "
+        f"'{_subscribe.LINK_PROJECT}' (link mode) ==="
+    )
+    # One worker per plugin: each provisions its remote resource(s) and subscribes independently.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(subscribers)) as pool:
+        pending = {
+            pool.submit(module.subscribe, args, _subscribe.LINK_PROJECT): artifact
+            for artifact, module in subscribers
+        }
+        for future in concurrent.futures.as_completed(pending):
+            artifact = pending[future]
+            try:
+                future.result()
+            except Exception as error:  # noqa: BLE001 - one plugin must not abort the others
+                utils.warn(f"[dev] {artifact}: subscribe failed: {error}")
 
 
 def _check_ligoj_running():

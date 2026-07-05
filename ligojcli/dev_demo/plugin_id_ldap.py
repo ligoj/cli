@@ -10,7 +10,7 @@
 # that the server's company-existence pre-check (companies-dn only) can't see, so for an OU that
 # already exists (e.g. ou=groups from bitnami, ou=tools from the LDIF) the add raises NameAlreadyBound.
 #
-from ligojcli.dev_demo import _common
+from ligojcli.dev_demo import _common, _subscribe
 from ligojcli.plugins import id as id_plugin
 from ligojcli.plugins import ligoj, utils
 
@@ -47,6 +47,12 @@ def run(args):
     _create_company_scopes(root)
     _create_group_scopes(root)
     _create_technical_groups()
+
+
+def subscribe(args, project):
+    # The IAM subscription links a project to an existing LDAP group; create the group, then link it.
+    _safe(f"group '{project}'", id_plugin.group_create, project, "Project")
+    _subscribe.link(project, NODE, [{"parameter": "service:id:group", "text": project}])
 
 
 def _safe(description, func, *args):

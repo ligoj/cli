@@ -8,7 +8,7 @@
 # (stored in the [dev] section). Only url/user/password are node-level; type and registry are
 # subscription-level parameters.
 #
-from ligojcli.dev_demo import _common
+from ligojcli.dev_demo import _common, _subscribe
 
 ARTIFACT = "plugin-registry-artifactory"
 NODE = "service:registry:artifactory:local"
@@ -36,3 +36,20 @@ def run(args):
         params.get("service:registry:artifactory:password"),
     )
     _common.upsert_node(NODE, "Artifactory Local (CLI)", params)
+
+
+def subscribe(args, project):
+    # Link one local repository per supported demo type, created on Artifactory first. Artifactory
+    # OSS has no docker registry, so that type is skipped automatically when creation fails.
+    endpoint = _common.dev_value(
+        args, "artifactory_endpoint", "ARTIFACTORY_ENDPOINT", "http://localhost:8082/artifactory"
+    )
+    user = _common.dev_value(args, "artifactory_user", "ARTIFACTORY_USER", "admin")
+    password = _common.dev_value(args, "artifactory_password", "ARTIFACTORY_PASSWORD", "password")
+    _subscribe.registry_subscribe(
+        project,
+        NODE,
+        lambda rtype: _subscribe.artifactory_ensure_repo(
+            endpoint, user, password, rtype, f"{project}-{rtype}"
+        ),
+    )
