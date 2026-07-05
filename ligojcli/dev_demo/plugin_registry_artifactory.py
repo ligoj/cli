@@ -39,8 +39,9 @@ def run(args):
 
 
 def subscribe(args, project):
-    # Link one local repository per supported demo type, created on Artifactory first. Artifactory
-    # OSS has no docker registry, so that type is skipped automatically when creation fails.
+    # Link one local repository per supported demo type. On Pro the repository is created first; on
+    # OSS creation is Pro-only, so an existing repository (e.g. demo-1-maven created by hand in the
+    # UI) is detected from the listing and linked, while Docker (absent from OSS) is skipped quietly.
     endpoint = _common.dev_value(
         args, "artifactory_endpoint", "ARTIFACTORY_ENDPOINT", "http://localhost:8082/artifactory"
     )
