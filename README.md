@@ -1794,7 +1794,10 @@ Two runtimes, both driven by **podman** — no heavyweight cluster unless you as
 The init phase **bootstraps its own tooling**: a missing CLI (`podman`, and `kind`/`helm`/`kubectl`
 for Harbor) is installed with Homebrew, and the podman machine is initialized/started as needed — so
 a fresh machine can go from nothing to a running stack with one command. (If Homebrew is absent, you
-get a clear message to install the tool yourself.) Each service streams live progress and is
+get a clear message to install the tool yourself.) On macOS it also checks the tools `dev demo` needs
+later — **Java 21** (installed as the Temurin JDK cask via Homebrew) and **Maven 3.9.6** (installed
+via [SDKMAN](https://sdkman.io), bootstrapped if missing); these two are best-effort and never abort
+`init`. Pass `--skip-prereqs` to skip all these checks. Each service streams live progress and is
 **idempotent** — a running pod is reused; use `--recreate` to replace it.
 
 | Service      | Pod / release | Default port | Image                                 | What `dev init` configures |
@@ -1807,7 +1810,7 @@ get a clear message to install the tool yourself.) Each service streams live pro
 | `gitlab`     | `gitlab`      | `8929` (+ssh `2289`) | `gitlab/gitlab-ce:latest`     | omnibus CE (single container), trimmed footprint; root password in `[dev]` |
 | `harbor`     | `harbor` (Helm, on `kind`) | `8088`  | `goharbor/harbor` chart            | minimal Harbor (no trivy/metrics); admin password in `[dev]` |
 | `nexus`      | `nexus`       | `8181`       | `sonatype/nexus3:latest`              | volume `nexus_data`; resets the generated initial admin password and stores it in `[dev]` (host `8181` leaves `8081` free for the Ligoj API) |
-| `artifactory`| `artifactory` | `8082`       | `jfrog/artifactory-oss:latest`        | **backed by the shared `postgresql`** (dedicated `artifactory` database, Derby is refused), volume `artifactory_data`; admin `password` in `[dev]`. Forces IPv4 and **self-heals a hung boot** (see below) |
+| `artifactory`| `artifactory` | `8082`       | `jfrog/artifactory-oss:7.111.9` (pinned) | **backed by the shared `postgresql`** (dedicated `artifactory` database, Derby is refused), volume `artifactory_data`; admin `password` in `[dev]`. Forces IPv4, **self-heals a hung boot** (see below), and is **pinned below 7.125** to keep the web UI usable (see below) |
 | `argocd`     | `argocd` (Helm, on `kind`) | `8083`  | `argo/argo-cd` chart               | `role:ligoj` RBAC + `ligoj` account & API token; Dex **LDAP federation** to OpenLDAP |
 
 ## Options
@@ -1903,6 +1906,22 @@ with `-Djava.net.preferIPv4Stack=true`, and if the router is still not listening
 (default **90 s**, set `ARTIFACTORY_HEAL_AFTER` seconds, `0` disables) the wait **restarts the pod
 once** — a fresh boot usually wins the race (~40 s). A healthy-but-slow boot (which answers `503`
 while starting) is never restarted.
+
+### Artifactory version pin (usable UI)
+
+The image is pinned to `artifactory-oss:7.111.9`, **not** `:latest`, on purpose. From ~7.125 the OSS
+web UI's frontend service (`jffe`) is stuck in an unbounded retry loop on a *"first-time entitlement
+fetch"* — a licensing/entitlements gRPC call that returns **404 UNIMPLEMENTED** because that service
+ships only with the commercial JFrog Platform, not OSS. Until it "succeeds" (it never does) `jffe`
+won't serve UI data, so **every** `/ui/api/v1/ui/*` call hangs ~12 s and the UI is effectively
+unusable (long JFrog splash, every screen crawls). The REST API and all `dev demo` Maven operations
+are unaffected — only the browser UI. Tested across versions: 7.146/7.133/7.125 all hang; **7.111.9**
+is the newest OSS tag whose UI answers in milliseconds with no entitlement loop. (The many `404`s the
+browser logs for `xray`, `mc`, `distribution`, `apptrust`, … microfrontends are unrelated and
+harmless — those are commercial modules absent from OSS.) Override the pin with `ARTIFACTORY_IMAGE` /
+`[dev] artifactory_image` if you need a specific version; a **downgrade needs a fresh volume and
+database** (`podman pod rm -f artifactory`, `podman volume rm artifactory_data`, and drop the
+`artifactory` DB), because a newer schema/master-key won't start on an older binary.
 
 ## Per-service config
 
@@ -2027,20 +2046,61 @@ plugin**:
 | `plugin-id-ldap`              | a group `demo-1` (Project scope)                      | `service:id:group`                       |
 | `plugin-build-jenkins`        | a free-style job `demo-1`                             | `service:build:jenkins:job`              |
 | `plugin-scm-gitlab`           | a project `demo-1`                                    | `service:scm:gitlab:repository`          |
+| `plugin-scm-github`           | — (links the public `ligoj/plugin-ui` repo)           | `service:scm:github:repository`          |
+| `plugin-qa-sonarqube`         | a dedicated `ligoj` admin user + the empty project `org.ligoj.plugin:plugin-ui` | `service:qa:sonarqube:project` |
 | `plugin-registry-harbor`      | a project `demo-1` (docker/OCI only)                  | `type` = `docker`, `registry`            |
 | `plugin-registry-nexus`       | hosted repositories `demo-1-docker`, `demo-1-maven`   | one subscription per type (`type`, `registry`) |
-| `plugin-registry-artifactory` | local repositories `demo-1-docker`, `demo-1-maven`    | one subscription per type (`type`, `registry`) |
+| `plugin-registry-artifactory` | — (**not usable on OSS**; subscription skipped) | `type`, `registry` (Pro only) |
 
 For registry plugins, the demo provisions and subscribes one repository **per supported type**
 (currently `docker` and `maven`, intersected with what the tool advertises — Harbor is docker-only).
 The supported types and the parameter definitions are discovered from the node itself
 (`node/<id>/parameter/link`), so the demo adapts to each plugin. Anything that cannot be created is
-skipped with a warning and never aborts the run — for example **Artifactory OSS** has no repository
-REST API (that is an Artifactory Pro feature), so its repositories must be created in the UI before
-those subscriptions can link.
+skipped with a warning and never aborts the run.
+
+**Artifactory OSS cannot be used by the Ligoj registry plugin at all** — it needs Pro-only REST APIs.
+OSS blocks both repository *creation* (`PUT /api/repositories/<key>`) **and** per-repository *reads*
+(`GET /api/repositories/<key>`), and the plugin's `artifactory-registry` validator relies on the
+latter — so even a Maven repo you create by hand in the UI cannot be linked, and OSS has no Docker
+package type at all (Docker is Pro-only, hence greyed out in the UI). Artifactory OSS is therefore
+only useful here as a plain Maven **deploy target** (the seed pushes to its default `example-repo-local`
+over the non-Pro deploy API). For demo **registry subscriptions**, use **Nexus** (docker + maven) and
+**Harbor** (docker), which work fully.
+
+The **GitHub** link points at the real public `ligoj/plugin-ui` repository, which GitHub validates
+against its API — so a token is required (`[dev]` `github_token` / `GITHUB_TOKEN`, or the locally
+authenticated `gh` CLI). Without one, the GitHub demo is skipped.
+
+The **SonarQube** plugin authenticates with a login + password that must have admin rights, so the
+demo — using the `sonar_api_token` from `dev init` — provisions a dedicated `ligoj` admin user
+(password `sonar_demo_password`, default `Ligoj-Demo-Pass1!`; SonarQube requires ≥ 12 characters with
+upper/lower/digit/special) rather than reusing the admin account, then links the
+`org.ligoj.plugin:plugin-ui` project. That Sonar project is created empty up front (link
+mode needs it to exist); the seed phase's `sonar:sonar` analysis fills it in afterwards. Without a
+token, the SonarQube demo is skipped.
 
 Every subscription is created idempotently and its status is refreshed (validated) right after
 linking.
+
+### Tool data seeding
+
+Finally, `dev demo` fills the tools with real data so the demo project has something to show. This
+step is **heavy** (image pulls, two Maven builds, a Sonar analysis and two git mirrors — several
+minutes) and runs on a full `dev demo` (it is skipped when you pass `--only`). The tools are seeded
+in parallel, best-effort — a failing tool logs a warning and never aborts the rest:
+
+| Tool | Data seeded |
+| ---- | ----------- |
+| **Harbor** | pulls 2 small public images (`busybox`, `alpine`) and pushes them into the `demo-1` project |
+| **Nexus (docker)** | pushes the same 2 images to the Nexus docker registry connector (port `8182`, see `--nexus-docker-port`) |
+| **Nexus / Artifactory (maven)** | builds `plugin-ui` and `plugin-id` and deploys the artifacts to `demo-1-maven` (Nexus) and to `example-repo-local` (Artifactory OSS's default repo) |
+| **SonarQube** | runs `mvn … sonar:sonar` on both plugins (project keys `org.ligoj.plugin:plugin-ui` / `plugin-id`) |
+| **GitLab** | mirrors the `github.com/ligoj/plugin-ui` and `plugin-id` repositories |
+
+Prerequisites: **podman**, **mvn** (JDK 21), **git**, network access to Docker Hub / GitHub, and the
+plugin sources under `LIGOJ_PLUGINS_DIR` (default `~/git/ligoj-plugins`). Nexus Community Edition
+requires its EULA (accepted automatically by `dev init`) and a docker connector port; Artifactory OSS
+has no docker registry, so it only receives the Maven artifacts.
 
 ## Keycloak realm, federation and client
 
