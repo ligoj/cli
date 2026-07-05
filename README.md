@@ -2165,6 +2165,30 @@ so `status`/`stop`/`restart` cover them however they were started. `stop` (and t
 > The Ligoj API dev app binds `8081`, so the `nexus` service publishes `8181` (not its own `8081`) to
 > avoid the clash — run both at once without conflict.
 
+## Build plugin frontends (`dev build plugin`)
+
+Each Ligoj plugin ships a frontend under `<plugin>/ui/` built with `npm run build` (Vite). `dev build
+plugin` runs that build for every **live** plugin — the ones installed in the running Ligoj instance
+(`system/plugin`) that also have a local `<plugin>/ui/` under the plugins directory:
+
+```bash
+# Rebuild the frontend of every live plugin (in parallel)
+ligoj dev build plugin
+
+# Build only specific plugins (skips the live lookup, so Ligoj need not be running)
+ligoj dev build plugin --only plugin-ui plugin-id
+
+# Limit parallelism
+ligoj dev build plugin --jobs 2
+```
+
+Dependencies are installed automatically on first build (`npm ci` when a `package-lock.json` is
+present, otherwise `npm install`) before `npm run build`. Builds run in parallel (default
+`min(4, CPUs)`, `--jobs` to change) and each plugin is reported `OK` / `FAILED` independently — one
+failing frontend never aborts the others. The plugins directory is `LIGOJ_PLUGINS_DIR` /
+`[dev] ligoj_plugins_dir` (default `~/git/ligoj-plugins`), and `npm` must be on the `PATH`. Without
+`--only`, Ligoj must be reachable so the live plugin set can be listed.
+
 ## Harbor and ArgoCD on kind
 
 Harbor and ArgoCD are the services that need a real cluster. They **share** a single-node **`kind`

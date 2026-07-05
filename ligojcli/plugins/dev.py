@@ -28,6 +28,7 @@
 #   * argocd     - Helm chart on the shared kind cluster, with a 'ligoj' role.
 #
 import base64
+import concurrent.futures
 import os
 import re
 import secrets
@@ -277,6 +278,25 @@ def configure(subparser_service):
         help="Service to describe (default: all services as a table)",
     )
 
+    parser_build = subparser_action.add_parser("build", help="Build Ligoj plugins from source")
+    build_sub = parser_build.add_subparsers(title="command", dest="operation")
+    build_plugin = build_sub.add_parser(
+        "plugin", help="Run 'npm run build' for each live plugin's frontend (ui/)"
+    )
+    build_plugin.add_argument(
+        "--only",
+        "-O",
+        nargs="*",
+        help="Only build these plugin artifacts (e.g. plugin-ui plugin-id); skips the live lookup",
+    )
+    build_plugin.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=None,
+        help="Number of parallel builds (default: min(4, CPUs))",
+    )
+
 
 def execute_action(service, action, _operation, args):
     if service != "dev":
@@ -303,7 +323,107 @@ def execute_action(service, action, _operation, args):
         from ligojcli import dev_debug
 
         return dev_debug.execute(args)
+    if action == "build":
+        return dev_build(args)
     return None
+
+
+def dev_build(args):
+    operation = args.get("operation")
+    if operation == "plugin":
+        return dev_build_plugin(args)
+    utils.warn("[dev] build: missing sub-command; try 'dev build plugin'")
+    return None
+
+
+def dev_build_plugin(args):
+    """Run 'npm run build' in the ui/ frontend of each live plugin (in parallel)."""
+    if shutil.which("npm") is None:
+        raise ValueError("[dev] 'npm' not found; install Node.js first (needed to build frontends)")
+    plugins_dir = os.path.expanduser(
+        _dev_get(args, "ligoj_plugins_dir", "LIGOJ_PLUGINS_DIR", "~/git/ligoj-plugins")
+    )
+    targets = _plugin_ui_targets(args, plugins_dir)
+    if not targets:
+        utils.warn(
+            f"[dev] build plugin: no plugin with a '<plugin>/ui/' frontend under {plugins_dir}"
+        )
+        return False
+
+    workers = args.get("jobs") or min(4, os.cpu_count() or 4)
+    utils.info(
+        f"[dev] Building {len(targets)} plugin frontend(s) with 'npm run build' "
+        f"({workers} parallel) ..."
+    )
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        pending = {pool.submit(_npm_build_plugin, art, ui): art for art, ui in targets}
+        for future in concurrent.futures.as_completed(pending):
+            artifact = pending[future]
+            ok, output = future.result()
+            results[artifact] = ok
+            if ok:
+                utils.info(f"[dev] {artifact}: build OK")
+            else:
+                utils.warn(f"[dev] {artifact}: build FAILED\n{output}")
+
+    done = sum(1 for ok in results.values() if ok)
+    utils.info(f"[dev] Plugin build complete: {done}/{len(results)} succeeded")
+    return results
+
+
+def _plugin_ui_targets(args, plugins_dir):
+    """Resolve the (artifact, ui_dir) pairs to build: the live plugins, or --only when given."""
+    only = args.get("only")
+    if only:
+        artifacts = list(dict.fromkeys(only))  # explicit selection, no need for a running Ligoj
+    else:
+        # 'live' plugins = those installed in the running Ligoj.
+        from ligojcli.plugins import ligoj
+
+        try:
+            plugins = ligoj.plugin_list() or []
+        except Exception as error:  # noqa: BLE001 - turn any connection error into a clear hint
+            raise ValueError(
+                f"[dev] build plugin: cannot list live plugins (is Ligoj running? {error}); "
+                "pass --only <artifact>... to build specific plugins without it"
+            )
+        artifacts = list(
+            dict.fromkeys(
+                (entry.get("plugin") or {}).get("artifact")
+                for entry in plugins
+                if (entry.get("plugin") or {}).get("artifact")
+            )
+        )
+    targets = []
+    for artifact in artifacts:
+        ui_dir = os.path.join(plugins_dir, artifact, "ui")
+        if os.path.isfile(os.path.join(ui_dir, "package.json")):
+            targets.append((artifact, ui_dir))
+        elif only:
+            utils.warn(f"[dev] build plugin: no '{artifact}/ui/package.json' under {plugins_dir}")
+    return targets
+
+
+def _npm_build_plugin(artifact, ui_dir):
+    """Install dependencies when missing, then 'npm run build'. Returns (ok, tail-of-output)."""
+    if not os.path.isdir(os.path.join(ui_dir, "node_modules")):
+        install = (
+            ["npm", "ci"]
+            if os.path.isfile(os.path.join(ui_dir, "package-lock.json"))
+            else ["npm", "install"]
+        )
+        utils.info(f"[dev] {artifact}: {' '.join(install)} (first build) ...")
+        installed = _run(install, cwd=ui_dir, check=False)
+        if installed.returncode != 0:
+            return False, _cmd_tail(installed)
+    result = _run(["npm", "run", "build"], cwd=ui_dir, check=False)
+    return result.returncode == 0, _cmd_tail(result)
+
+
+def _cmd_tail(result, lines=15):
+    text = ((result.stdout or "") + (result.stderr or "")).strip()
+    return "\n".join(text.splitlines()[-lines:])
 
 
 def dev_init(args):
@@ -2365,15 +2485,15 @@ def _harbor_helm_install(admin_password, node_port, external_url, wait, redis_im
 # --------------------------------------------------------------------------- #
 # podman / kube-play / kind / helm helpers
 # --------------------------------------------------------------------------- #
-def _run(cmd, check=True, stream=False, env=None) -> subprocess.CompletedProcess:
+def _run(cmd, check=True, stream=False, env=None, cwd=None) -> subprocess.CompletedProcess:
     utils.debug("[dev] $ " + " ".join(cmd))
     run_env = {**os.environ, **env} if env else None
     if stream:
-        proc = subprocess.run(cmd, env=run_env)
+        proc = subprocess.run(cmd, env=run_env, cwd=cwd)
         if check and proc.returncode != 0:
             raise ValueError(f"[dev] Command failed: {' '.join(cmd)}")
         return proc
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=run_env)
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=run_env, cwd=cwd)
     if check and proc.returncode != 0:
         raise ValueError(f"[dev] Command failed: {' '.join(cmd)}\n{(proc.stderr or '').strip()}")
     return proc
