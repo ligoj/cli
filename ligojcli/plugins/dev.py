@@ -29,6 +29,7 @@
 #
 import base64
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -69,7 +70,12 @@ POSTGRES_DEFAULT_IMAGE = "postgres:17"
 KEYCLOAK_DEFAULT_IMAGE = "quay.io/keycloak/keycloak:26.6.1"
 GITLAB_DEFAULT_IMAGE = "gitlab/gitlab-ce:latest"
 NEXUS_DEFAULT_IMAGE = "docker.io/sonatype/nexus3:latest"
-ARTIFACTORY_DEFAULT_IMAGE = "releases-docker.jfrog.io/jfrog/artifactory-oss:latest"
+# Pinned (not ':latest') on purpose: from ~7.125 the OSS web UI (jffe) is stuck retrying a
+# "first-time entitlement fetch" that 404s in OSS (the entitlements service is Pro/cloud only), which
+# blocks/slows every /ui/api/v1/ui/* call and makes the UI unusable. 7.111.9 is the newest OSS tag
+# whose UI works (login + data calls answer in ms, no entitlement retry loop). Override with
+# ARTIFACTORY_IMAGE / [dev] artifactory_image if you need another version.
+ARTIFACTORY_DEFAULT_IMAGE = "releases-docker.jfrog.io/jfrog/artifactory-oss:7.111.9"
 
 POSTGRES_CONTAINER = "ligoj-db"
 POSTGRES_VOLUME = "ligoj_db_data"
@@ -156,6 +162,12 @@ def configure(subparser_service):
         default=False,
         help="Delete and recreate the pods/cluster (named volumes are kept)",
     )
+    parser_action.add_argument(
+        "--skip-prereqs",
+        action="store_true",
+        default=False,
+        help="Skip checking/installing prerequisites (podman, Java 21, Maven 3.9.6)",
+    )
     parser_action.add_argument("--ldap-port", help="Host port for OpenLDAP (default 1389)")
     parser_action.add_argument("--jenkins-port", help="Host port for Jenkins HTTP (default 8085)")
     parser_action.add_argument("--sonar-port", help="Host port for SonarQube (default 9000)")
@@ -164,6 +176,10 @@ def configure(subparser_service):
     parser_action.add_argument("--gitlab-port", help="Host port for GitLab HTTP (default 8929)")
     parser_action.add_argument("--harbor-port", help="Host port for Harbor (default 8088)")
     parser_action.add_argument("--nexus-port", help="Host port for Nexus HTTP (default 8181)")
+    parser_action.add_argument(
+        "--nexus-docker-port",
+        help="Host port for the Nexus Docker registry connector (default 8182)",
+    )
     parser_action.add_argument(
         "--artifactory-port", help="Host port for Artifactory HTTP (default 8082)"
     )
@@ -292,7 +308,7 @@ def execute_action(service, action, _operation, args):
 
 def dev_init(args):
     services = args.get("only") or SERVICES
-    _check_preconditions(services)
+    _check_preconditions(services, args)
     summary = {}
     if "postgresql" in services:
         summary["postgresql"] = _init_postgres(args)
@@ -790,15 +806,108 @@ def _service_config(svc, args):
 # --------------------------------------------------------------------------- #
 # Pre-conditions
 # --------------------------------------------------------------------------- #
-def _check_preconditions(services):
+JAVA_VERSION = "21"
+MAVEN_VERSION = "3.9.6"
+
+
+def _check_preconditions(services, args):
     # The init phase bootstraps its own tooling: missing CLIs are installed (Homebrew on
-    # macOS/Linux) and the podman machine is initialized/started as needed.
+    # macOS/Linux, SDKMAN for the JVM) and the podman machine is initialized/started as needed.
+    if args.get("skip_prereqs"):
+        utils.info("[dev] --skip-prereqs: not checking podman / Java / Maven")
+        return
     utils.info("[dev] Check pre-conditions ...")
     _ensure_podman()
+    # Java + Maven are only needed by 'dev demo' seeding, so they are best-effort (never fatal here).
+    _ensure_java(JAVA_VERSION)
+    _ensure_maven(MAVEN_VERSION)
     if set(KIND_SERVICES) & set(services):
         for tool in ("kind", "helm", "kubectl"):
             _ensure_tool(tool)
         utils.info("[dev] kind, helm and kubectl are available (for Harbor/ArgoCD)")
+
+
+def _ensure_java(major):
+    if _java_available(major):
+        utils.info(f"[dev] Java {major} is available")
+        return
+    if sys.platform != "darwin":
+        utils.warn(f"[dev] Java {major} not found; install a JDK {major} (needed by 'dev demo')")
+        return
+    try:
+        if shutil.which("brew") is None:
+            raise ValueError("Homebrew is not available")
+        utils.info(f"[dev] Installing Temurin JDK {major} with Homebrew ...")
+        _run(["brew", "install", "--cask", f"temurin@{major}"], stream=True)
+    except Exception as error:  # noqa: BLE001 - best effort, only needed later by 'dev demo'
+        utils.warn(f"[dev] Could not install Java {major}: {error}; install it manually")
+        return
+    utils.info(
+        f"[dev] Java {major} " + ("installed" if _java_available(major) else "still missing")
+    )
+
+
+def _java_available(major):
+    home = _run(["/usr/libexec/java_home", "-v", str(major)], check=False)
+    if home.returncode == 0:
+        return True
+    if shutil.which("java") is None:
+        return False
+    out = _run(["java", "-version"], check=False)
+    match = re.search(r'version "(\d+)', (out.stderr or "") + (out.stdout or ""))
+    return match is not None and match.group(1) == str(major)
+
+
+def _ensure_maven(version):
+    current = _maven_version()
+    if current and _version_ge(current, version):
+        utils.info(f"[dev] Maven {current} is available")
+        return
+    if sys.platform != "darwin":
+        utils.warn(f"[dev] Maven {version} not found; install it (needed by 'dev demo')")
+        return
+    try:
+        utils.info(f"[dev] Installing Maven {version} with SDKMAN ...")
+        _ensure_sdkman()
+        _sdk(f"install maven {version}")
+        _sdk(f"default maven {version}")
+    except Exception as error:  # noqa: BLE001 - best effort, only needed later by 'dev demo'
+        utils.warn(f"[dev] Could not install Maven {version}: {error}; install it manually")
+        return
+    utils.info(f"[dev] Maven {version} installed via SDKMAN (open a new shell to use it)")
+
+
+def _maven_version():
+    mvn = shutil.which("mvn") or os.path.expanduser("~/.sdkman/candidates/maven/current/bin/mvn")
+    if not os.path.exists(mvn):
+        return None
+    out = _run([mvn, "-version"], check=False)
+    match = re.search(r"Apache Maven (\d+\.\d+\.\d+)", (out.stdout or "") + (out.stderr or ""))
+    return match.group(1) if match else None
+
+
+def _version_ge(actual, minimum):
+    def parts(value):
+        return tuple(int(piece) for piece in value.split("."))
+
+    return parts(actual) >= parts(minimum)
+
+
+def _sdk(command):
+    script = (
+        f'source "$HOME/.sdkman/bin/sdkman-init.sh"; export sdkman_auto_answer=true; sdk {command}'
+    )
+    _run(["bash", "-c", script], stream=True)
+
+
+def _ensure_sdkman():
+    init = os.path.expanduser("~/.sdkman/bin/sdkman-init.sh")
+    if os.path.exists(init):
+        return
+    utils.info("[dev] Installing SDKMAN ...")
+    _run(["bash", "-c", 'curl -s "https://get.sdkman.io" | bash'], stream=True)
+    if not os.path.exists(init):
+        raise ValueError("SDKMAN installation did not complete")
 
 
 def _brew_install(package):
@@ -1780,9 +1889,15 @@ def _init_nexus(args):
     # Host port 8181 (not Nexus's own 8081) to leave 8081 free for the Ligoj API dev app.
     port = int(_dev_get(args, "nexus_port", "NEXUS_PORT", "8181"))
 
+    # A second port exposes a Docker registry connector (Nexus serves a docker hosted repo on its own
+    # port); the demo creates the repo with this httpPort so images can be pushed to it.
+    docker_port = int(_dev_get(args, "nexus_docker_port", "NEXUS_DOCKER_PORT", "8182"))
+
     volumes = [{"name": "data", "persistentVolumeClaim": {"claimName": "nexus_data"}}]
     mounts = [{"name": "data", "mountPath": "/nexus-data"}]
-    manifest = _pod_manifest("nexus", image, [(8081, port)], volumes=volumes, mounts=mounts)
+    manifest = _pod_manifest(
+        "nexus", image, [(8081, port), (docker_port, docker_port)], volumes=volumes, mounts=mounts
+    )
     if _pod_will_create("nexus", recreate):
         _ensure_image(image)
     _kube_apply("nexus", manifest, recreate, ["nexus_data"])
@@ -1790,6 +1905,7 @@ def _init_nexus(args):
     endpoint = f"http://localhost:{port}"
     _dev_set("nexus_endpoint", endpoint)
     _dev_set("nexus_admin_user", "admin")
+    _dev_set("nexus_docker_port", str(docker_port))
 
     wait = args.get("wait")
     if wait == 0:
@@ -1805,8 +1921,30 @@ def _init_nexus(args):
     )
     admin_password = _nexus_ensure_admin_password(endpoint, _pod_container("nexus"), preferred)
     _dev_set("nexus_admin_password", admin_password)
+    _nexus_accept_eula(endpoint, "admin", admin_password)
     utils.info(f"[dev] Nexus available on {endpoint} (admin / [dev] nexus_admin_password)")
     return {"endpoint": endpoint, "admin_user": "admin"}
+
+
+def _nexus_accept_eula(endpoint, user, password):
+    # Nexus Community Edition refuses writes (repo create, docker push) until its EULA is accepted.
+    try:
+        current = requests.get(
+            f"{endpoint}/service/rest/v1/system/eula", auth=(user, password), timeout=15
+        )
+        if current.status_code != 200:
+            return
+        data = current.json()
+        if data.get("accepted"):
+            return
+        data["accepted"] = True
+        resp = requests.post(
+            f"{endpoint}/service/rest/v1/system/eula", auth=(user, password), json=data, timeout=15
+        )
+        if resp.status_code in (200, 204):
+            utils.info("[dev] Accepted the Nexus Community Edition EULA")
+    except requests.RequestException as error:
+        utils.warn(f"[dev] Could not accept the Nexus EULA: {error}")
 
 
 def _nexus_valid(endpoint, user, password):
