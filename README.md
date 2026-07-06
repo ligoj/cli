@@ -1794,7 +1794,11 @@ Two runtimes, both driven by **podman** — no heavyweight cluster unless you as
 The init phase **bootstraps its own tooling**: a missing CLI (`podman`, and `kind`/`helm`/`kubectl`
 for Harbor) is installed with Homebrew, and the podman machine is initialized/started as needed — so
 a fresh machine can go from nothing to a running stack with one command. (If Homebrew is absent, you
-get a clear message to install the tool yourself.) On macOS it also checks the tools `dev demo` needs
+get a clear message to install the tool yourself.) The whole stack (GitLab + SonarQube + Nexus +
+Artifactory + kind at once) is heavy, so `dev init` also **enforces the podman machine's resources**:
+if it has fewer than **6 vCPU** or **23 GB RAM** it is **stopped, resized up to that minimum, and
+restarted** (a fresh machine is created already sized; a machine that already exceeds the minimum is
+left untouched). On macOS it also checks the tools `dev demo` needs
 later — **Java 21** (installed as the Temurin JDK cask via Homebrew) and **Maven 3.9.6** (installed
 via [SDKMAN](https://sdkman.io), bootstrapped if missing); these two are best-effort and never abort
 `init`. Pass `--skip-prereqs` to skip all these checks. Each service streams live progress and is
@@ -1994,6 +1998,21 @@ up, additionally re-running the chart upgrades and token/realm steps.)
 All of `init`, `start`, `stop` and `restart` take `--wait` and stream **live progress** while waiting
 for the target state (services up, or down for `stop`): omit it to wait until done (or Ctrl+C), `0`
 to return immediately, or `N` to cap the wait at N seconds — e.g. `dev restart --wait 120`.
+
+### Whole-environment `up` / `down`
+
+`dev down` and `dev up` power the environment off and on at the **podman-machine** level rather than
+service by service:
+
+```bash
+ligoj dev down    # stop the podman machine -> every service (and the kind node) goes down at once
+ligoj dev up      # start podman + its machine, wait until ready, then start every dev service
+```
+
+`dev down` is the fast way to free all resources (one VM stop instead of stopping each pod). `dev up`
+is its inverse: it starts podman and the machine (installing/creating them if missing, same as
+`init`, but **without** the resource resize), waits for the machine to be ready, then runs the
+`dev start` actions to bring the pods and kind workloads back. `dev up` takes `--wait` like `start`.
 
 ## Configure Ligoj with `dev demo`
 

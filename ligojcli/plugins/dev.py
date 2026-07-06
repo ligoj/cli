@@ -227,6 +227,15 @@ def configure(subparser_service):
     )
     _add_wait_argument(parser_start)
 
+    parser_up = subparser_action.add_parser(
+        "up", help="Start podman + its machine, then start every dev service"
+    )
+    _add_wait_argument(parser_up)
+
+    subparser_action.add_parser(
+        "down", help="Bring everything down by stopping the podman machine (not each service)"
+    )
+
     parser_demo = subparser_action.add_parser(
         "demo",
         help="Configure installed Ligoj plugins (nodes, IAM, sample data) for local development",
@@ -313,6 +322,10 @@ def execute_action(service, action, _operation, args):
         return dev_stop(args)
     if action == "start":
         return dev_start(args)
+    if action == "up":
+        return dev_up(args)
+    if action == "down":
+        return dev_down(args)
     if action == "demo":
         # Lazy import: only needed for this action, and it talks to the Ligoj REST API.
         from ligojcli import dev_demo
@@ -609,6 +622,26 @@ def dev_start(args):
     if wait != 0:
         _await_services(services, args, True, wait)
     utils.info("[dev] Start complete")
+    return False
+
+
+def dev_up(args):
+    """Start podman (and its machine), wait until it is ready, then start all dev services."""
+    _ensure_podman()
+    return dev_start(args)
+
+
+def dev_down(args):
+    """Bring the whole environment down by stopping the podman machine (not each service)."""
+    utils.info("[dev] Stopping the podman machine (all dev services go down with it) ...")
+    result = _podman("machine", "stop", check=False, stream=True)
+    if result.returncode != 0:
+        utils.warn(
+            "[dev] Could not stop the podman machine (native Linux podman has none?): "
+            f"{(result.stderr or '').strip()}"
+        )
+        return False
+    utils.info("[dev] Environment down; run 'dev up' to bring it back")
     return False
 
 
@@ -937,7 +970,7 @@ def _check_preconditions(services, args):
         utils.info("[dev] --skip-prereqs: not checking podman / Java / Maven")
         return
     utils.info("[dev] Check pre-conditions ...")
-    _ensure_podman()
+    _ensure_podman(enforce_resources=True)
     # Java + Maven are only needed by 'dev demo' seeding, so they are best-effort (never fatal here).
     _ensure_java(JAVA_VERSION)
     _ensure_maven(MAVEN_VERSION)
@@ -1048,24 +1081,97 @@ def _ensure_tool(tool, package=None):
         raise ValueError(f"[dev] '{tool}' is still not on PATH after installation")
 
 
-def _ensure_podman():
+# Minimum resources for the podman machine backing the full dev stack (GitLab + SonarQube + Nexus +
+# Artifactory + kind all run at once). 'dev init' resizes the machine up to this when it is below.
+_PODMAN_MIN_CPUS = 6
+_PODMAN_MIN_MEMORY_MIB = 23 * 1024  # 23 GiB
+
+
+def _ensure_podman(enforce_resources=False):
+    """Ensure podman is installed and reachable, its machine sized (when requested) and started."""
     _ensure_tool("podman")
-    # Reachable already? (Linux native podman, or a running machine on macOS/Windows.)
-    if _podman("info", "--format", "{{.Host.Arch}}", check=False).returncode == 0:
-        utils.info("[dev] podman is available")
-        return
-    machines = _podman("machine", "list", "--format", "{{.Name}}", check=False).stdout.strip()
-    if not machines:
-        utils.info("[dev] Initialize podman machine ...")
-        _podman("machine", "init", stream=True)
-    utils.info("[dev] Start podman machine ...")
-    _podman("machine", "start", check=False, stream=True)
+    _ensure_podman_machine(enforce_resources)
     result = _podman("info", "--format", "{{.Host.Arch}}", check=False)
     if result.returncode != 0:
         raise ValueError(
             f"[dev] podman is still not ready after machine start: {(result.stderr or '').strip()}"
         )
     utils.info("[dev] podman is available")
+
+
+def _ensure_podman_machine(enforce_resources):
+    """Init the machine if missing, resize it to the CPU/RAM minimum when requested, and start it.
+
+    On native Linux podman there is no VM (the 'machine' subsystem is unavailable), so this is a
+    no-op there.
+    """
+    listed = _podman("machine", "list", "--format", "{{.Name}}", check=False)
+    if listed.returncode != 0:
+        return  # native podman: no machine to manage
+    if not listed.stdout.split():
+        utils.info(
+            f"[dev] Initialize podman machine ({_PODMAN_MIN_CPUS} vCPU, "
+            f"{_PODMAN_MIN_MEMORY_MIB // 1024} GB RAM) ..."
+        )
+        _podman(
+            "machine",
+            "init",
+            "--cpus",
+            str(_PODMAN_MIN_CPUS),
+            "--memory",
+            str(_PODMAN_MIN_MEMORY_MIB),
+            stream=True,
+        )
+    elif enforce_resources:
+        _ensure_podman_resources()
+    # Start it if it is not already running/reachable (blocks until the machine is up).
+    if _podman("info", "--format", "{{.Host.Arch}}", check=False).returncode != 0:
+        utils.info("[dev] Start podman machine (waiting until it is ready) ...")
+        _podman("machine", "start", check=False, stream=True)
+
+
+def _ensure_podman_resources():
+    """Bring the podman machine up to the required CPU/RAM minimum: stop, resize, then it is
+    restarted by the caller. Only bumps upward — never shrinks a machine that already exceeds it."""
+    cpus, memory = _podman_machine_resources()
+    if cpus is None:
+        return
+    if cpus >= _PODMAN_MIN_CPUS and memory >= _PODMAN_MIN_MEMORY_MIB:
+        utils.info(f"[dev] podman machine: {cpus} vCPU / {memory // 1024} GB RAM (meets minimum)")
+        return
+    new_cpus = max(cpus, _PODMAN_MIN_CPUS)
+    new_memory = max(memory, _PODMAN_MIN_MEMORY_MIB)
+    utils.info(
+        f"[dev] podman machine under-provisioned ({cpus} vCPU / {memory} MiB); resizing to "
+        f"{new_cpus} vCPU / {new_memory} MiB ({new_memory // 1024} GB) — stop, set, start ..."
+    )
+    _podman("machine", "stop", check=False, stream=True)
+    resized = _podman(
+        "machine",
+        "set",
+        "--cpus",
+        str(new_cpus),
+        "--memory",
+        str(new_memory),
+        check=False,
+        stream=True,
+    )
+    if resized.returncode != 0:
+        utils.warn("[dev] Could not resize the podman machine; keeping its current resources")
+
+
+def _podman_machine_resources():
+    """(CPUs, Memory in MiB) of the default podman machine, or (None, None) if undeterminable."""
+    result = _podman(
+        "machine", "inspect", "--format", "{{.Resources.CPUs}} {{.Resources.Memory}}", check=False
+    )
+    parts = result.stdout.split() if result.returncode == 0 else []
+    if len(parts) < 2:
+        return None, None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None, None
 
 
 # --------------------------------------------------------------------------- #
