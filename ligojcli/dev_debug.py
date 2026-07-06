@@ -25,6 +25,9 @@ from ligojcli.plugins import dev, utils
 
 IDEA_BUNDLE_ID = "com.jetbrains.intellij"
 APP_BUNDLE_ID = "org.ligoj.dev.debug"
+# Bumped whenever the compiled launcher's AppleScript changes, so `dev debug start` can tell the user
+# to re-run `dev debug init` when the installed app predates the change (v2: wait for IntelliJ ready).
+_LAUNCHER_VERSION = "2"
 
 
 # --------------------------------------------------------------------------- #
@@ -137,6 +140,10 @@ def _apply_app_identity(app_path, name):
     _plist_set(plist, "CFBundleDisplayName", name)
     _plist_set(plist, "CFBundleIdentifier", APP_BUNDLE_ID)
     _install_icon(app_path)
+    # Stamp the launcher version inside the bundle (before signing, so it is sealed in) — read back by
+    # 'dev debug start' to detect an outdated launcher.
+    with open(_launcher_version_file(app_path), "w", encoding="utf-8") as handle:
+        handle.write(_LAUNCHER_VERSION)
     # Re-sign ad-hoc as the LAST step (after the plist/icon edits): on Apple Silicon an unsigned or
     # tampered bundle "can't be opened", and the Accessibility list keys on the signing *identifier*
     # (osacompile's default is 'applet'), so pin it to our bundle id — the app then lists as its
@@ -185,6 +192,18 @@ def plist_of(app_path):
     return os.path.join(app_path, "Contents", "Info.plist")
 
 
+def _launcher_version_file(app_path):
+    return os.path.join(app_path, "Contents", "Resources", "ligoj-launcher.version")
+
+
+def _installed_launcher_version(app_path):
+    try:
+        with open(_launcher_version_file(app_path), encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return None
+
+
 def _sips_resize(png, size, out):
     subprocess.run(
         ["sips", "-z", str(size), str(size), png, "--out", out], capture_output=True, text=True
@@ -219,10 +238,35 @@ def _build_applescript(args):
     return (
         "on run\n"
         f"\tset configs to {{{pairs}}}\n"
+        "\tmy waitForIdeReady()\n"
         "\trepeat with cfg in configs\n"
         "\t\tmy startConfig(item 1 of cfg, item 2 of cfg)\n"
         "\tend repeat\n"
         "end run\n"
+        "\n"
+        "on waitForIdeReady()\n"
+        "\t-- Block until IntelliJ is UI-scriptable, not merely launched: its process must exist\n"
+        "\t-- AND the Run menu must be populated (the project frame is up). Keystrokes sent before\n"
+        "\t-- that -- e.g. right after 'dev debug start' launched a cold IDE -- are simply lost.\n"
+        "\tset deadline to (current date) + 180\n"
+        "\trepeat\n"
+        "\t\ttry\n"
+        '\t\t\ttell application "System Events"\n'
+        f'\t\t\t\tset proc to first process whose bundle identifier is "{IDEA_BUNDLE_ID}"\n'
+        '\t\t\t\tset runMenu to menu 1 of menu bar item "Run" of menu bar 1 of proc\n'
+        "\t\t\t\tif (count of menu items of runMenu) > 0 then\n"
+        "\t\t\t\t\tset frontmost of proc to true\n"
+        "\t\t\t\t\tdelay 0.5\n"
+        "\t\t\t\t\treturn\n"
+        "\t\t\t\tend if\n"
+        "\t\t\tend tell\n"
+        "\t\tend try\n"
+        "\t\tif (current date) > deadline then\n"
+        '\t\t\terror "IntelliJ IDEA not ready (no Run menu) after 180s"\n'
+        "\t\tend if\n"
+        "\t\tdelay 1\n"
+        "\tend repeat\n"
+        "end waitForIdeReady\n"
         "\n"
         "on startConfig(configName, mainClass)\n"
         '\tset AppleScript\'s text item delimiters to ", "\n'
@@ -297,7 +341,8 @@ def _start(args):
     expect_up = []
 
     # 1. IntelliJ IDEA (start + open the project, or just focus it if already running).
-    if _ide_running(app):
+    ide_was_running = _ide_running(app)
+    if ide_was_running:
         utils.info(f"[debug] {app} already running")
         _open_project(app, project)
     else:
@@ -324,8 +369,13 @@ def _start(args):
         expect_up.append(vite)
 
     # 4. Wait for the started apps, then show status. Cap an otherwise-unbounded wait when the debug
-    #    app was just launched, so a not-yet-granted Accessibility prompt cannot hang forever.
-    eff_wait = 120 if (wait is None and launched) else wait
+    #    app was just launched, so a not-yet-granted Accessibility prompt cannot hang forever. A
+    #    cold IntelliJ must first finish loading (the launcher waits for its Run menu) before the
+    #    apps can even start, so allow more time in that case.
+    if wait is None and launched:
+        eff_wait = 240 if not ide_was_running else 120
+    else:
+        eff_wait = wait
     if wait != 0 and expect_up:
         _await_components(expect_up, True, eff_wait, args)
     _render_status(args)
@@ -341,6 +391,13 @@ def _launch_debug_app(args, stopped):
             f"create it, then re-run start (or launch {configs} from IntelliJ's Run menu)."
         )
         return []
+    installed = _installed_launcher_version(app_path)
+    if installed != _LAUNCHER_VERSION:
+        utils.warn(
+            f"[debug] Launcher app is outdated (v{installed or '1'}, expected v{_LAUNCHER_VERSION}); "
+            "re-run 'ligoj dev debug init' so it waits for IntelliJ to be ready before driving it — "
+            "otherwise starting a cold IDE may fail."
+        )
     utils.info(f"[debug] Start {configs} in Debug mode via {os.path.basename(app_path)} ...")
     result = subprocess.run(["open", app_path], capture_output=True, text=True)
     if result.returncode != 0:

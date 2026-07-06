@@ -2177,6 +2177,11 @@ screen). Instead of granting that to your whole terminal, `dev debug init` compi
 app (default `~/Applications/Ligoj Debug.app`) that drives IntelliJ's *Run ▶ Debug…* chooser for
 `ligoj-api` / `ligoj-ui` (skipping any already running). You grant Accessibility to **that app only**
 — the first `dev debug start` triggers the macOS prompt — and can then revoke your terminal's grant.
+When `dev debug start` launches a **cold** IntelliJ, the launcher first **waits (up to 180 s) for the
+IDE to become UI-ready** — its *Run* menu populated, i.e. the project frame is up — before sending any
+keystroke, so a not-yet-started IDE no longer drops the Debug commands. Because that logic is baked
+into the compiled app, `dev debug start` warns and asks you to **re-run `dev debug init`** whenever the
+installed launcher predates this behavior (also re-run it after renaming a run config).
 
 Everything else needs no permission: all four components are detected by process
 (`org.ligoj.boot.api.Application` / `…web.Application`, the project's vite process) and by TCP port,
