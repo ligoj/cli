@@ -52,6 +52,30 @@ def link(project, node, params):
         return None
 
 
+def create(project, node, params=None):
+    """Create (idempotent) a 'create'-mode subscription (e.g. a provisioning quote). Returns id/None.
+
+    Unlike `link`, this asks the tool to *create* its backing resource. A provisioning quote needs a
+    price catalog to have been imported first; that specific case is reported as a (non-fatal) hint
+    rather than a raw error, since it clears itself once the catalog exists.
+    """
+    try:
+        result = ligoj.subscription_create(project, node, params or [], "create")
+        sub_id = result.json() if hasattr(result, "json") else result
+        status = _refresh(sub_id)
+        utils.info(f"[dev] created {node} -> {project} (subscription {sub_id}, status {status})")
+        return sub_id
+    except Exception as error:  # noqa: BLE001 - keep configuring the other nodes/types
+        if "catalog" in str(error).lower():
+            utils.warn(
+                f"[dev] {node}: cannot create the quote yet — import a price catalog first "
+                "(prov UI or the catalog API), then re-run 'dev demo'"
+            )
+        else:
+            utils.warn(f"[dev] subscribe {node} -> {project}: {error}")
+        return None
+
+
 def _refresh(sub_id):
     resp = ligoj.call_api(
         "GET", f"subscription/status/{sub_id}/refresh", ignore_error=True, ignore_output=True

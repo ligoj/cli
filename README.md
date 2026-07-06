@@ -2046,6 +2046,8 @@ Each plugin's demo lives in its own module under `ligojcli/dev_demo/`:
 | `plugin-registry-harbor`      | Upserts the `service:registry:harbor:local` node (url / user / password)                |
 | `plugin-registry-nexus`       | Upserts the `service:registry:nexus:local` node (from [docs/nodes/nexus.local.json](docs/nodes/nexus.local.json), with the live url / user / password) |
 | `plugin-registry-artifactory` | Upserts the `service:registry:artifactory:local` node (from [docs/nodes/artifactory.local.json](docs/nodes/artifactory.local.json), with the live url / user / password) |
+| `plugin-prov-aws`             | Upserts the `service:prov:aws:local` node from the `[dev]` AWS credentials — `aws_access_key_id`, `aws_secret_access_key`, `aws_account_id` (all required) |
+| `plugin-prov-azure`           | Upserts the `service:prov:azure:local` node from the `[dev]` Azure service principal — `azure_tenant_id`, `azure_subscription_id`, `azure_application_id`, `azure_client_secret` (required) and `azure_resource_group` (optional) |
 
 Each demo is idempotent (nodes are upserted, OUs/scopes/groups skip when they already exist), so
 re-running is safe. A plugin whose required values are missing (e.g. no Jenkins API token in `[dev]`)
@@ -2061,8 +2063,10 @@ keys match `^([a-z]|\d+-?[a-z])[a-z\d\-]*$`, so `demo:1` is written `demo-1`.)
 Only **`demo-1`** receives subscriptions; `demo-2` / `demo-3` stay empty. For each active tool node a
 subscription is created in **`link` mode**, which requires the referenced resource to already exist
 on the remote tool — so the demo first provisions that resource via the tool's own REST API (using
-the `[dev]` credentials), then links it. The plugins are processed **in parallel, one worker per
-plugin**:
+the `[dev]` credentials), then links it. The two **provisioning** plugins are the exception: they
+subscribe in **`create` mode** (a new, empty quote) — which Ligoj rejects until a price **catalog**
+has been imported for that provider, so that step is best-effort and reported when the catalog is
+missing. The plugins are processed **in parallel, one worker per plugin**:
 
 | Plugin                        | Resource created on the tool                          | Link parameter(s)                        |
 | ----------------------------- | ----------------------------------------------------- | ---------------------------------------- |
@@ -2074,6 +2078,8 @@ plugin**:
 | `plugin-registry-harbor`      | a project `demo-1` (docker/OCI only)                  | `type` = `docker`, `registry`            |
 | `plugin-registry-nexus`       | hosted repositories `demo-1-docker`, `demo-1-maven`   | one subscription per type (`type`, `registry`) |
 | `plugin-registry-artifactory` | — (**not usable on OSS**; subscription skipped) | `type`, `registry` (Pro only) |
+| `plugin-prov-aws`             | an empty provisioning **quote** on `demo-1` (`create` mode) | *(none — needs a catalog first)* |
+| `plugin-prov-azure`           | an empty provisioning **quote** on `demo-1` (`create` mode) | *(none — needs a catalog first)* |
 
 For registry plugins, the demo provisions and subscribes one repository **per supported type**
 (currently `docker` and `maven`, intersected with what the tool advertises — Harbor is docker-only).

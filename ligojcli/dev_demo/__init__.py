@@ -14,6 +14,8 @@ from ligojcli.dev_demo import (
     _subscribe,
     plugin_build_jenkins,
     plugin_id_ldap,
+    plugin_prov_aws,
+    plugin_prov_azure,
     plugin_qa_sonarqube,
     plugin_registry_artifactory,
     plugin_registry_harbor,
@@ -35,6 +37,8 @@ REGISTRY = {
         plugin_registry_harbor,
         plugin_registry_nexus,
         plugin_registry_artifactory,
+        plugin_prov_aws,
+        plugin_prov_azure,
     )
 }
 
