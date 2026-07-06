@@ -236,6 +236,35 @@ def configure(subparser_service):
         "down", help="Bring everything down by stopping the podman machine (not each service)"
     )
 
+    parser_backup = subparser_action.add_parser(
+        "backup",
+        help="PG-dump a Ligoj service's DB rows into ~/.ligoj/backup (default: all supported)",
+    )
+    parser_backup.add_argument(
+        "backup_service",
+        metavar="service",
+        nargs="?",
+        help="Service to back up, e.g. 'service:prov' (default: every supported service)",
+    )
+
+    parser_restore = subparser_action.add_parser(
+        "restore",
+        help="Restore a service backup into the target DB (honours --profile, else [restore])",
+    )
+    parser_restore.add_argument(
+        "restore_service",
+        metavar="service",
+        nargs="?",
+        default="service:prov",
+        help="Service to restore (default: service:prov)",
+    )
+    parser_restore.add_argument(
+        "restore_backup_id",
+        metavar="backup_id",
+        nargs="?",
+        help="Backup id to restore (omit to pick one from a keyboard-selectable list)",
+    )
+
     parser_demo = subparser_action.add_parser(
         "demo",
         help="Configure installed Ligoj plugins (nodes, IAM, sample data) for local development",
@@ -326,6 +355,14 @@ def execute_action(service, action, _operation, args):
         return dev_up(args)
     if action == "down":
         return dev_down(args)
+    if action == "backup":
+        from ligojcli import dev_backup
+
+        return dev_backup.backup(args)
+    if action == "restore":
+        from ligojcli import dev_backup
+
+        return dev_backup.restore(args)
     if action == "demo":
         # Lazy import: only needed for this action, and it talks to the Ligoj REST API.
         from ligojcli import dev_demo

@@ -2223,6 +2223,68 @@ failing frontend never aborts the others. The plugins directory is `LIGOJ_PLUGIN
 `[dev] ligoj_plugins_dir` (default `~/git/ligoj-plugins`), and `npm` must be on the `PATH`. Without
 `--only`, Ligoj must be reachable so the live plugin set can be listed.
 
+## Back up & restore a service's data (`dev backup` / `dev restore`)
+
+`dev backup` / `dev restore` snapshot and reload the database rows owned by a Ligoj **service**, using
+the PostgreSQL client tools (`psql` / `pg_dump`, from `brew install libpq`). Only **`service:prov`** is
+supported today (its catalog is expensive to re-import). Omit the service to back up every supported
+one.
+
+```bash
+ligoj dev backup service:prov        # -> ~/.ligoj/backup/prov-<timestamp>/
+ligoj dev restore service:prov       # list backups, pick one interactively
+ligoj dev restore service:prov prov-20260706-232820   # restore a specific backup
+```
+
+**What a `service:prov` backup captures.** Every `ligoj_prov_*` table (the whole catalog + quotes),
+dumped in bulk with `pg_dump` — the price tables reach millions of rows, so their content is stored
+compressed and restored **verbatim**. Alongside, the cross-referenced core rows that keep the quotes
+valid are exported as CSV: the `ligoj_subscription` rows on prov nodes (referenced by
+`ligoj_prov_quote.subscription`), their `ligoj_node` rows, the `ligoj_parameter_value` rows of those
+nodes/subscriptions, and the `ligoj_project` rows behind them. A `metadata.json` records the id,
+timestamp, and per-table row counts; the whole thing lands under **`~/.ligoj/backup/<id>/`**. Progress,
+per-table stats, and a duration summary are printed throughout.
+
+**Restore is an id-aware reload** (the target is a live Ligoj DB with its own ids), run as a single
+transaction (all-or-nothing):
+
+1. drop the prov foreign keys, empty the `ligoj_prov_*` tables, and delete the current prov
+   subscriptions / instance nodes / parameter values (+ their transient status events);
+2. **projects** are matched by `pkey` or name and **reused** (their id is remapped into the restored
+   rows), else inserted; **nodes** are inserted only when missing (string ids);
+3. **subscriptions** are inserted with **fresh ids** (the backup's ids may already be taken by
+   unrelated subscriptions in the target) and their project remapped — the prov **quotes** and
+   subscription-scoped **parameter values** that reference them are repointed to the new ids; a node's
+   parameter values are dropped then re-inserted;
+4. the `ligoj_prov_*` tables are **bulk-reloaded verbatim**, the foreign keys are re-added `NOT VALID`
+   (instant — no rescan of the huge tables, and the backup is already consistent), and every touched
+   sequence is bumped to `max(id) + allocation-size` so Hibernate's next id block can't collide.
+
+The restore log shows only the **five phases**, each with its own duration (the noisy per-statement
+`ALTER` / `DELETE` / `COPY` output is suppressed); a `>> [n/5] … done (Xs)` line marks each phase.
+
+Restore is **resilient to a Postgres / schema mismatch** between the backup and the target — e.g. a
+backup taken against a newer server restored into an older one:
+
+- the version-specific session settings pg_dump writes in its header (such as PG 17's
+  `SET transaction_timeout`) are stripped from the bulk dump before load, so an older server doesn't
+  abort on an unknown parameter;
+- the core rows are loaded **by column name** (from each CSV header, intersected with the target
+  table), not by position — so a differing column order or an extra/missing column can't shift a value
+  into the wrong column;
+- the bulk prov `COPY` blocks are **aligned to the target's columns** the same way: a column the
+  target lacks (e.g. a field a newer prov plugin added) is dropped from the block's header **and**
+  every data row (a `WARN` reports it — that column's data is lost), a table the target doesn't have
+  is skipped, and any target column the backup lacks keeps its default.
+
+Without an id, `restore` lists the available backups (id, creation time, subscription count, prov row
+count, size) for keyboard selection. The **target database** comes from the active `--profile`'s
+section when it carries `db_*` keys, else `[dev]` for backup and `[restore]` for restore — so a typical
+restore-into-another-DB is `ligoj --profile restore dev restore service:prov`. Each section needs
+`db_host` / `db_port` / `db_name` / `db_user` / `db_password`, and the target must be a real Ligoj DB
+with the provisioning plugin installed (its parameter definitions and provider nodes must already
+exist).
+
 ## Harbor and ArgoCD on kind
 
 Harbor and ArgoCD are the services that need a real cluster. They **share** a single-node **`kind`
