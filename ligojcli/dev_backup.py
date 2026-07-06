@@ -523,6 +523,12 @@ def _build_restore_sql(db, spec, out_dir):
     drop_fks = [f"ALTER TABLE {t} DROP CONSTRAINT IF EXISTS {n};" for t, n, _ in fks]
     add_fks = [f"ALTER TABLE {t} ADD CONSTRAINT {n} {d} NOT VALID;" for t, n, d in fks]
 
+    # The target may enforce UNIQUE constraints a differently-versioned backup's data violates. Drop
+    # them alongside the FKs, then re-add each one only if the reloaded data satisfies it (below).
+    uks = _prov_unique_constraints(db)
+    drop_uks = [f"ALTER TABLE {t} DROP CONSTRAINT IF EXISTS {n};" for t, n, _, _ in uks]
+    readd_uks = _conditional_unique_readd(uks)
+
     lines = [
         "\\set ON_ERROR_STOP on",
         "\\set QUIET on",
@@ -531,6 +537,7 @@ def _build_restore_sql(db, spec, out_dir):
             f"Delete current {spec['service']} data (drop FKs)",
             [
                 *drop_fks,
+                *drop_uks,
                 f"TRUNCATE {truncate} RESTART IDENTITY;",
                 "DELETE FROM ligoj_event WHERE " + spec["event_where"] + ";",
                 "DELETE FROM ligoj_parameter_value WHERE " + spec["parameter_value_where"] + ";",
@@ -614,6 +621,9 @@ def _build_restore_sql(db, spec, out_dir):
                 # the remapped subscriptions before the FK is re-added.
                 "UPDATE ligoj_prov_quote q SET subscription = m.new_id "
                 "FROM map_subscription m WHERE q.subscription = m.old_id;",
+                # Re-add unique constraints (skipping any the reloaded data violates) before the FKs,
+                # which may depend on them.
+                *readd_uks,
                 *add_fks,
                 *seq_fix,
             ],
@@ -649,6 +659,50 @@ def _prov_fk_constraints(db):
         if len(parts) >= 3:
             out.append((parts[0], parts[1], "\t".join(parts[2:])))
     return out
+
+
+def _prov_unique_constraints(db):
+    """Every UNIQUE constraint on a prov table, as (table, name, definition, [columns])."""
+    rows = _psql_query(
+        db,
+        "SELECT conrelid::regclass::text || E'\\t' || conname || E'\\t' || pg_get_constraintdef(oid) "
+        "|| E'\\t' || (SELECT string_agg(a.attname, ',' ORDER BY k.ord) "
+        "FROM unnest(conkey) WITH ORDINALITY k(attnum, ord) "
+        "JOIN pg_attribute a ON a.attrelid = conrelid AND a.attnum = k.attnum) "
+        "FROM pg_constraint WHERE contype = 'u' AND conrelid::regclass::text LIKE 'ligoj_prov%' "
+        "ORDER BY conrelid::regclass::text, conname",
+    )
+    out = []
+    for line in rows.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 4:
+            out.append((parts[0], parts[1], parts[2], parts[3].split(",")))
+    return out
+
+
+def _conditional_unique_readd(uks):
+    r"""DO blocks that re-add each dropped UNIQUE constraint only if the loaded data satisfies it.
+
+    The backup can carry rows that violate a UNIQUE the target added later (an older prov model
+    allowed e.g. two same-named storages in one quote). Re-adding it would abort the whole restore, so
+    each constraint is checked first: if the reloaded rows have a duplicate key (NULLs excluded, as
+    UNIQUE treats them as distinct) the constraint is left dropped and a WARNING names it; otherwise it
+    is restored unchanged.
+    """
+    blocks = []
+    for table, name, definition, cols in uks:
+        quoted = ", ".join(f'"{c}"' for c in cols)
+        not_null = " AND ".join(f'"{c}" IS NOT NULL' for c in cols)
+        blocks.append(
+            "DO $$ BEGIN "
+            f"IF EXISTS (SELECT 1 FROM {table} WHERE {not_null} "
+            f"GROUP BY {quoted} HAVING count(*) > 1) THEN "
+            f"RAISE WARNING '[restore] left UNIQUE {name} on {table} dropped "
+            f"— backup data has duplicate ({','.join(cols)}); dedup and re-add it manually'; "
+            f"ELSE ALTER TABLE {table} ADD CONSTRAINT {name} {definition}; "
+            "END IF; END $$;"
+        )
+    return blocks
 
 
 def _sequence_fixups(db, spec, prov_tables):

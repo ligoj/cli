@@ -2275,7 +2275,11 @@ backup taken against a newer server restored into an older one:
 - the bulk prov `COPY` blocks are **aligned to the target's columns** the same way: a column the
   target lacks (e.g. a field a newer prov plugin added) is dropped from the block's header **and**
   every data row (a `WARN` reports it — that column's data is lost), a table the target doesn't have
-  is skipped, and any target column the backup lacks keeps its default.
+  is skipped, and any target column the backup lacks keeps its default;
+- the prov **`UNIQUE` constraints** are dropped for the load (like the FKs) and each is re-added only
+  if the reloaded rows satisfy it; one the backup's older data violates (e.g. two same-named storages
+  in one quote, which a newer model now forbids) is **left dropped** with a `WARNING` naming it, so
+  the restore still completes — dedup and re-add it by hand if you need it.
 
 Without an id, `restore` lists the available backups (id, creation time, subscription count, prov row
 count, size) for keyboard selection. The **target database** comes from the active `--profile`'s
