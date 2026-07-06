@@ -626,23 +626,55 @@ def dev_start(args):
 
 
 def dev_up(args):
-    """Start podman (and its machine), wait until it is ready, then start all dev services."""
+    """Start podman + its machine and Podman Desktop, wait until ready, then start all services."""
     _ensure_podman()
+    _start_podman_desktop()
     return dev_start(args)
 
 
 def dev_down(args):
-    """Bring the whole environment down by stopping the podman machine (not each service)."""
-    utils.info("[dev] Stopping the podman machine (all dev services go down with it) ...")
-    result = _podman("machine", "stop", check=False, stream=True)
+    """Hard-stop the whole environment: stop the podman machine, then quit Podman Desktop."""
+    utils.info(
+        "[dev] Hard stop: stopping the podman machine (all dev services go down with it) ..."
+    )
+    result = _podman("machine", "stop", check=False)
     if result.returncode != 0:
-        utils.warn(
-            "[dev] Could not stop the podman machine (native Linux podman has none?): "
-            f"{(result.stderr or '').strip()}"
-        )
-        return False
+        error = (result.stderr or "").lower()
+        if "already stopped" not in error and "not running" not in error:
+            utils.warn(f"[dev] podman machine stop: {(result.stderr or '').strip()}")
+    _stop_podman_desktop()
     utils.info("[dev] Environment down; run 'dev up' to bring it back")
     return False
+
+
+# The Podman Desktop GUI (macOS) manages/holds the podman machine, so a full 'down' quits it too and
+# 'up' launches it again.
+_PODMAN_DESKTOP_APP = "Podman Desktop"
+
+
+def _podman_desktop_installed():
+    return sys.platform == "darwin" and os.path.isdir(f"/Applications/{_PODMAN_DESKTOP_APP}.app")
+
+
+def _podman_desktop_running():
+    running = _run(["pgrep", "-f", f"{_PODMAN_DESKTOP_APP}.app/Contents/MacOS/"], check=False)
+    return running.returncode == 0
+
+
+def _start_podman_desktop():
+    if not _podman_desktop_installed():
+        return
+    utils.info(f"[dev] Start {_PODMAN_DESKTOP_APP} ...")
+    _run(["open", "-a", _PODMAN_DESKTOP_APP], check=False)
+
+
+def _stop_podman_desktop():
+    if not _podman_desktop_installed() or not _podman_desktop_running():
+        return
+    utils.info(f"[dev] Quit {_PODMAN_DESKTOP_APP} ...")
+    _run(["osascript", "-e", f'quit app "{_PODMAN_DESKTOP_APP}"'], check=False)
+    # Hard stop: force-terminate anything that did not quit.
+    _run(["pkill", "-f", f"{_PODMAN_DESKTOP_APP}.app/Contents/MacOS/"], check=False)
 
 
 def _start_service(svc):

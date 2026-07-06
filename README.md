@@ -2005,14 +2005,18 @@ to return immediately, or `N` to cap the wait at N seconds — e.g. `dev restart
 service by service:
 
 ```bash
-ligoj dev down    # stop the podman machine -> every service (and the kind node) goes down at once
-ligoj dev up      # start podman + its machine, wait until ready, then start every dev service
+ligoj dev down    # hard stop: stop the podman machine, then quit Podman Desktop
+ligoj dev up      # start podman + its machine, launch Podman Desktop, then start every service
 ```
 
-`dev down` is the fast way to free all resources (one VM stop instead of stopping each pod). `dev up`
-is its inverse: it starts podman and the machine (installing/creating them if missing, same as
-`init`, but **without** the resource resize), waits for the machine to be ready, then runs the
-`dev start` actions to bring the pods and kind workloads back. `dev up` takes `--wait` like `start`.
+`dev down` is a **hard stop** of the whole environment: it stops the podman machine (a single VM
+stop takes every service and the kind node down at once) and then **quits the Podman Desktop app** —
+which otherwise keeps the machine managed/alive — force-terminating it if it does not quit cleanly.
+
+`dev up` is the inverse: it starts podman and the machine (installing/creating them if missing, same
+as `init`, but **without** the resource resize), **launches Podman Desktop**, waits for the machine to
+be ready, then runs the `dev start` actions to bring the pods and kind workloads back. `dev up` takes
+`--wait` like `start`. (Podman Desktop is only touched on macOS, and only when it is installed.)
 
 ## Configure Ligoj with `dev demo`
 
