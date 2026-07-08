@@ -2223,6 +2223,102 @@ failing frontend never aborts the others. The plugins directory is `LIGOJ_PLUGIN
 `[dev] ligoj_plugins_dir` (default `~/git/ligoj-plugins`), and `npm` must be on the `PATH`. Without
 `--only`, Ligoj must be reachable so the live plugin set can be listed.
 
+## Build the app container images (`dev package`)
+
+`dev package` builds the two Ligoj application container images **locally**, straight from the
+`app-api/` and `app-ui/` Dockerfiles with podman (or docker) — no external script. It produces exactly
+the images `dev test start` runs, and pushes nothing:
+
+```bash
+ligoj dev package                       # build ligoj-api + ligoj-ui for the native arch (fast)
+ligoj dev package --only api            # build just one image
+ligoj dev package --tag 4.0.2-rc1       # override the image tag
+ligoj dev package --platform all        # multi-arch manifest (linux/amd64 + linux/arm64, podman)
+```
+
+Every option resolves from the flag, then the environment, then `[dev]`:
+
+| Option | Default | Env / `[dev]` key |
+| ------ | ------- | ----------------- |
+| `--project DIR` (Ligoj checkout) | `~/git/ligoj` | `LIGOJ_DIR` / `ligoj_dir` |
+| `--tag TAG` | project `<version>` without `-SNAPSHOT` | `LIGOJ_PACKAGE_TAG` / `ligoj_package_tag` |
+| `--only api\|ui` | both | — |
+| `--platform` (single arch, comma list, or `all`) | host native arch | — |
+| `--runtime docker\|podman` | `docker` if present, else `podman` | `LIGOJ_TEST_RUNTIME` / `ligoj_test_runtime` |
+
+The **API image bundles all three JDBC drivers** (`db-postgresql`, `db-mysql`, `db-mariadb`): the build
+passes `--build-arg MAVEN_PROFILES=…` to force those Maven profiles. They are `activeByDefault` in
+`app-api/pom.xml`, but Maven silently disables *every* default profile as soon as a `settings.xml`
+`<activeProfiles>` (or any `-P`) is in play — which had dropped all drivers from the war and made the API
+fail at boot with `ClassNotFoundException: org.postgresql.Driver`. Forcing them makes the image
+DB-capable regardless of the build's `settings.xml`. `~/.ligoj/plugin-vendors.p12` is bundled into the
+API image when present (password from `PLUGIN_VENDORS_STOREPASS`, the `ligoj.release.vendors-storepass`
+keychain entry, or `changeit`).
+
+Only the host arch is built by default — much faster than a QEMU-emulated multi-arch build, and all
+`dev test` needs. This builds **local images only**; for a full release (deploy, tags, Docker Hub) use
+the release helper (`commands/release.sh`).
+
+## Test the released app containers (`dev test`)
+
+While `dev debug` runs the apps from your IDE, `dev test` runs the **released Docker images**
+(`ligoj/ligoj-api` + `ligoj/ligoj-ui`) against the local dev stack — the quickest way to smoke-test a
+published build. It starts both containers in the background, waits until **both are healthy**, then
+opens the UI in your browser at `http://localhost:<ui-port>/ligoj/`:
+
+```bash
+ligoj dev test start                       # run both, wait for health, open the browser
+ligoj dev test stop                        # stop and remove both containers
+ligoj dev test start --tag 4.0.2-SNAPSHOT-101 --port 8089 --api-port 8088
+ligoj dev test start --no-browser --no-wait          # start detached, don't wait or open the browser
+ligoj dev test -h                          # full option + '-D' reference (mirrors ligoj/DOC.md)
+
+# Free-form JVM options, grouped per container with --api / --ui:
+ligoj dev test start \
+  --api -Dlog.level=INFO -Dligoj.sslVerify=false \
+  --ui  -Dsecurity=Trusted -Dlog.level=info
+```
+
+The containers mount **`LIGOJ_HOME`** (default `~/.ligoj`, override with `--home` / `LIGOJ_HOME` /
+`[dev] ligoj_home`) at `/home/ligoj`, with `hooks/` and `files/` subdirectories — this replaces the
+`/var/lib/ligoj` of the DOC.md sample commands with your user home. Under **podman** they run as
+`--user 0` so the app can write that host-owned mount. The UI's `ENDPOINT` points at the API on `--api-port`.
+
+**Database:** by default the API is wired to the **dev-stack PostgreSQL** from `[dev]`
+(`-Djdbc.vendor=postgresql` + host/port/db/user/password + the PG dialect), so it targets the dev DB out
+of the box. The API image must **bundle the PostgreSQL JDBC driver** (`org.postgresql.Driver`) or it
+fails at boot with `ClassNotFoundException` — the released `ligoj-api` image defaults to MySQL only, so
+add the driver to your build. Pass an explicit `--api …` group to take full control of the DB options.
+
+**Networking** adapts to the runtime: **docker/Linux** uses `--network=host` (the API reaches the dev DB
+on `localhost`); **podman-machine** publishes ports (`-p <port>:<port>`) so the mac can reach
+`localhost:<port>`, and the containers reach the machine host — the other container and the dev DB — via
+`host.containers.internal`. Override with `--net host|publish`.
+
+Every option resolves from the CLI flag, then the environment, then `~/.ligoj/config` / `~/.ligoj/credentials`:
+
+| Option | Default | Env / `[dev]` key |
+| ------ | ------- | ----------------- |
+| `--port` (UI port, also the browser port) | `8089` | `LIGOJ_UI_PORT` / `ligoj_ui_port` |
+| `--api-port` (UI `ENDPOINT` + API exposed port) | `8088` | `LIGOJ_API_PORT` / `ligoj_api_port` |
+| `--home` (`LIGOJ_HOME`) | `~/.ligoj` | `LIGOJ_HOME` / `ligoj_home` |
+| `--tag` / `--api-tag` / `--ui-tag` | newest **local** build, else latest published | `LIGOJ_TEST_TAG` / `ligoj_test_tag` |
+| `--runtime` | `docker` if present, else `podman` | `LIGOJ_TEST_RUNTIME` / `ligoj_test_runtime` |
+| `--net` (`host` \| `publish`) | `publish` for podman, else `host` | `LIGOJ_TEST_NETWORK` / `ligoj_test_network` |
+| `--api` / `--ui` `-D…` (replace the defaults) | see below | `LIGOJ_TEST_API_OPTS` / `ligoj_test_api_opts` |
+| `--wait N` / `--no-wait` / `--no-browser` / `--pull` | wait 300s, open browser | — |
+
+The `--api` / `--ui` groups take **any number of `-D…` options** (each replaces that container's
+defaults). Defaults: API `--enable-preview -Dlog.level=INFO <single-connection LDAP pool>
+-Dligoj.sslVerify=false`; UI `-Dsecurity=Trusted -Dlog.level=info`. Some properties have well-known
+values (from DOC.md's *Application level properties*): UI `-Dsecurity=Trusted|Rest|OAuth2Bff`, both
+`-Dlog.level=trace|debug|info|warn|error` and `-Dlogging.level.<category>=<level>`, API
+`-Djdbc.vendor=mysql|postgresql|mariadb`, `-Djpa.hbm2ddl=update|none|validate`,
+`-Dligoj.plugin.repository=central|nexus`. Run `ligoj dev test -h` for the full annotated list.
+
+> `-Dsecurity=Trusted` (the UI default here) runs Ligoj **without password verification** (RBAC still
+> enforced) — convenient for local testing, never for a publicly reachable instance.
+
 ## Back up & restore a service's data (`dev backup` / `dev restore`)
 
 `dev backup` / `dev restore` snapshot and reload the database rows owned by a Ligoj **service**, using

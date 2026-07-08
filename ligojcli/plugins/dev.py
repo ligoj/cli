@@ -27,6 +27,7 @@
 #                  refused by recent versions), persistent.
 #   * argocd     - Helm chart on the shared kind cluster, with a 'ligoj' role.
 #
+import argparse
 import base64
 import concurrent.futures
 import os
@@ -304,6 +305,54 @@ def configure(subparser_service):
     _add_wait_argument(debug_restart)
     debug_sub.add_parser("status", help="Show the IDE app stack status")
 
+    # 'test' takes free-form '-D...' JVM options grouped by '--api' / '--ui', which argparse cannot
+    # model, so everything after 'test' is captured verbatim (REMAINDER) and parsed in dev_test.
+    from ligojcli import dev_test
+
+    subparser_action.add_parser(
+        "test",
+        help="Run the released Ligoj app containers (ligoj-api + ligoj-ui); 'dev test -h' for details",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Run the two released Ligoj application containers in the background.",
+        epilog=dev_test.HELP,
+    ).add_argument(
+        "test_args",
+        metavar="start|stop [options]",
+        nargs=argparse.REMAINDER,
+        help="'start' (run both, wait for health, open browser) or 'stop' (stop+remove both)",
+    )
+
+    # 'package' builds the two Ligoj app container images locally (with the JDBC drivers), natively via
+    # podman/docker — no external release script. See dev_package.
+    from ligojcli import dev_package
+
+    parser_package = subparser_action.add_parser(
+        "package",
+        help="Build the Ligoj app container images locally; 'dev package -h' for details",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Build the ligoj-api + ligoj-ui container images locally (with the JDBC drivers).",
+        epilog=dev_package.HELP,
+    )
+    parser_package.add_argument(
+        "--project", help="Ligoj checkout to build from (default ~/git/ligoj)"
+    )
+    parser_package.add_argument(
+        "--tag", help="Image tag (default: project version without -SNAPSHOT)"
+    )
+    parser_package.add_argument(
+        "--only", choices=("api", "ui"), help="Build only one image (default: both)"
+    )
+    parser_package.add_argument(
+        "--platform",
+        help="Target arch: a single arch, a comma list, or 'all' for a multi-arch manifest; "
+        "default: native",
+    )
+    parser_package.add_argument(
+        "--runtime",
+        choices=("docker", "podman"),
+        help="Container runtime (default: docker if present, else podman)",
+    )
+
     parser_config = subparser_action.add_parser(
         "config", help="Show key properties (URL, admin user/password, ...) of a service"
     )
@@ -373,6 +422,16 @@ def execute_action(service, action, _operation, args):
         from ligojcli import dev_debug
 
         return dev_debug.execute(args)
+    if action == "test":
+        # Lazy import: runs the released Ligoj app containers (docker/podman) in the background.
+        from ligojcli import dev_test
+
+        return dev_test.execute(args)
+    if action == "package":
+        # Lazy import: builds the Ligoj app container images locally (podman/docker).
+        from ligojcli import dev_package
+
+        return dev_package.execute(args)
     if action == "build":
         return dev_build(args)
     return None
