@@ -441,30 +441,11 @@ def configure(subparser_service):
         help="Service to describe (default: all services as a table)",
     )
 
-    parser_build = subparser_action.add_parser("build", help="Build Ligoj plugins from source")
-    build_sub = parser_build.add_subparsers(title="command", dest="operation")
-    build_plugin = build_sub.add_parser(
-        "plugin", help="Run 'npm run build' for each live plugin's frontend (ui/)"
-    )
-    build_plugin.add_argument(
-        "--only",
-        "-O",
-        nargs="*",
-        help="Only build these plugin artifacts (e.g. plugin-ui plugin-id); skips the live lookup",
-    )
-    build_plugin.add_argument(
-        "--jobs",
-        "-j",
-        type=int,
-        default=None,
-        help="Number of parallel builds (default: min(4, CPUs))",
-    )
-
-    # 'plugin create <plugin>' scaffolds a brand-new Ligoj plugin in the current directory.
+    # 'dev plugin <command>' — scaffold, build frontends, and renovate Ligoj plugins.
     from ligojcli import dev_plugin
 
     parser_plugin = subparser_action.add_parser(
-        "plugin", help="Scaffold Ligoj plugins ('dev plugin create <plugin>')"
+        "plugin", help="Ligoj plugin dev helpers ('create', 'build', 'renovate')"
     )
     plugin_sub = parser_plugin.add_subparsers(title="command", dest="operation")
     plugin_create = plugin_sub.add_parser(
@@ -481,6 +462,54 @@ def configure(subparser_service):
     plugin_create.add_argument("--description", help="One-line description; prompted if omitted")
     plugin_create.add_argument(
         "--dir", help="Parent directory to create the plugin in (default: cwd)"
+    )
+
+    plugin_build = plugin_sub.add_parser(
+        "build", help="Run 'npm run build' for each live plugin's frontend (ui/)"
+    )
+    plugin_build.add_argument(
+        "--only",
+        "-O",
+        nargs="*",
+        help="Only build these plugin artifacts (e.g. plugin-ui plugin-id); skips the live lookup",
+    )
+    plugin_build.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=None,
+        help="Number of parallel builds (default: min(4, CPUs))",
+    )
+
+    plugin_renovate = plugin_sub.add_parser(
+        "renovate",
+        help="Update pom.xml plugin-parent + align npm deps with the host, regenerating the lockfile",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Update a plugin's pom.xml, package.json and package-lock.json (see release.sh).",
+        epilog=dev_plugin.HELP_RENOVATE,
+    )
+    plugin_renovate.add_argument(
+        "plugin",
+        nargs="?",
+        help="Plugin to renovate (artifact under LIGOJ_PLUGINS_DIR, or a path); default: current dir",
+    )
+    plugin_renovate.add_argument(
+        "--all", action="store_true", help="Renovate every plugin under LIGOJ_PLUGINS_DIR"
+    )
+    plugin_renovate.add_argument(
+        "--parent-version",
+        dest="parent_version",
+        help="plugin-parent target version (default: latest local org.ligoj.api:parent)",
+    )
+    plugin_renovate.add_argument(
+        "--host-package-json",
+        dest="host_package_json",
+        help="Host UI package.json (default: LIGOJ_HOST_PACKAGE_JSON or the app-ui webapp one)",
+    )
+    plugin_renovate.add_argument(
+        "--plugins-dir",
+        dest="plugins_dir",
+        help="Plugins root (default: ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)",
     )
 
 
@@ -531,21 +560,11 @@ def execute_action(service, action, _operation, args):
         from ligojcli import dev_package
 
         return dev_package.execute(args)
-    if action == "build":
-        return dev_build(args)
     if action == "plugin":
-        # Lazy import: scaffolds a new Ligoj plugin project on disk.
+        # Lazy import: scaffolds/builds/renovates Ligoj plugin projects on disk.
         from ligojcli import dev_plugin
 
         return dev_plugin.execute(args)
-    return None
-
-
-def dev_build(args):
-    operation = args.get("operation")
-    if operation == "plugin":
-        return dev_build_plugin(args)
-    utils.warn("[dev] build: missing sub-command; try 'dev build plugin'")
     return None
 
 
@@ -559,7 +578,7 @@ def dev_build_plugin(args):
     targets = _plugin_ui_targets(args, plugins_dir)
     if not targets:
         utils.warn(
-            f"[dev] build plugin: no plugin with a '<plugin>/ui/' frontend under {plugins_dir}"
+            f"[dev] plugin build: no plugin with a '<plugin>/ui/' frontend under {plugins_dir}"
         )
         return False
 
@@ -598,7 +617,7 @@ def _plugin_ui_targets(args, plugins_dir):
             plugins = ligoj.plugin_list() or []
         except Exception as error:  # noqa: BLE001 - turn any connection error into a clear hint
             raise ValueError(
-                f"[dev] build plugin: cannot list live plugins (is Ligoj running? {error}); "
+                f"[dev] plugin build: cannot list live plugins (is Ligoj running? {error}); "
                 "pass --only <artifact>... to build specific plugins without it"
             )
         artifacts = list(
@@ -614,7 +633,7 @@ def _plugin_ui_targets(args, plugins_dir):
         if os.path.isfile(os.path.join(ui_dir, "package.json")):
             targets.append((artifact, ui_dir))
         elif only:
-            utils.warn(f"[dev] build plugin: no '{artifact}/ui/package.json' under {plugins_dir}")
+            utils.warn(f"[dev] plugin build: no '{artifact}/ui/package.json' under {plugins_dir}")
     return targets
 
 

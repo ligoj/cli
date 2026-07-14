@@ -2234,21 +2234,21 @@ Options: `--name`, `--description`, `--dir` (parent directory, default the curre
 convention as the existing plugins), and `npm` is used once at creation to produce the lockfile the
 Maven frontend build (`npm ci`) requires. After creation: `cd <plugin> && mvn verify`.
 
-## Build plugin frontends (`dev build plugin`)
+## Build plugin frontends (`dev plugin build`)
 
-Each Ligoj plugin ships a frontend under `<plugin>/ui/` built with `npm run build` (Vite). `dev build
-plugin` runs that build for every **live** plugin — the ones installed in the running Ligoj instance
+Each Ligoj plugin ships a frontend under `<plugin>/ui/` built with `npm run build` (Vite). `dev plugin
+build` runs that build for every **live** plugin — the ones installed in the running Ligoj instance
 (`system/plugin`) that also have a local `<plugin>/ui/` under the plugins directory:
 
 ```bash
 # Rebuild the frontend of every live plugin (in parallel)
-ligoj dev build plugin
+ligoj dev plugin build
 
 # Build only specific plugins (skips the live lookup, so Ligoj need not be running)
-ligoj dev build plugin --only plugin-ui plugin-id
+ligoj dev plugin build --only plugin-ui plugin-id
 
 # Limit parallelism
-ligoj dev build plugin --jobs 2
+ligoj dev plugin build --jobs 2
 ```
 
 Dependencies are installed automatically on first build (`npm ci` when a `package-lock.json` is
@@ -2257,6 +2257,37 @@ present, otherwise `npm install`) before `npm run build`. Builds run in parallel
 failing frontend never aborts the others. The plugins directory is `LIGOJ_PLUGINS_DIR` /
 `[dev] ligoj_plugins_dir` (default `~/git/ligoj-plugins`), and `npm` must be on the `PATH`. Without
 `--only`, Ligoj must be reachable so the live plugin set can be listed.
+
+## Renovate a plugin's dependencies (`dev plugin renovate`)
+
+`dev plugin renovate` updates a plugin's dependency descriptors, ported from the `renovate` mode of
+`commands/release.sh` but scoped to **editing the files** — it does **not** commit, leaving the edits
+in the working tree for you to review:
+
+- **`pom.xml`** — bumps the `org.ligoj.api:plugin-parent` `<version>` to the target (default: the
+  latest local `org.ligoj.api:parent` release; override with `--parent-version`). A current version
+  newer than the target is left alone; the project's own `<version>` is never touched.
+- **`package.json`** — re-pins only the npm dependency constraints that are **also** declared by the
+  host UI to the host's versions (none added/removed; `scripts` and non-shared deps untouched).
+- **`package-lock.json`** — regenerated from `package.json` (`npm install --package-lock-only`) so the
+  plugin's `npm ci` stays in sync.
+
+```bash
+# Renovate the plugin in the current directory
+ligoj dev plugin renovate
+
+# A specific plugin (artifact under LIGOJ_PLUGINS_DIR, or a path)
+ligoj dev plugin renovate plugin-km
+
+# Every plugin under LIGOJ_PLUGINS_DIR
+ligoj dev plugin renovate --all
+```
+
+The host UI referential is `LIGOJ_HOST_PACKAGE_JSON` (default
+`~/git/ligoj/app-ui/src/main/webapp/package.json`, override with `--host-package-json`), the plugins
+root is `LIGOJ_PLUGINS_DIR` / `--plugins-dir` (default `~/git/ligoj-plugins`), and `npm` must be on the
+`PATH`. A plugin must be an `org.ligoj.api:plugin-parent` project — anything else is skipped (with
+`--all`) or reported as an error (when named).
 
 ## Build the app container images (`dev package`)
 

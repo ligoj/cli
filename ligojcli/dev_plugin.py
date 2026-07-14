@@ -13,10 +13,12 @@
 # generated code: a minimal-but-real skeleton modelled on plugin-km / plugin-km-confluence.
 #
 import glob
+import json
 import os
 import re
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 
 from ligojcli.plugins import utils
 
@@ -85,7 +87,17 @@ def execute(args):
     operation = args.get("operation")
     if operation == "create":
         return _create(args)
-    utils.warn("[plugin] missing sub-command; try 'dev plugin create <plugin>'")
+    if operation == "build":
+        # 'dev plugin build' — run 'npm run build' for each plugin frontend (logic lives in dev.py).
+        from ligojcli.plugins import dev
+
+        return dev.dev_build_plugin(args)
+    if operation == "renovate":
+        return _renovate(args)
+    utils.warn(
+        "[plugin] missing sub-command; try 'dev plugin create <plugin>', "
+        "'dev plugin build' or 'dev plugin renovate'"
+    )
     return False
 
 
@@ -949,6 +961,281 @@ describe('plugin-{plugin_id} (service)', () => {{
 
 
 # --------------------------------------------------------------------------- #
+# `dev plugin renovate [<plugin>]` — bump plugin-parent + align npm deps with the host
+# --------------------------------------------------------------------------- #
+# Ported from commands/release.sh (the 'renovate' / 'renovate-all' modes), but scoped to just editing
+# the files: it updates pom.xml (the org.ligoj.api:plugin-parent version), package.json (re-pins the
+# npm dependency constraints shared with the host UI) and package-lock.json (regenerated from
+# package.json). Unlike release.sh it does NOT commit — the edits are left in the working tree for
+# review. Targets the current directory, a named plugin, or every plugin under LIGOJ_PLUGINS_DIR.
+_HOST_PACKAGE_JSON = "~/git/ligoj/app-ui/src/main/webapp/package.json"
+_PLUGIN_PARENT_COORDS = ("org.ligoj.api", "plugin-parent")
+_LIGOJ_API_PARENT = (
+    "org/ligoj/api",
+    "parent",
+)  # grandparent whose latest local release is the target
+_NPM_SECTIONS = ("optionalDependencies", "peerDependencies", "devDependencies", "dependencies")
+_SECTION_RE = re.compile(r'"(?:optional|peer|dev)?[Dd]ependencies"\s*:\s*\{')
+_ENTRY_RE = re.compile(r'^(\s*)"([^"]+)"(\s*:\s*)"([^"]*)"(\s*,?\s*)$')
+
+
+def _version_key(version):
+    """A sortable key for a dotted version ('4.3.10' > '4.3.2'); qualifiers are ignored."""
+    return tuple(int(part) for part in re.findall(r"\d+", version))
+
+
+def _maven_local_repo():
+    """The Maven local repository: settings.xml <localRepository> override, else ~/.m2/repository."""
+    settings = os.path.expanduser("~/.m2/settings.xml")
+    try:
+        node = ET.parse(settings).getroot().find("{*}localRepository")
+        if node is not None and (node.text or "").strip():
+            return os.path.expanduser(node.text.strip())
+    except (OSError, ET.ParseError):
+        pass
+    return os.path.expanduser("~/.m2/repository")
+
+
+def _latest_local_release(group_path, artifact_id):
+    """Highest released (N.N.N, non-SNAPSHOT, with a published .pom) version in the local repo."""
+    base = os.path.join(_maven_local_repo(), group_path, artifact_id)
+    if not os.path.isdir(base):
+        return None
+    releases = []
+    for version in os.listdir(base):
+        if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+            continue
+        if os.path.isfile(os.path.join(base, version, f"{artifact_id}-{version}.pom")):
+            releases.append(version)
+    return max(releases, key=_version_key) if releases else None
+
+
+def _pom_parent_field(pom, field):
+    """A field of a pom's <parent> block, namespace-agnostic (or '' when absent)."""
+    try:
+        parent = ET.parse(pom).getroot().find("{*}parent")
+    except (OSError, ET.ParseError):
+        return ""
+    if parent is None:
+        return ""
+    node = parent.find(f"{{*}}{field}")
+    return (node.text or "").strip() if node is not None else ""
+
+
+def _is_plugin(repo):
+    """True when repo/pom.xml is an org.ligoj.api:plugin-parent project (a real Ligoj plugin)."""
+    pom = os.path.join(repo, "pom.xml")
+    if not os.path.isfile(pom):
+        return False
+    coords = (_pom_parent_field(pom, "groupId"), _pom_parent_field(pom, "artifactId"))
+    return coords == _PLUGIN_PARENT_COORDS
+
+
+def _renovate_parent(repo, target):
+    """Bump the org.ligoj.api:plugin-parent <version> in repo/pom.xml to target. Returns a status str."""
+    pom = os.path.join(repo, "pom.xml")
+    current = _pom_parent_field(pom, "version")
+    if not target:
+        utils.warn("[plugin]   parent: no target version (no local org.ligoj.api:parent) — skipped")
+        return "skip"
+    if current == target:
+        utils.info(f"[plugin]   parent: already at {target}")
+        return "skip"
+    if current and _version_key(current) > _version_key(target):
+        utils.info(f"[plugin]   parent: current {current} is newer than {target} — skipped")
+        return "skip"
+
+    with open(pom, encoding="utf-8") as handle:
+        text = handle.read()
+
+    def _bump(match):
+        return re.sub(
+            r"(<version>)[^<]*(</version>)", rf"\g<1>{target}\g<2>", match.group(0), count=1
+        )
+
+    updated = re.sub(r"<parent>.*?</parent>", _bump, text, count=1, flags=re.DOTALL)
+    if updated == text:
+        utils.warn("[plugin]   parent: could not locate the <parent><version> to edit — skipped")
+        return "skip"
+    with open(pom, "w", encoding="utf-8") as handle:
+        handle.write(updated)
+    utils.info(f"[plugin]   parent: {current or '?'} → {target} (pom.xml)")
+    return "changed"
+
+
+def _host_dependency_map(host):
+    """Merge the host package.json's dependency sections into one {name: constraint} ('dependencies' wins)."""
+    with open(host, encoding="utf-8") as handle:
+        data = json.load(handle)
+    merged = {}
+    for section in _NPM_SECTIONS:
+        merged.update(data.get(section) or {})
+    return merged
+
+
+def _repin_package_json(text, host_map):
+    """Re-pin shared dependency constraints to the host's, line-by-line (formatting preserved)."""
+    out, changes, in_section = [], [], False
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\n")
+        if not in_section and _SECTION_RE.search(body):
+            in_section = "}" not in body
+            out.append(line)
+            continue
+        if in_section and re.match(r"^\s*\}", body):
+            in_section = False
+            out.append(line)
+            continue
+        match = _ENTRY_RE.match(body) if in_section else None
+        if match and match.group(2) in host_map:
+            name, current, wanted = match.group(2), match.group(4), host_map[match.group(2)]
+            if current != wanted:
+                newline = "\n" if line.endswith("\n") else ""
+                out.append(
+                    f'{match.group(1)}"{name}"{match.group(3)}"{wanted}"{match.group(5)}{newline}'
+                )
+                changes.append((name, current, wanted))
+                continue
+        out.append(line)
+    return "".join(out), changes
+
+
+def _regenerate_lockfile(pkg_dir):
+    """Rebuild package-lock.json from package.json (no node_modules). Returns (ok, tail-of-output)."""
+    npm = _npm()
+    if not npm:
+        return False, "npm not found (set PATH or install Node.js)"
+    env = dict(os.environ, PATH=os.path.dirname(npm) + os.pathsep + os.environ.get("PATH", ""))
+    result = subprocess.run(
+        [npm, "install", "--package-lock-only", "--no-audit", "--no-fund"],
+        cwd=pkg_dir,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    tail = "\n".join(((result.stdout or "") + (result.stderr or "")).strip().splitlines()[-3:])
+    return result.returncode == 0, tail
+
+
+def _renovate_npm(repo, host):
+    """Align repo's package.json npm deps with the host and regenerate its lockfile. Returns a status str."""
+    relative = next(
+        (
+            path
+            for path in ("ui/package.json", "package.json")
+            if os.path.isfile(os.path.join(repo, path))
+        ),
+        None,
+    )
+    if not relative:
+        utils.info("[plugin]   npm: no package.json — skipped")
+        return "skip"
+    if not os.path.isfile(host):
+        utils.warn(f"[plugin]   npm: host package.json not found ({host}) — skipped")
+        return "skip"
+
+    pkg_path = os.path.join(repo, relative)
+    pkg_dir = os.path.dirname(pkg_path)
+    host_map = _host_dependency_map(host)
+    if not host_map:
+        utils.warn("[plugin]   npm: host declares no dependencies — skipped")
+        return "skip"
+
+    with open(pkg_path, encoding="utf-8") as handle:
+        original = handle.read()
+    updated, changes = _repin_package_json(original, host_map)
+    if changes:
+        try:
+            json.loads(updated)
+        except json.JSONDecodeError:
+            utils.warn("[plugin]   npm: re-pin produced invalid JSON — aborted")
+            return "error"
+        with open(pkg_path, "w", encoding="utf-8") as handle:
+            handle.write(updated)
+
+    ok, tail = _regenerate_lockfile(pkg_dir)
+    if not ok:
+        with open(pkg_path, "w", encoding="utf-8") as handle:  # restore our own edit
+            handle.write(original)
+        utils.warn(f"[plugin]   npm: 'npm install --package-lock-only' failed — reverted:\n{tail}")
+        return "error"
+
+    if changes:
+        for name, old, new in changes:
+            utils.info(f"[plugin]   npm: {name} {old} → {new}")
+        utils.info(
+            f"[plugin]   npm: {len(changes)} dependency(ies) re-pinned + lockfile regenerated"
+        )
+        return "changed"
+    utils.info("[plugin]   npm: deps already aligned; lockfile regenerated")
+    return "changed"
+
+
+def _renovate_repos(args):
+    """The plugin repos to renovate: --all, a named/path plugin, or the current directory."""
+    from ligojcli.plugins import dev
+
+    plugins_dir = os.path.expanduser(
+        args.get("plugins_dir")
+        or dev._dev_get(args, "ligoj_plugins_dir", "LIGOJ_PLUGINS_DIR", "~/git/ligoj-plugins")
+    )
+    if args.get("all"):
+        if not os.path.isdir(plugins_dir):
+            raise ValueError(f"[plugin] renovate: plugins dir not found: {plugins_dir}")
+        repos = [
+            os.path.join(plugins_dir, name)
+            for name in sorted(os.listdir(plugins_dir))
+            if _is_plugin(os.path.join(plugins_dir, name))
+        ]
+        if not repos:
+            raise ValueError(f"[plugin] renovate: no Ligoj plugins under {plugins_dir}")
+        return repos
+
+    plugin = (args.get("plugin") or "").strip()
+    if plugin:
+        candidate = os.path.expanduser(plugin)
+        repo = candidate if os.path.isdir(candidate) else os.path.join(plugins_dir, plugin)
+        if not _is_plugin(repo):
+            raise ValueError(
+                f"[plugin] renovate: '{plugin}' is not a Ligoj plugin "
+                f"(no org.ligoj.api:plugin-parent pom.xml at {repo})"
+            )
+        return [repo]
+
+    cwd = os.getcwd()
+    if not _is_plugin(cwd):
+        raise ValueError(
+            "[plugin] renovate: current directory is not a Ligoj plugin "
+            "(no org.ligoj.api:plugin-parent pom.xml); pass <plugin> or --all"
+        )
+    return [cwd]
+
+
+def _renovate(args):
+    host = os.path.expanduser(
+        args.get("host_package_json")
+        or os.environ.get("LIGOJ_HOST_PACKAGE_JSON")
+        or _HOST_PACKAGE_JSON
+    )
+    target = args.get("parent_version") or _latest_local_release(*_LIGOJ_API_PARENT)
+    repos = _renovate_repos(args)
+
+    utils.info(f"[plugin] Renovate {len(repos)} plugin(s); host npm referential: {host}")
+    utils.info(f"[plugin] plugin-parent target: {target or '(none found — parent bump skipped)'}")
+    changed = errors = 0
+    for repo in repos:
+        utils.info(f"[plugin] {os.path.basename(os.path.abspath(repo))}")
+        results = (_renovate_parent(repo, target), _renovate_npm(repo, host))
+        changed += results.count("changed")
+        errors += results.count("error")
+    utils.info(
+        f"[plugin] Renovate complete: {changed} file-group(s) updated, {errors} error(s) "
+        "(edits left uncommitted for review)"
+    )
+    return errors == 0
+
+
+# --------------------------------------------------------------------------- #
 # Help (surfaced on 'dev plugin create -h')
 # --------------------------------------------------------------------------- #
 HELP = """\
@@ -981,4 +1268,34 @@ Example:
 
 After creation: build the UI bundle ('cd <plugin>/ui && npm install && npm run build'), then
 'mvn -f <plugin> verify'. The Vitest and vite config expect the Ligoj UI host at '../../../ligoj'.
+"""
+
+
+HELP_RENOVATE = """\
+dev plugin renovate [<plugin>] — update a plugin's pom.xml, package.json and package-lock.json.
+
+Ported from commands/release.sh (its 'renovate' mode), scoped to editing the files (it does NOT
+commit — the edits are left in the working tree for you to review and commit):
+  * pom.xml           bump the org.ligoj.api:plugin-parent <version> to the target (see below). A
+                      current version newer than the target is left alone.
+  * package.json      re-pin the npm dependency constraints that are ALSO declared by the host UI to
+                      the host's versions (only shared deps; none added/removed; scripts untouched).
+  * package-lock.json regenerated from package.json ('npm install --package-lock-only'), always, so
+                      the plugin's 'npm ci' stays in sync.
+
+Target selection (which plugins):
+  <plugin>            a plugin artifact under LIGOJ_PLUGINS_DIR, or a path to a plugin directory
+  (omitted)           the current directory (must be an org.ligoj.api:plugin-parent project)
+  --all               every Ligoj plugin under LIGOJ_PLUGINS_DIR
+
+Options:
+  --parent-version V   plugin-parent target (default: latest local org.ligoj.api:parent release)
+  --host-package-json  Host UI package.json (default: LIGOJ_HOST_PACKAGE_JSON or
+                       ~/git/ligoj/app-ui/src/main/webapp/package.json)
+  --plugins-dir DIR    Plugins root (default: ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)
+
+Examples:
+  ligoj dev plugin renovate                 # renovate the plugin in the current directory
+  ligoj dev plugin renovate plugin-km       # a specific plugin under LIGOJ_PLUGINS_DIR
+  ligoj dev plugin renovate --all           # every plugin under LIGOJ_PLUGINS_DIR
 """

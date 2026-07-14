@@ -293,7 +293,7 @@ def _image_ref(runtime, suffix, tag):
         return f"{suffix}:{published}"
     raise ValueError(
         f"[test] no local '{suffix}' image found and none resolvable — build it "
-        "('dev build' / docker build) or pass --tag"
+        "('dev package' / docker build) or pass --tag"
     )
 
 
