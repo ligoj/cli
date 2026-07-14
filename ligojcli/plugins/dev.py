@@ -65,6 +65,61 @@ SERVICES = [
 # Services that need the real (kind) cluster instead of `podman kube play`.
 KIND_SERVICES = ("harbor", "argocd")
 
+# Detailed help shown by `dev start -h`. Kept close to SERVICES so the two stay in sync.
+_START_HELP = """\
+Start local dev services that were created by `dev init` but are currently stopped.
+
+With no argument every service is (re)started; otherwise only the space-separated
+services you name are, e.g.:
+
+  ligoj dev start                       # start all services
+  ligoj dev start postgresql keycloak   # start just these two
+  ligoj dev start sonarqube --wait 0    # start, do not wait for health
+
+Behavior:
+  * The podman machine is started first if it is not already running (a stopped
+    machine otherwise makes every pod look absent), initializing it when missing,
+    and the Podman Desktop GUI is launched (macOS, when installed).
+  * Regular services are podman pods — each is resumed with `podman pod start`.
+  * harbor and argocd run on the shared `kind` cluster: the kind node is started
+    if it was stopped, then their workloads are scaled back up to 1 replica.
+  * A service whose pod / kind cluster does not exist yet is skipped with a
+    warning — run `dev init` (optionally `--only <service>`) to create it first.
+  * `--wait/-w` controls the post-start health wait (live progress): omitted waits
+    until healthy or Ctrl+C, `0` returns immediately, a positive N waits up to N
+    seconds. Health is the same per-service probe shown by `dev status`.
+
+Related: `dev up` also starts podman and its machine first; `dev stop` /
+`dev restart` mirror this command; `dev status` shows what is running.
+
+Services: """ + ", ".join(SERVICES)
+
+# Detailed help shown by `dev stop -h`. Mirrors _START_HELP.
+_STOP_HELP = """\
+Stop running local dev services. Their data is preserved (named volumes and
+persistent directories are kept), so `dev start` / `dev up` brings them back.
+
+With no argument every service is stopped; otherwise only the space-separated
+services you name are, e.g.:
+
+  ligoj dev stop                        # stop everything
+  ligoj dev stop gitlab sonarqube       # stop just these two
+  ligoj dev stop nexus --wait 0         # stop, do not wait for it to go down
+
+Behavior:
+  * Regular services are podman pods — each is halted with `podman pod stop`.
+  * harbor and argocd share the `kind` cluster: stopping BOTH pauses the whole
+    kind node at once (preserving replica counts); stopping only one scales just
+    that workload down to 0 replicas.
+  * `--wait/-w` controls the wait for services to become unreachable (live
+    progress): omitted waits until down or Ctrl+C, `0` returns immediately, a
+    positive N waits up to N seconds.
+
+Related: `dev down` stops the whole podman machine (everything at once); `dev
+start` / `dev restart` mirror this command; `dev status` shows what is running.
+
+Services: """ + ", ".join(SERVICES)
+
 LDAP_DEFAULT_IMAGE = "docker.io/bitnamilegacy/openldap:latest"
 JENKINS_DEFAULT_IMAGE = "jenkins/jenkins:2.570-slim-jdk25"
 SONAR_DEFAULT_IMAGE = "sonarqube:26.6.0.123539-community"
@@ -143,6 +198,19 @@ def _add_wait_argument(parser):
     )
 
 
+def _service_choice(value):
+    """argparse per-token validator: like choices=SERVICES, but usable with nargs='*'.
+
+    A plain choices=SERVICES on a nargs='*' positional rejects the no-argument case
+    ('invalid choice: []'), so validate each token here instead (empty list = all).
+    """
+    if value not in SERVICES:
+        raise argparse.ArgumentTypeError(
+            f"invalid service '{value}' (choose from: {', '.join(SERVICES)})"
+        )
+    return value
+
+
 def configure(subparser_service):
     subparser_action = subparser_service.add_parser(
         "dev", help="Local developer environment helpers"
@@ -205,26 +273,34 @@ def configure(subparser_service):
     _add_wait_argument(parser_restart)
 
     parser_stop = subparser_action.add_parser(
-        "stop", help="Stop all dev services (or a specific one)"
+        "stop",
+        help="Stop running dev services (all, one, or a list)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Stop one or more running local dev services (their data is kept).",
+        epilog=_STOP_HELP,
     )
     parser_stop.add_argument(
         "stop_service",
         metavar="service",
-        nargs="?",
-        choices=SERVICES,
-        help="Service to stop (default: all)",
+        nargs="*",
+        type=_service_choice,
+        help="Services to stop, space-separated (default: all). Choices: " + ", ".join(SERVICES),
     )
     _add_wait_argument(parser_stop)
 
     parser_start = subparser_action.add_parser(
-        "start", help="Start stopped dev services (or a specific one)"
+        "start",
+        help="Start stopped dev services (all, one, or a list)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Start one or more stopped local dev services.",
+        epilog=_START_HELP,
     )
     parser_start.add_argument(
         "start_service",
         metavar="service",
-        nargs="?",
-        choices=SERVICES,
-        help="Service to start (default: all)",
+        nargs="*",
+        type=_service_choice,
+        help="Services to start, space-separated (default: all). Choices: " + ", ".join(SERVICES),
     )
     _add_wait_argument(parser_start)
 
@@ -384,6 +460,29 @@ def configure(subparser_service):
         help="Number of parallel builds (default: min(4, CPUs))",
     )
 
+    # 'plugin create <plugin>' scaffolds a brand-new Ligoj plugin in the current directory.
+    from ligojcli import dev_plugin
+
+    parser_plugin = subparser_action.add_parser(
+        "plugin", help="Scaffold Ligoj plugins ('dev plugin create <plugin>')"
+    )
+    plugin_sub = parser_plugin.add_subparsers(title="command", dest="operation")
+    plugin_create = plugin_sub.add_parser(
+        "create",
+        help="Create a new Ligoj plugin (service or tool) in the current directory",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Scaffold a new Ligoj plugin (Java + Vue UI + tests + CI) from its artifact name.",
+        epilog=dev_plugin.HELP,
+    )
+    plugin_create.add_argument(
+        "plugin", help="Full plugin artifact, must start with 'plugin-' (e.g. plugin-km-confluence)"
+    )
+    plugin_create.add_argument("--name", help="Display name (pom <name>); prompted if omitted")
+    plugin_create.add_argument("--description", help="One-line description; prompted if omitted")
+    plugin_create.add_argument(
+        "--dir", help="Parent directory to create the plugin in (default: cwd)"
+    )
+
 
 def execute_action(service, action, _operation, args):
     if service != "dev":
@@ -434,6 +533,11 @@ def execute_action(service, action, _operation, args):
         return dev_package.execute(args)
     if action == "build":
         return dev_build(args)
+    if action == "plugin":
+        # Lazy import: scaffolds a new Ligoj plugin project on disk.
+        from ligojcli import dev_plugin
+
+        return dev_plugin.execute(args)
     return None
 
 
@@ -652,17 +756,21 @@ def _restart_service(svc):
 
 def dev_stop(args):
     wait = args.get("wait")
-    svc = args.get("stop_service")
-    services = [svc] if svc else SERVICES
-    if svc:
-        _stop_service(svc)
-    else:
-        # Stop the kube-play pods individually and the whole kind cluster via its node (which
-        # pauses Harbor + ArgoCD together while preserving their replica counts).
-        for service in SERVICES:
-            if service not in KIND_SERVICES:
-                _stop_service(service)
+    # 'stop_service' is a list (nargs='*'); empty or absent means every service.
+    requested = args.get("stop_service")
+    services = list(requested) if requested else SERVICES
+    # Non-kind services are stopped as individual kube-play pods.
+    for service in services:
+        if service not in KIND_SERVICES:
+            _stop_service(service)
+    # Harbor + ArgoCD share the kind cluster: stopping ALL of them pauses the whole node at once
+    # (preserving their replica counts); stopping only some scales just those to 0.
+    kind_requested = [service for service in services if service in KIND_SERVICES]
+    if set(kind_requested) == set(KIND_SERVICES):
         _stop_kind_node()
+    else:
+        for service in kind_requested:
+            _stop_service(service)
     if wait != 0:
         _await_services(services, args, False, wait)
     utils.info("[dev] Stop complete (run 'dev init' to bring services back up)")
@@ -710,9 +818,15 @@ def _stop_kind_node():
 
 
 def dev_start(args):
+    # Bring the podman runtime up first: start (or init) the machine and launch the Podman Desktop
+    # GUI. A stopped machine otherwise makes every pod look absent (podman can't connect), so
+    # starting a service would just warn 'pod does not exist'.
+    _ensure_podman()
+    _start_podman_desktop()
     wait = args.get("wait")
-    svc = args.get("start_service")
-    services = [svc] if svc else SERVICES
+    # 'start_service' is a list (nargs='*'); empty or absent (e.g. via 'dev up') means every service.
+    requested = args.get("start_service")
+    services = list(requested) if requested else SERVICES
     for service in services:
         _start_service(service)
     if wait != 0:
@@ -723,8 +837,6 @@ def dev_start(args):
 
 def dev_up(args):
     """Start podman + its machine and Podman Desktop, wait until ready, then start all services."""
-    _ensure_podman()
-    _start_podman_desktop()
     return dev_start(args)
 
 

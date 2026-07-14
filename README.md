@@ -2199,6 +2199,41 @@ so `status`/`stop`/`restart` cover them however they were started. `stop` (and t
 > The Ligoj API dev app binds `8081`, so the `nexus` service publishes `8181` (not its own `8081`) to
 > avoid the clash — run both at once without conflict.
 
+## Scaffold a new plugin (`dev plugin create`)
+
+`dev plugin create <plugin>` generates a brand-new Ligoj plugin project in the current directory. The
+`<plugin>` is the full Maven artifact and **must start with `plugin-`**; its fragments decide the type,
+exactly like the real plugins:
+
+- **one fragment** → a **service** plugin, e.g. `plugin-km` (like `plugin-id`)
+- **two+ fragments** → a **tool** plugin, e.g. `plugin-km-confluence` (like `plugin-id-ldap`), which
+  extends the service `plugin-<first-fragment>` via a `provided` Maven dependency.
+
+You're prompted for a display name and description (or pass `--name` / `--description`):
+
+```bash
+ligoj dev plugin create plugin-km              # a service plugin
+ligoj dev plugin create plugin-km-confluence   # a tool plugin of plugin-km
+ligoj dev plugin create plugin-foo --name "Ligoj - Plugin Foo" --description "Foo service."
+```
+
+It generates a complete, buildable project (`mvn verify` compiles, tests, and builds the Vue bundle),
+with **100% coverage of the generated code**:
+
+| Area | Files |
+| ---- | ----- |
+| Maven | `pom.xml` (correct parent + coordinates; a tool adds the `provided` parent-service dep) |
+| Java | the `AbstractServicePlugin` / `AbstractToolPluginResource` skeleton (+ the `<Service>ServicePlugin` interface for a service), package `org.ligoj.app.plugin.<fragment>` |
+| Java test | plain JUnit 5 asserting `getKey()` |
+| Vue UI (`ui/`) | `index.js` + `service.js` (`@ligoj/host` integration), i18n `en`/`fr`, `package.json` (+ generated `package-lock.json`), `vite.config.js`, `eslint.config.js`, and a Vitest test mocking `@ligoj/host` |
+| Resources | `csv/node.csv` (+ `csv/parameter.csv` for a tool) |
+| Project | `README.md`, `LICENSE` (MIT), `.gitignore`, `.codeclimate.yml`, GitHub SonarCloud workflow |
+
+Options: `--name`, `--description`, `--dir` (parent directory, default the current one). The generated
+`vite.config.js` / Vitest expect the Ligoj UI host as a sibling checkout at `../../../ligoj` (same
+convention as the existing plugins), and `npm` is used once at creation to produce the lockfile the
+Maven frontend build (`npm ci`) requires. After creation: `cd <plugin> && mvn verify`.
+
 ## Build plugin frontends (`dev build plugin`)
 
 Each Ligoj plugin ships a frontend under `<plugin>/ui/` built with `npm run build` (Vite). `dev build
