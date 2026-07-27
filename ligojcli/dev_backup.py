@@ -1,23 +1,30 @@
 #
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
-# `dev backup` / `dev restore` — snapshot and restore the database rows owned by a Ligoj service,
-# using the PostgreSQL client tools (psql / pg_dump). Only `service:prov` is supported for now.
+# `dev backup` / `dev backup list` / `dev backup restore` — snapshot, list and restore the database
+# rows owned by a Ligoj service, using the PostgreSQL client tools (psql / pg_dump). Bare
+# `dev backup` takes the snapshot. Only `service:prov` is supported for now.
 #
 # What a `service:prov` backup captures:
 #   * every `ligoj_prov_*` table (the whole catalog + quotes) — dumped in bulk with pg_dump, since the
-#     price tables are huge (~1.8M rows) and their content is restored verbatim (no id patching);
+#     price tables are huge (tens of millions of rows) and their content is restored verbatim (no id
+#     patching). The set is globbed from the catalog, so tables plugin-prov adds are picked up as-is;
 #   * the cross-referenced core rows, so the quotes stay valid: the `ligoj_subscription` rows on prov
-#     nodes (referenced by `ligoj_prov_quote.subscription`), the `ligoj_node` rows of those (and the
-#     provider nodes the catalog points at), the `ligoj_parameter_value` rows of those nodes /
-#     subscriptions, and the `ligoj_project` rows behind the subscriptions.
+#     nodes (referenced by `ligoj_prov_quote` and the other subscription-scoped prov tables), the
+#     `ligoj_node` rows of those (and the provider nodes the catalog points at), the
+#     `ligoj_parameter_value` rows of those nodes / subscriptions, and the `ligoj_project` rows
+#     behind the subscriptions.
 #
 # Restore is an id-aware reload (a target ligoj DB already has its own projects / nodes / parameters):
 #   * projects are matched by pkey or name and *reused* (their id is remapped), else inserted;
 #   * nodes are inserted only when missing (string ids, no remap);
 #   * a node's parameter values are dropped then re-inserted; subscriptions are inserted fresh (all
 #     prior prov subscriptions were deleted first) with their project remapped;
-#   * the `ligoj_prov_*` tables are emptied and bulk-reloaded verbatim, then sequences are bumped.
+#   * the `ligoj_prov_*` tables are emptied and bulk-reloaded verbatim; because subscriptions got new
+#     ids, EVERY prov column with a foreign key to `ligoj_subscription` is then repointed at them —
+#     the list is discovered from the catalog (see `_prov_subscription_refs`), which today covers
+#     `quote`, `quote_view`, `quote_snapshot`, `comparison` and `lookup_error` (the latter two with
+#     both a `subscription` and a `main_subscription` column). Sequences are bumped last.
 #
 import gzip
 import json
@@ -57,6 +64,9 @@ _PROV = {
 }
 SUPPORTED = {_PROV["service"]: _PROV}
 
+# Sub-commands of 'dev backup', used only to give a better error when one is mistaken for a service.
+_SUBCOMMANDS = ("list", "restore")
+
 # Core tables reloaded with id remapping (order matters: projects/nodes -> subscriptions -> values).
 _CORE_TABLES = ["ligoj_project", "ligoj_node", "ligoj_subscription", "ligoj_parameter_value"]
 
@@ -64,17 +74,36 @@ _CORE_TABLES = ["ligoj_project", "ligoj_node", "ligoj_subscription", "ligoj_para
 # --------------------------------------------------------------------------- #
 # Service argument -> spec
 # --------------------------------------------------------------------------- #
-def _resolve_specs(service):
-    """Return the list of specs to act on ('prov' / 'service:prov' -> the prov spec; None -> all)."""
-    if not service:
+def _resolve_specs(services):
+    """Specs to act on, from a service name or a list of them; empty/None means every supported one.
+
+    Accepts the bare short form ('prov') as well as the qualified one ('service:prov'), and splits on
+    commas so both `--services a b` and `--services a,b` work. Order is preserved and duplicates are
+    collapsed.
+    """
+    if not services:
         return list(SUPPORTED.values())
-    key = service if service.startswith("service:") else f"service:{service}"
-    spec = SUPPORTED.get(key)
-    if spec is None:
-        raise ValueError(
-            f"[backup] Unsupported service '{service}'. Supported: {', '.join(SUPPORTED)}"
-        )
-    return [spec]
+    if isinstance(services, str):
+        services = [services]
+    names = [part.strip() for entry in services for part in str(entry).split(",") if part.strip()]
+    specs = []
+    for service in names:
+        key = service if service.startswith("service:") else f"service:{service}"
+        spec = SUPPORTED.get(key)
+        if spec is None:
+            # '--services' takes a list, so a sub-command written AFTER it is swallowed as a service
+            # name ('dev backup --services prov list'). Name the fix instead of just rejecting it.
+            hint = (
+                f" — put the sub-command first: 'ligoj dev backup {service} --services ...'"
+                if service in _SUBCOMMANDS
+                else ""
+            )
+            raise ValueError(
+                f"[backup] Unsupported service '{service}'. Supported: {', '.join(SUPPORTED)}{hint}"
+            )
+        if spec not in specs:
+            specs.append(spec)
+    return specs or list(SUPPORTED.values())
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +221,7 @@ def _count(db, table, where=None):
 # --------------------------------------------------------------------------- #
 def backup(args):
     db = _db(_db_section("dev"))
-    specs = _resolve_specs(args.get("backup_service"))
+    specs = _resolve_specs(args.get("backup_services"))
     results = {}
     for spec in specs:
         results[spec["service"]] = _backup_one(db, spec)
@@ -297,7 +326,10 @@ def _print_backup_summary(meta, out_dir):
         f"dump {_human_size(meta['prov_dump_bytes'])}"
     )
     utils.info(f"[backup]   stored in {out_dir}")
-    utils.info(f"[backup]   restore with: ligoj dev restore {meta['service']} {meta['id']}")
+    utils.info(
+        f"[backup]   restore with: ligoj dev backup restore "
+        f"--service {meta['service']} {meta['id']}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -308,7 +340,9 @@ def restore(args):
     specs = _resolve_specs(args.get("restore_service"))
     if len(specs) != 1:
         # Restore is one service + one backup at a time (a backup id designates a single service).
-        raise ValueError("[restore] Specify a single service to restore, e.g. 'service:prov'")
+        raise ValueError(
+            "[restore] Specify a single service to restore, e.g. --service service:prov"
+        )
     spec = specs[0]
 
     backup_id = args.get("restore_backup_id") or _choose_backup(spec)
@@ -330,7 +364,7 @@ def restore(args):
         f"{db['user']}@{db['host']}:{db['port']}/{db['name']} ==="
     )
     _preflight(db, spec)
-    before = {t: _count(db, t, w) for t, w in _restore_scope(spec).items()}
+    before = {t: _count(db, t, w) for t, w in _restore_scope(db, spec).items()}
 
     started = time.time()
     sql_path = _build_restore_sql(db, spec, out_dir)
@@ -347,18 +381,24 @@ def restore(args):
             if os.path.exists(path):
                 os.remove(path)
 
-    after = {t: _count(db, t, w) for t, w in _restore_scope(spec).items()}
+    after = {t: _count(db, t, w) for t, w in _restore_scope(db, spec).items()}
     _print_restore_summary(meta, before, after, time.time() - started)
     return meta
 
 
-def _restore_scope(spec):
-    """Row scopes shown before/after restore (prov-owned rows in the core tables + prov quotes)."""
-    return {
+def _restore_scope(db, spec):
+    """Row scopes shown before/after restore: prov-owned core rows + every subscription-scoped table.
+
+    The prov side is discovered (not hard-coded) so tables plugin-prov adds later — comparison,
+    lookup_error, quote_snapshot, quote_view … — show up in the summary automatically.
+    """
+    scope = {
         "ligoj_subscription": spec["subscription_where"],
         "ligoj_node": spec["instance_node_where"],
-        "ligoj_prov_quote": None,
     }
+    for table in sorted({table for table, _ in _prov_subscription_refs(db)}):
+        scope[table] = None
+    return scope
 
 
 def _preflight(db, spec):
@@ -529,6 +569,19 @@ def _build_restore_sql(db, spec, out_dir):
     drop_uks = [f"ALTER TABLE {t} DROP CONSTRAINT IF EXISTS {n};" for t, n, _, _ in uks]
     readd_uks = _conditional_unique_readd(uks)
 
+    # Repoint every prov column referencing a subscription at the freshly-allocated ids (see
+    # _prov_subscription_refs): quotes, plus the comparison / lookup_error / snapshot / view tables.
+    sub_refs = _prov_subscription_refs(db)
+    remap_subscriptions = [
+        f'UPDATE {table} t SET "{column}" = m.new_id FROM map_subscription m '
+        f'WHERE t."{column}" = m.old_id;'
+        for table, column in sub_refs
+    ]
+    utils.info(
+        f"[restore] Subscription remap covers {len(sub_refs)} prov column(s): "
+        + ", ".join(f"{t.replace('ligoj_prov_', '')}.{c}" for t, c in sub_refs)
+    )
+
     lines = [
         "\\set ON_ERROR_STOP on",
         "\\set QUIET on",
@@ -617,10 +670,9 @@ def _build_restore_sql(db, spec, out_dir):
             [
                 f"\\i {prov_sql}",
                 "RESET search_path;",
-                # The bulk load carries the backup's original subscription ids; repoint the quotes at
-                # the remapped subscriptions before the FK is re-added.
-                "UPDATE ligoj_prov_quote q SET subscription = m.new_id "
-                "FROM map_subscription m WHERE q.subscription = m.old_id;",
+                # The bulk load carries the backup's original subscription ids; repoint EVERY prov
+                # column referencing a subscription at the remapped ones before the FKs are re-added.
+                *remap_subscriptions,
                 # Re-add unique constraints (skipping any the reloaded data violates) before the FKs,
                 # which may depend on them.
                 *readd_uks,
@@ -642,6 +694,34 @@ def _columns(db, table):
         f"WHERE table_name = '{table}' ORDER BY ordinal_position",
     )
     return [c for c in rows.splitlines() if c]
+
+
+def _prov_subscription_refs(db):
+    """Every prov column carrying a foreign key to ligoj_subscription, as (table, column).
+
+    Restore allocates a FRESH id for each restored subscription, so every prov row pointing at one has
+    to be repointed after the bulk load. The list is read from the catalog instead of being hard-coded
+    because plugin-prov keeps growing such tables — beyond the original ligoj_prov_quote there are now
+    comparison (two columns: subscription + main_subscription), lookup_error (idem), quote_snapshot and
+    quote_view. A stale hard-coded list is silently wrong: the FKs are re-added NOT VALID, so nothing
+    complains while the rows point at unrelated (or missing) subscriptions.
+    """
+    rows = _psql_query(
+        db,
+        "SELECT c.conrelid::regclass::text || E'\\t' || a.attname "
+        "FROM pg_constraint c "
+        "JOIN unnest(c.conkey) WITH ORDINALITY k(attnum, ord) ON true "
+        "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum "
+        "WHERE c.contype = 'f' AND c.confrelid = 'ligoj_subscription'::regclass "
+        "AND c.conrelid::regclass::text LIKE 'ligoj_prov%' "
+        "ORDER BY c.conrelid::regclass::text, a.attname",
+    )
+    refs = []
+    for line in rows.splitlines():
+        if "\t" in line:
+            table, column = line.split("\t", 1)
+            refs.append((table, column))
+    return refs
 
 
 def _prov_fk_constraints(db):
@@ -741,7 +821,9 @@ def _print_restore_summary(meta, before, after, duration):
 # --------------------------------------------------------------------------- #
 # Backup listing / selection
 # --------------------------------------------------------------------------- #
-def _list_backups(spec):
+def _list_backups(specs=None):
+    """Backups on disk, newest first; restricted to `specs` (a list) when given, else all services."""
+    wanted = {spec["service"] for spec in specs} if specs else None
     root = _backup_root()
     items = []
     if not os.path.isdir(root):
@@ -755,18 +837,136 @@ def _list_backups(spec):
                 meta = json.load(handle)
         except (OSError, ValueError):
             continue
-        if spec is None or meta.get("service") == spec["service"]:
+        if wanted is None or meta.get("service") in wanted:
             items.append(meta)
     items.sort(key=lambda m: m.get("created", ""), reverse=True)
     return items
 
 
+# Column key -> table header. The same keys are emitted (tab-separated) in 'text' mode, so both
+# renderings stay in sync automatically when a column is added here.
+_LIST_COLUMNS = (
+    ("id", "ID"),
+    ("created", "CREATED"),
+    ("service", "SERVICE"),
+    ("subscriptions", "SUBS"),
+    ("prov_tables", "TABLES"),
+    ("prov_rows", "ROWS"),
+    ("size", "SIZE"),
+)
+# Numeric-ish columns, right-aligned in the table rendering.
+_LIST_RIGHT = {"subscriptions", "prov_tables", "prov_rows", "size"}
+
+
+def list_backups(args):
+    """`dev backup list` — list the backups stored under ~/.ligoj/backup.
+
+    Rendering follows --format and defaults to the human 'table'; when --format is absent an explicit
+    global -o/--output still wins, so scripted callers can keep using `ligoj -o json ...` uniformly.
+    Everything is printed here and False is returned, so the generic renderer does not print it twice.
+    """
+    services = args.get("list_services")
+    specs = _resolve_specs(services) if services else None  # also validates the service names
+    rows = [_backup_row(meta) for meta in _list_backups(specs)]
+    mode = args.get("format") or args.get("output") or "table"
+
+    if mode == "json":
+        print(json.dumps(rows, indent=2))
+        return False
+    if not rows:
+        scope = f" for {', '.join(spec['service'] for spec in specs)}" if specs else ""
+        utils.warn(
+            f"[backups] No backup{scope} in {_backup_root()} "
+            "— run 'ligoj dev backup --services service:prov' first"
+        )
+        return False
+    if mode == "text":
+        for row in rows:
+            print("\t".join(str(row[key]) for key, _ in _LIST_COLUMNS))
+        return False
+    _print_backup_table(rows)
+    return False
+
+
+def _backup_row(meta):
+    """Flatten one metadata.json into the record shared by the table / text / json renderings."""
+    core = meta.get("core_tables") or {}
+    prov = meta.get("prov_tables") or {}
+    backup_id = meta.get("id", "?")
+    path = os.path.join(_backup_root(), backup_id)
+    dump_bytes = meta.get("prov_dump_bytes", 0)
+    return {
+        "id": backup_id,
+        "created": meta.get("created", ""),
+        "service": meta.get("service", "?"),
+        "subscriptions": core.get("ligoj_subscription", 0),
+        "prov_tables": len(prov),
+        "prov_rows": meta.get("prov_rows_total", 0),
+        "size": _human_size(dump_bytes),
+        "dump_bytes": dump_bytes,
+        "disk_bytes": _dir_size(path),
+        "duration_seconds": meta.get("duration_seconds"),
+        "source_db": meta.get("source_db", ""),
+        "path": path,
+        # A backup whose bulk dump is gone cannot be restored — surfaced instead of failing later.
+        "complete": os.path.isfile(os.path.join(path, "prov-data.sql.gz")),
+    }
+
+
+def _dir_size(path):
+    """Total bytes of a backup directory (the compressed dump plus the small core CSVs)."""
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def _print_backup_table(rows):
+    headers = [label for _, label in _LIST_COLUMNS]
+    cells = [
+        [_short_time(row[key]) if key == "created" else str(row[key]) for key, _ in _LIST_COLUMNS]
+        for row in rows
+    ]
+    widths = [
+        max(len(headers[i]), max(len(row[i]) for row in cells)) for i in range(len(_LIST_COLUMNS))
+    ]
+
+    def line(values):
+        return "  ".join(
+            value.rjust(widths[i]) if key in _LIST_RIGHT else value.ljust(widths[i])
+            for i, (value, (key, _)) in enumerate(zip(values, _LIST_COLUMNS))
+        ).rstrip()
+
+    print(line(headers))
+    print("  ".join("-" * width for width in widths))
+    for row, values in zip(rows, cells):
+        print(line(values) + ("" if row["complete"] else "   (INCOMPLETE: bulk dump missing)"))
+    disk = sum(row["disk_bytes"] for row in rows)
+    print()
+    utils.info(f"[backups] {len(rows)} backup(s), {_human_size(disk)} on disk in {_backup_root()}")
+    broken = [row["id"] for row in rows if not row["complete"]]
+    if broken:
+        utils.warn(f"[backups] Not restorable (no prov-data.sql.gz): {', '.join(broken)}")
+
+
+def _short_time(value):
+    """'2026-07-06T23:28:20+02:00' -> '2026-07-06 23:28' for the table; unparsable values pass through."""
+    try:
+        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
 def _choose_backup(spec):
-    items = _list_backups(spec)
+    items = _list_backups([spec])
     if not items:
         utils.warn(
             f"[restore] No backups for {spec['service']} in {_backup_root()} "
-            f"(run 'ligoj dev backup {spec['service']}' first)"
+            f"(run 'ligoj dev backup --services {spec['service']}' first)"
         )
         return None
     utils.info(f"[restore] Available {spec['service']} backups:")

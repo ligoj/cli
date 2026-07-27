@@ -96,7 +96,12 @@ def init() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
         default=None,
     )
     parser.add_argument(
-        "--output", "-o", choices=["text", "json"], help="Output mode", default=None
+        "--output",
+        "-o",
+        choices=["text", "json", "table"],
+        help="Output mode ('table' is honoured by commands that render one, e.g. 'dev backup list'; "
+        "elsewhere it falls back to 'text')",
+        default=None,
     )
     parser.add_argument(
         "--buffer-log",

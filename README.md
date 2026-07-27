@@ -2385,27 +2385,81 @@ values (from DOC.md's *Application level properties*): UI `-Dsecurity=Trusted|Re
 > `-Dsecurity=Trusted` (the UI default here) runs Ligoj **without password verification** (RBAC still
 > enforced) — convenient for local testing, never for a publicly reachable instance.
 
-## Back up & restore a service's data (`dev backup` / `dev restore`)
+## Back up & restore a service's data (`dev backup`)
 
-`dev backup` / `dev restore` snapshot and reload the database rows owned by a Ligoj **service**, using
-the PostgreSQL client tools (`psql` / `pg_dump`, from `brew install libpq`). Only **`service:prov`** is
-supported today (its catalog is expensive to re-import). Omit the service to back up every supported
-one.
+`dev backup` snapshots, lists and reloads the database rows owned by a Ligoj **service**, using the
+PostgreSQL client tools (`psql` / `pg_dump`, from `brew install libpq`). Only **`service:prov`** is
+supported today (its catalog is expensive to re-import). Everything lives under one command:
+
+| Command | What it does |
+| ------- | ------------ |
+| `dev backup` | take the snapshot (no sub-command) |
+| `dev backup list` | list the snapshots stored locally |
+| `dev backup restore` | reload a snapshot into the target DB |
+
+The services to snapshot are selected with **`--services` / `-S`**, which takes a list — space- or
+comma-separated, with the `service:` prefix optional. Omit it to act on every supported service.
 
 ```bash
-ligoj dev backup service:prov        # -> ~/.ligoj/backup/prov-<timestamp>/
-ligoj dev restore service:prov       # list backups, pick one interactively
-ligoj dev restore service:prov prov-20260706-232820   # restore a specific backup
+ligoj dev backup                                  # every supported service
+ligoj dev backup --services service:prov          # -> ~/.ligoj/backup/prov-<timestamp>/
+ligoj dev backup -S prov                          # same, short form
+ligoj dev backup list                             # list what is stored locally
+ligoj dev backup restore                          # list backups, pick one interactively
+ligoj dev backup restore --service service:prov   # same, explicit service
+ligoj dev backup restore prov-20260706-232820     # restore a specific backup
 ```
 
+> Because `--services` takes a *list*, write the sub-command **first** — `dev backup list --services
+> prov`, not `dev backup --services prov list` (the latter would read `list` as a service name; the
+> CLI says so and names the fix).
+
+> `dev backup restore` uses the singular **`--service`** / `-S` (same value forms — `prov` or
+> `service:prov`), because a restore targets exactly one backup id; its only positional is the
+> optional `backup_id`. Omit it to pick one from an interactive list.
+
+### Listing backups (`dev backup list`)
+
+`dev backup list` lists the snapshots under `~/.ligoj/backup`, newest first, in three renderings selected
+with `--format` / `-F`. It takes the same `--services` / `-S` filter as `dev backup`:
+
+```bash
+ligoj dev backup list                        # table (default), all services
+ligoj dev backup list -F text                # tab-separated rows, for cut/awk/grep
+ligoj dev backup list -F json                # full records, for jq
+ligoj dev backup list --services service:prov   # restrict to one (or more) services
+```
+
+```
+ID                    CREATED           SERVICE       SUBS  TABLES      ROWS     SIZE
+--------------------  ----------------  ------------  ----  ------  --------  -------
+prov-20260727-105521  2026-07-27 10:57  service:prov    13      34  24360846  580.0MB
+prov-20260706-232820  2026-07-06 23:28  service:prov    12      29   2126023  116.8MB
+
+[INFO ] [backups] 2 backup(s), 813.6MB on disk in /Users/me/.ligoj/backup
+```
+
+`SUBS` is the number of backed-up subscriptions, `TABLES` the number of `ligoj_prov_*` tables the
+snapshot holds (a useful tell that a backup predates a plugin-prov schema change), `ROWS` their total
+row count and `SIZE` the compressed dump. A snapshot whose `prov-data.sql.gz` is missing is flagged
+**INCOMPLETE** and called out as not restorable, rather than failing later during a restore.
+
+The `text` mode emits the same columns tab-separated (`ligoj dev backup list -F text | cut -f1` gives just
+the ids); `json` adds the raw `dump_bytes` / `disk_bytes`, `duration_seconds`, `source_db`, `path` and
+`complete` fields, and prints `[]` rather than an error when there is nothing stored. When `--format`
+is omitted, an explicit global `-o/--output` is honoured — so `ligoj -o json dev backup list` works like
+the rest of the CLI — and `table` is now accepted by `-o` too.
+
 **What a `service:prov` backup captures.** Every `ligoj_prov_*` table (the whole catalog + quotes),
-dumped in bulk with `pg_dump` — the price tables reach millions of rows, so their content is stored
-compressed and restored **verbatim**. Alongside, the cross-referenced core rows that keep the quotes
-valid are exported as CSV: the `ligoj_subscription` rows on prov nodes (referenced by
-`ligoj_prov_quote.subscription`), their `ligoj_node` rows, the `ligoj_parameter_value` rows of those
-nodes/subscriptions, and the `ligoj_project` rows behind them. A `metadata.json` records the id,
-timestamp, and per-table row counts; the whole thing lands under **`~/.ligoj/backup/<id>/`**. Progress,
-per-table stats, and a duration summary are printed throughout.
+dumped in bulk with `pg_dump` — the price tables reach tens of millions of rows, so their content is
+stored compressed and restored **verbatim**. The table set is **globbed from the catalog**, never
+hard-coded, so tables a newer `plugin-prov` adds are captured automatically. Alongside, the
+cross-referenced core rows that keep the quotes valid are exported as CSV: the `ligoj_subscription`
+rows on prov nodes (referenced by `ligoj_prov_quote` and the other subscription-scoped prov tables),
+their `ligoj_node` rows, the `ligoj_parameter_value` rows of those nodes/subscriptions, and the
+`ligoj_project` rows behind them. A `metadata.json` records the id, timestamp, and per-table row
+counts; the whole thing lands under **`~/.ligoj/backup/<id>/`**. Progress, per-table stats, and a
+duration summary are printed throughout.
 
 **Restore is an id-aware reload** (the target is a live Ligoj DB with its own ids), run as a single
 transaction (all-or-nothing):
@@ -2415,12 +2469,17 @@ transaction (all-or-nothing):
 2. **projects** are matched by `pkey` or name and **reused** (their id is remapped into the restored
    rows), else inserted; **nodes** are inserted only when missing (string ids);
 3. **subscriptions** are inserted with **fresh ids** (the backup's ids may already be taken by
-   unrelated subscriptions in the target) and their project remapped — the prov **quotes** and
-   subscription-scoped **parameter values** that reference them are repointed to the new ids; a node's
-   parameter values are dropped then re-inserted;
-4. the `ligoj_prov_*` tables are **bulk-reloaded verbatim**, the foreign keys are re-added `NOT VALID`
-   (instant — no rescan of the huge tables, and the backup is already consistent), and every touched
-   sequence is bumped to `max(id) + allocation-size` so Hibernate's next id block can't collide.
+   unrelated subscriptions in the target) and their project remapped — the subscription-scoped
+   **parameter values** that reference them are repointed to the new ids; a node's parameter values
+   are dropped then re-inserted;
+4. the `ligoj_prov_*` tables are **bulk-reloaded verbatim**, then **every prov column with a foreign
+   key to `ligoj_subscription` is repointed** at the new ids. That list is **discovered from the
+   catalog**, not hard-coded — today it covers `quote`, `quote_view`, `quote_snapshot`, `comparison`
+   and `lookup_error` (the last two through *both* a `subscription` and a `main_subscription` column),
+   and it picks up whatever `plugin-prov` adds next. This matters because the foreign keys are re-added
+   `NOT VALID` (instant — no rescan of the huge tables), so a missed column would leave rows silently
+   pointing at unrelated subscriptions instead of raising an error. Finally every touched sequence is
+   bumped to `max(id) + allocation-size` so Hibernate's next id block can't collide.
 
 The restore log shows only the **five phases**, each with its own duration (the noisy per-statement
 `ALTER` / `DELETE` / `COPY` output is suppressed); a `>> [n/5] … done (Xs)` line marks each phase.
@@ -2446,7 +2505,7 @@ backup taken against a newer server restored into an older one:
 Without an id, `restore` lists the available backups (id, creation time, subscription count, prov row
 count, size) for keyboard selection. The **target database** comes from the active `--profile`'s
 section when it carries `db_*` keys, else `[dev]` for backup and `[restore]` for restore — so a typical
-restore-into-another-DB is `ligoj --profile restore dev restore service:prov`. Each section needs
+restore-into-another-DB is `ligoj --profile restore dev backup restore --service service:prov`. Each section needs
 `db_host` / `db_port` / `db_name` / `db_user` / `db_password`, and the target must be a real Ligoj DB
 with the provisioning plugin installed (its parameter definitions and provider nodes must already
 exist).

@@ -136,6 +136,10 @@ ARTIFACTORY_DEFAULT_IMAGE = "releases-docker.jfrog.io/jfrog/artifactory-oss:7.11
 
 POSTGRES_CONTAINER = "ligoj-db"
 POSTGRES_VOLUME = "ligoj_db_data"
+# Ligoj catalog imports run as one long transaction that stays idle while catalog files download,
+# so this must stay 0 (no limit) — pinned explicitly so a base-image or ALTER SYSTEM change cannot
+# silently kill a running import.
+POSTGRES_SERVER_ARGS = ("-c", "idle_in_transaction_session_timeout=0")
 # Other service pods (SonarQube, Artifactory, ...) reuse this shared PostgreSQL, reaching its
 # host-published port via the podman host gateway (same name Keycloak uses for LDAP federation).
 SHARED_DB_HOST = "host.containers.internal"
@@ -313,29 +317,59 @@ def configure(subparser_service):
         "down", help="Bring everything down by stopping the podman machine (not each service)"
     )
 
+    # 'backup' takes a sub-command ('list' / 'restore'); bare 'dev backup' still takes the snapshot.
     parser_backup = subparser_action.add_parser(
         "backup",
-        help="PG-dump a Ligoj service's DB rows into ~/.ligoj/backup (default: all supported)",
+        help="Snapshot a Ligoj service's DB rows into ~/.ligoj/backup; "
+        "'dev backup list' / 'dev backup restore' for the rest",
     )
     parser_backup.add_argument(
-        "backup_service",
-        metavar="service",
-        nargs="?",
-        help="Service to back up, e.g. 'service:prov' (default: every supported service)",
+        "--services",
+        "-S",
+        dest="backup_services",
+        metavar="SERVICE",
+        nargs="*",
+        help="Services to back up, e.g. --services service:prov (space- or comma-separated; "
+        "the 'service:' prefix is optional). Default: every supported service",
+    )
+    backup_sub = parser_backup.add_subparsers(title="command", dest="operation")
+
+    backup_list = backup_sub.add_parser(
+        "list",
+        help="List the backups stored in ~/.ligoj/backup (table / text / json)",
+    )
+    backup_list.add_argument(
+        "--services",
+        "-S",
+        dest="list_services",
+        metavar="SERVICE",
+        nargs="*",
+        help="Only list backups of these services, e.g. --services service:prov (space- or "
+        "comma-separated; the 'service:' prefix is optional). Default: all",
+    )
+    backup_list.add_argument(
+        "--format",
+        "-F",
+        choices=("table", "text", "json"),
+        default=None,
+        help="Output mode: table (default, aligned), text (tab-separated rows) or json; "
+        "a global -o/--output is honoured when --format is omitted",
     )
 
-    parser_restore = subparser_action.add_parser(
+    backup_restore = backup_sub.add_parser(
         "restore",
         help="Restore a service backup into the target DB (honours --profile, else [restore])",
     )
-    parser_restore.add_argument(
-        "restore_service",
-        metavar="service",
-        nargs="?",
+    backup_restore.add_argument(
+        "--service",
+        "-S",
+        dest="restore_service",
+        metavar="SERVICE",
         default="service:prov",
-        help="Service to restore (default: service:prov)",
+        help="Service to restore, e.g. --service service:prov (the 'service:' prefix is optional). "
+        "Exactly one, since a restore targets a single backup id. Default: service:prov",
     )
-    parser_restore.add_argument(
+    backup_restore.add_argument(
         "restore_backup_id",
         metavar="backup_id",
         nargs="?",
@@ -533,13 +567,15 @@ def execute_action(service, action, _operation, args):
     if action == "down":
         return dev_down(args)
     if action == "backup":
+        # Lazy import: snapshot / list / restore a service's DB rows via the PostgreSQL tools.
         from ligojcli import dev_backup
 
-        return dev_backup.backup(args)
-    if action == "restore":
-        from ligojcli import dev_backup
-
-        return dev_backup.restore(args)
+        operation = args.get("operation")
+        if operation == "list":
+            return dev_backup.list_backups(args)
+        if operation == "restore":
+            return dev_backup.restore(args)
+        return dev_backup.backup(args)  # bare 'dev backup' takes the snapshot
     if action == "demo":
         # Lazy import: only needed for this action, and it talks to the Ligoj REST API.
         from ligojcli import dev_demo
@@ -1450,15 +1486,24 @@ def _init_postgres(args):
     pgdata = "/var/lib/postgresql/data/pgdata"
     data_source = None
     recovered_image = None
-    if _container_exists(POSTGRES_CONTAINER):
-        # Recover settings the existing (raw) container was created with, so the
-        # migration keeps the same database, image (major version) and data location.
-        db_user = _container_env(POSTGRES_CONTAINER, "POSTGRES_USER") or db_user
-        db_password = _container_env(POSTGRES_CONTAINER, "POSTGRES_PASSWORD") or db_password
-        db_name = _container_env(POSTGRES_CONTAINER, "POSTGRES_DB") or db_name
-        pgdata = _container_env(POSTGRES_CONTAINER, "PGDATA") or pgdata
-        recovered_image = _container_image(POSTGRES_CONTAINER)
-        mount = _container_mounts(POSTGRES_CONTAINER).get("/var/lib/postgresql/data")
+    # Existing container of either era: pod-era ('<pod>-<pod>', from kube play) or legacy raw name.
+    existing = next(
+        (
+            c
+            for c in (_pod_container(POSTGRES_CONTAINER), POSTGRES_CONTAINER)
+            if _container_exists(c)
+        ),
+        None,
+    )
+    if existing:
+        # Recover settings the existing container was created with, so a migration or a
+        # --recreate keeps the same database, image (major version) and data location.
+        db_user = _container_env(existing, "POSTGRES_USER") or db_user
+        db_password = _container_env(existing, "POSTGRES_PASSWORD") or db_password
+        db_name = _container_env(existing, "POSTGRES_DB") or db_name
+        pgdata = _container_env(existing, "PGDATA") or pgdata
+        recovered_image = _container_image(existing)
+        mount = _container_mounts(existing).get("/var/lib/postgresql/data")
         if mount and (mount[0] or mount[1]):
             data_source = mount[0] or mount[1]
             kind = "volume" if mount[0] else "directory"
@@ -1479,6 +1524,7 @@ def _init_postgres(args):
         image,
         [(5432, port)],
         env=env,
+        args=POSTGRES_SERVER_ARGS,
         volumes=[volume],
         mounts=[{"name": volume["name"], "mountPath": "/var/lib/postgresql/data"}],
     )

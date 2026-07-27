@@ -78,7 +78,8 @@ def main():
         except Exception:
             print("Unable to display result as JSON", result)
 
-    elif output == "text":
+    else:
+        # 'text' and any non-JSON mode ('table' on a command that does not render one) land here.
         if isinstance(result, str):
             print(result)
         elif result is None or (isinstance(result, dict) and len(result.keys()) == 0):
