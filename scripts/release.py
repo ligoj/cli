@@ -133,6 +133,16 @@ def read_version() -> str:
     return m.group(1)
 
 
+def version_key(version: str) -> tuple[int, ...]:
+    """Natural ordering for a version string, so '1.1.0.dev10' sorts after '1.1.0.dev9'.
+
+    A plain string sort puts 'dev10' *before* 'dev9', which would report the wrong build once the
+    dev counter reaches double digits. Comparing the numeric groups avoids that without pulling in
+    `packaging` just for this.
+    """
+    return tuple(int(number) for number in re.findall(r"\d+", version))
+
+
 def bump(version: str, part: str) -> str:
     try:
         major, minor, patch = (int(x) for x in version.split("."))
@@ -338,11 +348,17 @@ def cmd_test() -> None:
 
     step("Wait for a fresh .dev build on TestPyPI")
 
+    # Keep what the poll actually saw. Re-querying the index afterwards is a race: the JSON API sits
+    # behind a CDN, so a second call can land on a node still serving the pre-publish body — the
+    # difference then comes back empty and picking the newest version blows up on an empty list.
+    found: set[str] = set()
+
     def appeared() -> bool:
-        return bool(testpypi_versions(PACKAGE) - before)
+        found.update(testpypi_versions(PACKAGE) - before)
+        return bool(found)
 
     wait_until(appeared, "a new TestPyPI build", timeout=1200)
-    new = sorted(testpypi_versions(PACKAGE) - before)[-1]
+    new = max(found, key=version_key)
     print()
     ok(f"Published {_bold(PACKAGE + ' ' + new)} to TestPyPI 🧪")
     print(f"  {_dim('TestPyPI:')} https://test.pypi.org/project/{PACKAGE}/{new}/")
