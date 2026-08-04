@@ -11,13 +11,26 @@ ligojcli = ["assets/*.png"]
 [project]
 name = "ligoj-cli"
 version = "1.2.0"
-description = "Ligoj CLI"
+description = "Command-line client for the Ligoj REST API, with a local dev-environment toolkit"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Fabrice Daugan", email = "fdaugan@kloudy.io" }]
+keywords = [
+    "ligoj",
+    "cli",
+    "rest",
+    "api",
+    "devops",
+    "automation",
+    "finops",
+    "cloud",
+    "provisioning",
+    "podman"
+]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
