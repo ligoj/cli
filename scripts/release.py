@@ -32,6 +32,7 @@ PACKAGE = "ligoj-cli"
 MAIN_BRANCH = "main"
 TEST_BRANCH = "develop"
 PYPROJECT = "pyproject.toml"
+LOCKFILE = "uv.lock"
 PYPI_JSON = "https://pypi.org/pypi/{pkg}/json"
 PYPI_VERSION_JSON = "https://pypi.org/pypi/{pkg}/{version}/json"
 TESTPYPI_JSON = "https://test.pypi.org/pypi/{pkg}/json"
@@ -195,7 +196,21 @@ def current_branch() -> str:
 
 
 def preflight_clean() -> None:
-    if run(["git", "status", "--porcelain"], capture=True):
+    dirty = run(["git", "status", "--porcelain"], capture=True)
+    if dirty:
+        lines = [line for line in dirty.splitlines() if line.strip()]
+        for line in lines[:10]:
+            info(_dim(line))
+        if len(lines) > 10:
+            info(_dim(f"... and {len(lines) - 10} more"))
+        # Single out the self-inflicted case: `uv run` regenerates uv.lock whenever pyproject's
+        # version moved, so a release that committed only pyproject.toml leaves the lock stale and
+        # every later run trips this check for a file the user never touched.
+        if any(line.split()[-1] == LOCKFILE for line in lines):
+            die(
+                f"working tree is not clean — {LOCKFILE} is stale (a version bump was committed "
+                f"without it). Run '{UV} lock' and commit {LOCKFILE}"
+            )
         die("working tree is not clean — commit or stash first")
     ok("working tree clean")
 
@@ -256,9 +271,17 @@ def cmd_release(part: str, yes: bool) -> None:
 
     step("Bump version and commit")
     write_version(new)
-    run(["git", "add", PYPROJECT])
+    # uv.lock pins the project's OWN version, so it goes stale the instant pyproject.toml moves.
+    # Refresh it and commit it WITH the bump: otherwise the next `uv run` (which is how this script
+    # is launched) silently rewrites the lock, dirties the tree, and preflight_clean() aborts every
+    # subsequent release — with no hint that the lockfile is the culprit.
+    staged = [PYPROJECT]
+    if os.path.exists(LOCKFILE):
+        run([UV, "lock"])
+        staged.append(LOCKFILE)
+    run(["git", "add", *staged])
     run(["git", "commit", "-m", f"chore(release): {tag}"])
-    ok(f"committed version bump to {new}")
+    ok(f"committed version bump to {new} ({', '.join(staged)})")
 
     step("Tag and push")
     run(["git", "tag", "-a", tag, "-m", f"Release {tag}"])
