@@ -57,6 +57,7 @@ _VALUE_FLAGS = {
     "--port": "port",
     "--api-port": "api_port",
     "--home": "home",
+    "--context": "context",
     "--tag": "tag",
     "--api-tag": "api_tag",
     "--ui-tag": "ui_tag",
@@ -141,6 +142,19 @@ def _opts(parsed, given_key, opts_key, env, config_key, default_opts):
     return shlex.split(configured) if configured else list(default_opts)
 
 
+def _context_path(value):
+    """Normalize a UI context path for the image's CONTEXT_URL (a Spring servlet context-path).
+
+    Spring wants '/name' — leading slash, no trailing slash — so 'ligoj2' becomes '/ligoj2' and
+    '/ligoj2/' is trimmed. '/' (or '') means the ROOT context and must be passed as '' (Spring
+    rejects a bare '/').
+    """
+    path = (value or "").strip().rstrip("/")
+    if path in ("", "/"):
+        return ""
+    return path if path.startswith("/") else f"/{path}"
+
+
 def _resolve_config(parsed):
     home = _resolve(
         parsed.get("home"), "LIGOJ_HOME", "ligoj_home", os.path.join(utils.user_home, ".ligoj")
@@ -166,6 +180,9 @@ def _resolve_config(parsed):
         ),
         "ui_port": str(
             _resolve(parsed.get("port"), "LIGOJ_UI_PORT", "ligoj_ui_port", _DEFAULT_UI_PORT)
+        ),
+        "ui_context": _context_path(
+            _resolve(parsed.get("context"), "LIGOJ_UI_CONTEXT", "ligoj_ui_context", _UI_CONTEXT)
         ),
         "api_image": _image_ref(runtime, _API_IMAGE, api_tag),
         "ui_image": _image_ref(runtime, _UI_IMAGE, ui_tag),
@@ -372,6 +389,8 @@ def _run_commands(config):
         f"ENDPOINT=http://{config['endpoint_host']}:{config['api_port']}/ligoj-api",
         "-e",
         f"SERVER_PORT={config['ui_port']}",
+        "-e",
+        f"CONTEXT_URL={config['ui_context']}",
         config["ui_image"],
     ]
     return api, ui
@@ -390,7 +409,7 @@ def _run(cmd, check=True):
 
 def _wait(config, wait, no_browser):
     api_health = f"http://localhost:{config['api_port']}{_API_CONTEXT}/manage/health"
-    ui_health = f"http://localhost:{config['ui_port']}{_UI_CONTEXT}/login.html"
+    ui_health = f"http://localhost:{config['ui_port']}{config['ui_context']}/login.html"
     labels = {
         f"{_API_NAME} (:{config['api_port']})": api_health,
         f"{_UI_NAME} (:{config['ui_port']})": ui_health,
@@ -404,7 +423,7 @@ def _wait(config, wait, no_browser):
         return False
 
     dev._await_many(list(labels), check, dev._deadline(wait), "up")
-    ui_url = f"http://localhost:{config['ui_port']}{_UI_CONTEXT}/"
+    ui_url = f"http://localhost:{config['ui_port']}{config['ui_context']}/"
     if len(ready) != len(labels):
         utils.warn(
             f"[test] not all containers became healthy; check logs: {config['runtime']} logs -f {_API_NAME}"
@@ -496,6 +515,8 @@ Options (start):
   --port N            UI container port and browser port          (default 8089, LIGOJ_UI_PORT / ligoj_ui_port)
   --api-port N        API port: the UI ENDPOINT and API exposed   (default 8088, LIGOJ_API_PORT / ligoj_api_port)
   --home DIR          LIGOJ_HOME mounted at /home/ligoj           (default ~/.ligoj, LIGOJ_HOME / ligoj_home)
+  --context PATH      UI context path (the image's CONTEXT_URL)   (default /ligoj, LIGOJ_UI_CONTEXT /
+                      e.g. --context /ligoj2; '/' = root context   ligoj_ui_context)
   --tag T             Image tag for both images   (default: newest LOCAL build, else latest published;
                                                    LIGOJ_TEST_TAG / ligoj_test_tag)
   --api-tag / --ui-tag T   Per-image tag override

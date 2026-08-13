@@ -2244,19 +2244,32 @@ build` runs that build for every **live** plugin — the ones installed in the r
 # Rebuild the frontend of every live plugin (in parallel)
 ligoj dev plugin build
 
-# Build only specific plugins (skips the live lookup, so Ligoj need not be running)
+# Build EVERY locally checked-out plugin that has a ui/ (no Ligoj instance needed)
+ligoj dev plugin build --all
+
+# Build only specific plugins (also skips the live lookup)
 ligoj dev plugin build --only plugin-ui plugin-id
 
 # Limit parallelism
 ligoj dev plugin build --jobs 2
 ```
 
+Two flags select what to build, and both work **offline**, straight from the working copies — like
+`dev plugin renovate --all`, they never query the Ligoj API:
+
+- **`--all` / `-A`** — every directory under the plugins dir that has a `ui/package.json`. Because it
+  reads the checkouts rather than the running instance, it also covers plugins that are not (or not
+  yet) installed in Ligoj.
+- **`--only` / `-O`** — an explicit artifact list.
+
+They are mutually exclusive. With **neither**, the set comes from the running Ligoj (`system/plugin`),
+so the instance must be reachable — the error names both escapes if it isn't.
+
 Dependencies are installed automatically on first build (`npm ci` when a `package-lock.json` is
 present, otherwise `npm install`) before `npm run build`. Builds run in parallel (default
 `min(4, CPUs)`, `--jobs` to change) and each plugin is reported `OK` / `FAILED` independently — one
 failing frontend never aborts the others. The plugins directory is `LIGOJ_PLUGINS_DIR` /
-`[dev] ligoj_plugins_dir` (default `~/git/ligoj-plugins`), and `npm` must be on the `PATH`. Without
-`--only`, Ligoj must be reachable so the live plugin set can be listed.
+`[dev] ligoj_plugins_dir` (default `~/git/ligoj-plugins`), and `npm` must be on the `PATH`.
 
 ## Renovate a plugin's dependencies (`dev plugin renovate`)
 
@@ -2330,12 +2343,13 @@ the release helper (`commands/release.sh`).
 While `dev debug` runs the apps from your IDE, `dev test` runs the **released Docker images**
 (`ligoj/ligoj-api` + `ligoj/ligoj-ui`) against the local dev stack — the quickest way to smoke-test a
 published build. It starts both containers in the background, waits until **both are healthy**, then
-opens the UI in your browser at `http://localhost:<ui-port>/ligoj/`:
+opens the UI in your browser at `http://localhost:<ui-port><context>/` (default context `/ligoj`):
 
 ```bash
 ligoj dev test start                       # run both, wait for health, open the browser
 ligoj dev test stop                        # stop and remove both containers
 ligoj dev test start --tag 4.0.2-SNAPSHOT-101 --port 8089 --api-port 8088
+ligoj dev test start --context /ligoj2     # serve the UI under /ligoj2 (CONTEXT_URL; '/' = root)
 ligoj dev test start --no-browser --no-wait          # start detached, don't wait or open the browser
 ligoj dev test -h                          # full option + '-D' reference (mirrors ligoj/DOC.md)
 
@@ -2367,6 +2381,7 @@ Every option resolves from the CLI flag, then the environment, then `~/.ligoj/co
 | ------ | ------- | ----------------- |
 | `--port` (UI port, also the browser port) | `8089` | `LIGOJ_UI_PORT` / `ligoj_ui_port` |
 | `--api-port` (UI `ENDPOINT` + API exposed port) | `8088` | `LIGOJ_API_PORT` / `ligoj_api_port` |
+| `--context` (UI context path, the image's `CONTEXT_URL`) | `/ligoj` | `LIGOJ_UI_CONTEXT` / `ligoj_ui_context` |
 | `--home` (`LIGOJ_HOME`) | `~/.ligoj` | `LIGOJ_HOME` / `ligoj_home` |
 | `--tag` / `--api-tag` / `--ui-tag` | newest **local** build, else latest published | `LIGOJ_TEST_TAG` / `ligoj_test_tag` |
 | `--runtime` | `docker` if present, else `podman` | `LIGOJ_TEST_RUNTIME` / `ligoj_test_runtime` |

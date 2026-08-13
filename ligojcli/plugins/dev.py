@@ -499,13 +499,22 @@ def configure(subparser_service):
     )
 
     plugin_build = plugin_sub.add_parser(
-        "build", help="Run 'npm run build' for each live plugin's frontend (ui/)"
+        "build", help="Run 'npm run build' for each plugin frontend (ui/); live plugins by default"
     )
-    plugin_build.add_argument(
+    # Which plugins to build. Without either flag the set comes from the RUNNING Ligoj (its installed
+    # plugins), so both of these exist to work offline, straight from the local checkouts.
+    build_selection = plugin_build.add_mutually_exclusive_group()
+    build_selection.add_argument(
         "--only",
         "-O",
         nargs="*",
         help="Only build these plugin artifacts (e.g. plugin-ui plugin-id); skips the live lookup",
+    )
+    build_selection.add_argument(
+        "--all",
+        "-A",
+        action="store_true",
+        help="Build every plugin with a 'ui/' frontend under the plugins dir; skips the live lookup",
     )
     plugin_build.add_argument(
         "--jobs",
@@ -641,10 +650,24 @@ def dev_build_plugin(args):
 
 
 def _plugin_ui_targets(args, plugins_dir):
-    """Resolve the (artifact, ui_dir) pairs to build: the live plugins, or --only when given."""
+    """Resolve the (artifact, ui_dir) pairs to build: --only, --all, or the live plugins."""
     only = args.get("only")
     if only:
         artifacts = list(dict.fromkeys(only))  # explicit selection, no need for a running Ligoj
+    elif args.get("all"):
+        # Every plugin checked out locally that ships a frontend. Like 'plugin renovate --all', this
+        # works straight off the working copies: no Ligoj instance is queried, so it also covers
+        # plugins that are not (or not yet) installed in the running one.
+        if not os.path.isdir(plugins_dir):
+            raise ValueError(f"[dev] plugin build: plugins dir not found: {plugins_dir}")
+        artifacts = [
+            name
+            for name in sorted(os.listdir(plugins_dir))
+            if os.path.isfile(os.path.join(plugins_dir, name, "ui", "package.json"))
+        ]
+        utils.info(
+            f"[dev] plugin build: {len(artifacts)} plugin(s) with a frontend in {plugins_dir}"
+        )
     else:
         # 'live' plugins = those installed in the running Ligoj.
         from ligojcli.plugins import ligoj
@@ -654,7 +677,7 @@ def _plugin_ui_targets(args, plugins_dir):
         except Exception as error:  # noqa: BLE001 - turn any connection error into a clear hint
             raise ValueError(
                 f"[dev] plugin build: cannot list live plugins (is Ligoj running? {error}); "
-                "pass --only <artifact>... to build specific plugins without it"
+                "pass --all, or --only <artifact>..., to build without it"
             )
         artifacts = list(
             dict.fromkeys(
