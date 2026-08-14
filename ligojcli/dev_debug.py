@@ -333,12 +333,66 @@ def _print_init_instructions(app_path, args):
 # --------------------------------------------------------------------------- #
 # start / stop / restart
 # --------------------------------------------------------------------------- #
+# Backing services the IDE stack depends on: ligoj-api needs the dev PostgreSQL ('ligoj-db' pod)
+# to boot at all, and OpenLDAP ('openldap' pod) for the plugin-id-ldap identity backend.
+_BACKING_SERVICES = ("postgresql", "openldap")
+
+
+def _ensure_backing_services(args, wait):
+    """Bring the backing pods (dev PostgreSQL + OpenLDAP) up before the apps.
+
+    A service already answering on its port is skipped. For the rest the podman machine is started
+    first (a stopped machine makes every pod look absent), then each pod; a never-created pod only
+    warns (pointing at 'dev init'), so the IDE apps still launch and their own logs show the error.
+    """
+    pending = []
+    for svc in _BACKING_SERVICES:
+        if dev._service_healthy(svc, args):
+            utils.info(f"[debug] {svc} ({dev._PODS[svc]}) already up")
+        else:
+            pending.append(svc)
+    if not pending:
+        return
+    dev._ensure_podman()
+    started = []
+    for svc in pending:
+        if not dev._pod_exists(dev._PODS[svc]):
+            utils.warn(
+                f"[debug] {svc}: pod '{dev._PODS[svc]}' does not exist — run "
+                f"'ligoj dev init --only {svc}' first; ligoj-api needs it"
+            )
+            continue
+        dev._start_service(svc)
+        started.append(svc)
+    if started and wait != 0:
+        # Bounded even when --wait is unset (unset means 'no limit' elsewhere): a healthy pod
+        # answers within seconds, so a broken one should not hold the IDE startup hostage.
+        dev._await_services(started, args, True, wait if wait is not None else 90)
+
+
+def _stop_backing_services():
+    """Stop the backing pods ('dev debug stop' owns them symmetrically with start).
+
+    When the podman machine itself is down every pod is already stopped — skip quietly instead of
+    letting the per-pod probes misreport 'does not exist' on a dead connection.
+    """
+    if dev._podman("info", "--format", "{{.Host.Arch}}", check=False).returncode != 0:
+        utils.info("[debug] podman not running — backing pods already down")
+        return
+    for svc in _BACKING_SERVICES:
+        dev._stop_service(svc)
+
+
 def _start(args):
     app = _idea_app(args)
     project = _project_dir(args)
     wait = args.get("wait")
     comps = _components(args)
     expect_up = []
+
+    # 0. Backing services: ligoj-api depends on the [dev] PostgreSQL and OpenLDAP, so start their
+    #    pods first (they warm up while IntelliJ loads).
+    _ensure_backing_services(args, wait)
 
     # 1. IntelliJ IDEA (start + open the project, or just focus it if already running).
     ide_was_running = _ide_running(app)
@@ -408,6 +462,9 @@ def _launch_debug_app(args, stopped):
 
 def _stop(args):
     _stop_apps(args, args.get("wait"))
+    # Symmetric with start: also stop the backing pods. NOT done on restart (_restart calls
+    # _stop_apps directly), which only bounces the apps and leaves the pods running.
+    _stop_backing_services()
     utils.info("[debug] IntelliJ left running (quit it manually to preserve unsaved work)")
     _render_status(args)
     return False
