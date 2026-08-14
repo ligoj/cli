@@ -2163,6 +2163,8 @@ stack you actually debug: IntelliJ IDEA plus the two Ligoj Spring Boot apps and 
 
 | Component       | Started by `dev debug`                                  | Endpoint / path |
 | --------------- | ------------------------------------------------------- | --------------- |
+| PostgreSQL      | the `ligoj-db` pod (`podman pod start`, machine too)    | `localhost:5432` |
+| OpenLDAP        | the `openldap` pod (`podman pod start`)                 | `localhost:1389` |
 | IntelliJ IDEA   | `open -a "IntelliJ IDEA" <project>` (if stopped)        | `~/git/ligoj` |
 | `ligoj-api`     | the **dedicated launcher app**, in Debug mode           | `http://localhost:8081/ligoj-api` |
 | `ligoj-ui`      | the **dedicated launcher app**, in Debug mode           | `http://localhost:8080/ligoj` |
@@ -2170,12 +2172,20 @@ stack you actually debug: IntelliJ IDEA plus the two Ligoj Spring Boot apps and 
 
 ```bash
 ligoj dev debug init       # compile the dedicated launcher app (one-time; re-run after renaming a config)
-ligoj dev debug start      # open IntelliJ + Debug-launch the API/UI + start Vite (only those stopped)
+ligoj dev debug start      # start the ligoj-db + openldap pods + IntelliJ + API/UI/Vite (only those stopped)
 ligoj dev debug status     # show what is running (process) and reachable (port), no changes
-ligoj dev debug stop       # stop the API/UI/Vite apps (IntelliJ stays open to protect unsaved work)
-ligoj dev debug restart    # stop then start the apps
+ligoj dev debug stop       # stop the API/UI/Vite apps AND the two pods (IntelliJ stays open)
+ligoj dev debug restart    # stop then start the apps (the pods are left running)
 ligoj dev debug start -w 60 # same live '--wait' as the other dev commands (0 = no wait)
 ```
+
+**Backing services first.** `start` brings the **dev PostgreSQL** (`ligoj-db` pod) and **OpenLDAP**
+(`openldap` pod) up before anything else — `ligoj-api` cannot boot without the DB, and the LDAP
+identity backend should be there too — starting the podman machine when it is down. A service already
+answering on its port is a no-op; a pod that was **never created** only warns (run
+`ligoj dev init --only <service>`) so the IDE stack still launches. Symmetrically, **`dev debug stop`
+also stops both pods** (skipped quietly when podman itself is down); `restart` only bounces the apps
+and leaves the pods running.
 
 **Why `init` / the launcher app.** IntelliJ has no headless "run this configuration" command, and
 scripting its UI needs the broad macOS **Accessibility** permission (control any app + read the
