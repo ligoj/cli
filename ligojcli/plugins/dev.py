@@ -240,7 +240,7 @@ def configure(subparser_service):
         "--skip-prereqs",
         action="store_true",
         default=False,
-        help="Skip checking/installing prerequisites (podman, Java 21, Maven 3.9.6)",
+        help="Skip checking/installing prerequisites (podman, Java 25+, Maven 3.9.16)",
     )
     parser_action.add_argument("--ldap-port", help="Host port for OpenLDAP (default 1389)")
     parser_action.add_argument("--jenkins-port", help="Host port for Jenkins HTTP (default 8085)")
@@ -1280,8 +1280,8 @@ def _service_config(svc, args):
 # --------------------------------------------------------------------------- #
 # Pre-conditions
 # --------------------------------------------------------------------------- #
-JAVA_VERSION = "21"
-MAVEN_VERSION = "3.9.6"
+JAVA_VERSION = "25"
+MAVEN_VERSION = "3.9.16"
 
 
 def _check_preconditions(services, args):
@@ -1322,14 +1322,15 @@ def _ensure_java(major):
 
 
 def _java_available(major):
-    home = _run(["/usr/libexec/java_home", "-v", str(major)], check=False)
+    # Minimal-version semantics: any JDK >= `major` is accepted.
+    home = _run(["/usr/libexec/java_home", "-v", f"{major}+"], check=False)
     if home.returncode == 0:
         return True
     if shutil.which("java") is None:
         return False
     out = _run(["java", "-version"], check=False)
     match = re.search(r'version "(\d+)', (out.stderr or "") + (out.stdout or ""))
-    return match is not None and match.group(1) == str(major)
+    return match is not None and int(match.group(1)) >= int(major)
 
 
 def _ensure_maven(version):

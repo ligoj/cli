@@ -415,11 +415,11 @@ jobs:
       - uses: s4u/setup-maven-action@ba34de01b7f4ba2ab8e2860df8993a29f4477056
         with:
           checkout-fetch-depth: 0
-          java-version: 21
+          java-version: 25
           java-distribution: 'corretto'
           cache-path-add: ~/.sonar/cache
           cache-prefix: ${{{{ runner.os }}}}-sonar
-          maven-version: 3.9.6
+          maven-version: 3.9.16
       - name: maven-settings-xml-action
         uses: marcelrgberger/maven-settings-xml-action@acf2b8d12d81cd9119fe2a6175096ad6d1c645c2
         with:

@@ -1799,7 +1799,7 @@ Artifactory + kind at once) is heavy, so `dev init` also **enforces the podman m
 if it has fewer than **6 vCPU** or **23 GB RAM** it is **stopped, resized up to that minimum, and
 restarted** (a fresh machine is created already sized; a machine that already exceeds the minimum is
 left untouched). On macOS it also checks the tools `dev demo` needs
-later — **Java 21** (installed as the Temurin JDK cask via Homebrew) and **Maven 3.9.6** (installed
+later — **Java 25** (installed as the Temurin JDK cask via Homebrew) and **Maven 3.9.16** (installed
 via [SDKMAN](https://sdkman.io), bootstrapped if missing); these two are best-effort and never abort
 `init`. Pass `--skip-prereqs` to skip all these checks. Each service streams live progress and is
 **idempotent** — a running pod is reused; use `--recreate` to replace it.
