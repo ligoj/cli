@@ -3,7 +3,7 @@
 #
 # Demo setup for plugin-registry-nexus: register the local Nexus node.
 #
-# The node parameters start from the bundled sample docs/nodes/nexus.local.json; the endpoint and
+# The node parameters start from the bundled sample ligojcli/data/nodes/nexus.local.json; the endpoint and
 # credentials are then overridden with the live values from `dev init --only nexus` (stored in the
 # [dev] section). Only url/user/password are node-level; type and registry are subscription-level.
 #

@@ -27,7 +27,7 @@ def run(args):
 
     # Start from the bundled node definition, then reflect the actual running LDAP configuration.
     params = utils.load_json_from_url_or_file_with_interpolation(
-        _common.bundled_path("docs", "nodes", "ldap.local.json"), {}
+        _common.bundled_path("nodes", "ldap.local.json"), {}
     )
     _set_param(params, "service:id:ldap:url", f"ldap://localhost:{port}")
     _set_param(params, "service:id:ldap:user-dn", f"cn={admin_user},{root}")

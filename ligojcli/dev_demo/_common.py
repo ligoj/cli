@@ -7,13 +7,15 @@ import os
 
 from ligojcli.plugins import dev, ligoj, utils
 
-# Repository root, two levels up from this package (ligojcli/dev_demo/).
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+# Package data root (ligojcli/data/): the bundled samples ship INSIDE the
+# `ligojcli` package so they are present in the installed wheel too — a path
+# relative to the repository root only exists in a source checkout.
+_DATA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 
 
 def bundled_path(*parts):
-    """Absolute path to a file bundled with the CLI source tree (e.g. docs/nodes/...)."""
-    return os.path.join(_REPO_ROOT, *parts)
+    """Absolute path to a file bundled with the CLI package (ligojcli/data/...)."""
+    return os.path.join(_DATA_ROOT, *parts)
 
 
 def dev_value(args, name, env, default=None):
@@ -22,9 +24,9 @@ def dev_value(args, name, env, default=None):
 
 
 def load_node(filename):
-    """Load a bundled node sample (docs/nodes/<filename>) as a {parameter: value} mapping."""
+    """Load a bundled node sample (ligojcli/data/nodes/<filename>) as a {parameter: value} mapping."""
     entries = utils.load_json_from_url_or_file_with_interpolation(
-        bundled_path("docs", "nodes", filename), {}
+        bundled_path("nodes", filename), {}
     )
     return {entry["parameter"]: entry.get("text") for entry in entries if entry.get("parameter")}
 
