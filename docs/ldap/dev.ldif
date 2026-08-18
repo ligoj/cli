@@ -1,7 +1,7 @@
 # Base Directory Information Tree for the local Ligoj dev LDAP (node service:id:ldap:local).
 #
 # `dev init` imports this idempotently (ldapadd -c) onto the bitnami-created root
-# dc=sample,dc=com, so the OUs referenced by docs/nodes/ldap.local.json and the
+# dc=sample,dc=com, so the OUs referenced by ligojcli/data/nodes/ldap.local.json and the
 # `dev demo` plugin-id-ldap commands exist before the LDAP node becomes the primary IAM.
 # It also seeds two reference accounts (ligoj-admin / ligoj-user, password == uid).
 
