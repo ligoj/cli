@@ -19,6 +19,7 @@ from ligojcli.plugins import (
     nexus,
     prov,
     sonarqube,
+    update,
     utils,
 )
 from ligojcli.plugins import ligoj as ligoj_plugin
@@ -39,6 +40,7 @@ def main():
     nexus.configure(subparser_service)
     prov.configure(subparser_service)
     sonarqube.configure(subparser_service)
+    update.configure(subparser_service)
 
     (args, output) = utils.configure(parser)
 
@@ -97,6 +99,9 @@ def execute_action(service, action, operation, args):
     # The 'dev' service only drives local containers, no Ligoj endpoint required.
     if service == "dev":
         return dev.execute_action(service, action, operation, args)
+    # Self-update of the CLI itself: no Ligoj endpoint required either.
+    if service == "update":
+        return update.execute_action(service, action, operation, args)
 
     utils.check_endpoint(utils.not_none(ligoj_plugin.ligoj_endpoint, "endpoint"), "ligoj")
     utils.debug(

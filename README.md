@@ -37,6 +37,19 @@ pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/
 
 For local development from a checkout, see [Development](#development).
 
+## Updating
+
+The CLI updates itself through `uv`:
+
+```bash
+ligoj update                  # upgrade to the latest release (uv tool upgrade)
+ligoj update --target 1.3.0   # pin a specific version (uv tool install --force)
+```
+
+When the CLI was installed with `pipx`/`pip` instead of `uv`, update it with the
+matching command (`pipx upgrade ligoj-cli` / `pip install -U ligoj-cli`) — 
+`ligoj update` reminds you of these when `uv` is not available.
+
 
 # Configuration
 
@@ -1008,7 +1021,7 @@ Input `--from` JSON:
 - JSON can be as list or dict (compact). See sample.
 - The parameters marked as sensitive are encrypted in database of Ligoj.
 
-Content of sample [ligoj-ldap.json](docs/nodes/ldap.json) file:
+Content of sample [ligoj-ldap.json](ligojcli/data/nodes/ldap.json) file:
 
 ```json
 [
@@ -2040,12 +2053,12 @@ Each plugin's demo lives in its own module under `ligojcli/dev_demo/`:
 
 | Plugin artifact               | What the demo does                                                                      |
 | ----------------------------- | --------------------------------------------------------------------------------------- |
-| `plugin-id-ldap`              | Upserts the `service:id:ldap:local` node (from [docs/nodes/ldap.local.json](docs/nodes/ldap.local.json), with the live URL / bind DN / password), makes it the primary IAM, restarts the context, then creates the reference OUs, company/group container scopes and technical groups |
+| `plugin-id-ldap`              | Upserts the `service:id:ldap:local` node (from [ligojcli/data/nodes/ldap.local.json](ligojcli/data/nodes/ldap.local.json), with the live URL / bind DN / password), makes it the primary IAM, restarts the context, then creates the reference OUs, company/group container scopes and technical groups |
 | `plugin-build-jenkins`        | Upserts the `service:build:jenkins:local` node (url / user / api-token)                  |
 | `plugin-scm-gitlab`           | Upserts the `service:scm:gitlab:local` node (url / user / auth-key)                      |
 | `plugin-registry-harbor`      | Upserts the `service:registry:harbor:local` node (url / user / password)                |
-| `plugin-registry-nexus`       | Upserts the `service:registry:nexus:local` node (from [docs/nodes/nexus.local.json](docs/nodes/nexus.local.json), with the live url / user / password) |
-| `plugin-registry-artifactory` | Upserts the `service:registry:artifactory:local` node (from [docs/nodes/artifactory.local.json](docs/nodes/artifactory.local.json), with the live url / user / password) |
+| `plugin-registry-nexus`       | Upserts the `service:registry:nexus:local` node (from [ligojcli/data/nodes/nexus.local.json](ligojcli/data/nodes/nexus.local.json), with the live url / user / password) |
+| `plugin-registry-artifactory` | Upserts the `service:registry:artifactory:local` node (from [ligojcli/data/nodes/artifactory.local.json](ligojcli/data/nodes/artifactory.local.json), with the live url / user / password) |
 | `plugin-prov-aws`             | Upserts the `service:prov:aws:local` node from the `[dev]` AWS credentials — `aws_access_key_id`, `aws_secret_access_key`, `aws_account_id` (all required) |
 | `plugin-prov-azure`           | Upserts the `service:prov:azure:local` node from the `[dev]` Azure service principal — `azure_tenant_id`, `azure_subscription_id`, `azure_application_id`, `azure_client_secret` (required) and `azure_resource_group` (optional) |
 
