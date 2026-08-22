@@ -1413,11 +1413,20 @@ def _ensure_podman(enforce_resources=False):
     """Ensure podman is installed and reachable, its machine sized (when requested) and started."""
     _ensure_tool("podman")
     _ensure_podman_machine(enforce_resources)
-    result = _podman("info", "--format", "{{.Host.Arch}}", check=False)
-    if result.returncode != 0:
-        raise ValueError(
-            f"[dev] podman is still not ready after machine start: {(result.stderr or '').strip()}"
-        )
+    # The API socket can lag a few seconds behind a successful 'machine start', so poll instead of
+    # failing on one immediate probe (an already-running machine answers on the first attempt).
+    deadline = time.time() + 30
+    while True:
+        result = _podman("info", "--format", "{{.Host.Arch}}", check=False)
+        if result.returncode == 0:
+            break
+        if time.time() >= deadline:
+            raise ValueError(
+                "[dev] podman is still not ready after machine start: "
+                f"{(result.stderr or '').strip()}\n"
+                "Check 'podman machine list', then 'podman machine stop && podman machine start'"
+            )
+        time.sleep(2)
     utils.info("[dev] podman is available")
 
 
@@ -1449,7 +1458,17 @@ def _ensure_podman_machine(enforce_resources):
     # Start it if it is not already running/reachable (blocks until the machine is up).
     if _podman("info", "--format", "{{.Host.Arch}}", check=False).returncode != 0:
         utils.info("[dev] Start podman machine (waiting until it is ready) ...")
-        _podman("machine", "start", check=False, stream=True)
+        if _podman("machine", "start", check=False, stream=True).returncode != 0:
+            # First starts flake: krunkit/gvproxy can crash on boot (stale VM processes after a mac
+            # sleep or a previous crash), and a machine wedged as 'Currently running' while its
+            # socket is dead refuses to start at all. 'machine stop' reaps the leftovers and resets
+            # the state; one retried start then usually succeeds.
+            utils.warn(
+                "[dev] podman machine start failed — resetting the machine (stop) and retrying ..."
+            )
+            _podman("machine", "stop", check=False, stream=True)
+            time.sleep(2)
+            _podman("machine", "start", check=False, stream=True)
 
 
 def _ensure_podman_resources():
