@@ -314,19 +314,23 @@ def _print_init_instructions(app_path, args):
         f"'{comp['config']}'" for comp in _components(args) if comp["kind"] == "java"
     )
     print()
-    utils.info("[debug] One-time setup for the dedicated debug launcher:")
-    print(f"  1. Run 'ligoj dev debug start' (or open {app_path}).")
-    print(
-        "     macOS will ask to let 'Ligoj Debug' control your computer (Accessibility) — approve."
-    )
-    print("     Only THIS app gets the permission; you can then revoke your Terminal's grant.")
-    print(
-        "     (Remove any stale 'applet' entry in that list; macOS may re-prompt after a re-init.)"
-    )
-    print(f"  2. The app starts {configs} in Debug mode (skipping any already running), so you can")
-    print(
-        "     set breakpoints in IntelliJ. Re-run 'dev debug init' after you rename a run config."
-    )
+    utils.info("[debug] One-time setup — grant the launcher its macOS Accessibility permission:")
+    print("  1. System Settings > Privacy & Security > Accessibility:")
+    print("     REMOVE any existing 'Ligoj Debug' (or 'applet') row first with the '-' button.")
+    print("     A re-init re-signs the app, so an old row no longer matches: toggling a STALE row")
+    print("     does nothing and the launcher keeps failing silently.")
+    print(f"  2. Launch the app once: open '{app_path}'")
+    print("     (or run 'ligoj dev debug start'). Approve the 'control this computer' prompt; the")
+    print("     row reappears TICKED. The prompt can hide behind windows or on another display /")
+    print("     Space — if nothing seems to happen, go look for it; it stays open, unanswered.")
+    print("     Only THIS app gets the permission; your terminal needs no Accessibility grant.")
+    print(f"  3. Run 'ligoj dev debug start': it starts {configs} in Debug mode (skipping any")
+    print("     already running), so you can set breakpoints in IntelliJ.")
+    print()
+    print("  Symptoms of a missing/stale grant: 'Ligoj Debug' launches and stays open, IntelliJ")
+    print("  comes to the front, but the run configurations never start. Reset it cleanly with:")
+    print(f"    tccutil reset Accessibility {APP_BUNDLE_ID}")
+    print("  then redo steps 1-2. Re-run 'dev debug init' after renaming a run configuration.")
     print()
 
 
@@ -432,6 +436,17 @@ def _start(args):
         eff_wait = wait
     if wait != 0 and expect_up:
         _await_components(expect_up, True, eff_wait, args)
+        # The launcher fails INVISIBLY when it lacks the macOS Accessibility grant: its System
+        # Events calls are denied, it times out, and the run configs simply never start. Name that
+        # cause here — the process check (not the port) tells a never-started app from a slow one.
+        dead = [comp for comp in launched if not _running_pids(comp, args)]
+        if dead:
+            utils.warn(
+                f"[debug] {', '.join(comp['label'] for comp in dead)} never started — the launcher "
+                "app probably lacks the Accessibility grant (a re-init or macOS update invalidates "
+                "it): System Settings > Privacy & Security > Accessibility must list 'Ligoj Debug' "
+                f"ON. Reset a stale entry with: tccutil reset Accessibility {APP_BUNDLE_ID}"
+            )
     _render_status(args)
     return False
 

@@ -12,13 +12,18 @@
 # The generated project compiles and its (plain JUnit + Vitest) tests give 100% coverage of the
 # generated code: a minimal-but-real skeleton modelled on plugin-km / plugin-km-confluence.
 #
+import concurrent.futures
 import glob
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
+import threading
 import xml.etree.ElementTree as ET
+
+from colorama import Fore, Style
 
 from ligojcli.plugins import utils
 
@@ -1032,18 +1037,20 @@ def _is_plugin(repo):
 
 
 def _renovate_parent(repo, target):
-    """Bump the org.ligoj.api:plugin-parent <version> in repo/pom.xml to target. Returns a status str."""
+    """Bump the org.ligoj.api:plugin-parent <version> in repo/pom.xml to target.
+
+    Returns (status, fragment): status in changed/skip, fragment a short human summary (or None when
+    there is nothing worth saying, e.g. already at the target). Silent on purpose — with several
+    plugins renovated in parallel the caller owns the rendering.
+    """
     pom = os.path.join(repo, "pom.xml")
     current = _pom_parent_field(pom, "version")
     if not target:
-        utils.warn("[plugin]   parent: no target version (no local org.ligoj.api:parent) — skipped")
-        return "skip"
+        return "skip", "parent: no target version"
     if current == target:
-        utils.info(f"[plugin]   parent: already at {target}")
-        return "skip"
+        return "skip", None
     if current and _version_key(current) > _version_key(target):
-        utils.info(f"[plugin]   parent: current {current} is newer than {target} — skipped")
-        return "skip"
+        return "skip", f"parent {current} kept (newer than {target})"
 
     with open(pom, encoding="utf-8") as handle:
         text = handle.read()
@@ -1055,12 +1062,10 @@ def _renovate_parent(repo, target):
 
     updated = re.sub(r"<parent>.*?</parent>", _bump, text, count=1, flags=re.DOTALL)
     if updated == text:
-        utils.warn("[plugin]   parent: could not locate the <parent><version> to edit — skipped")
-        return "skip"
+        return "skip", "parent: <parent><version> not found"
     with open(pom, "w", encoding="utf-8") as handle:
         handle.write(updated)
-    utils.info(f"[plugin]   parent: {current or '?'} → {target} (pom.xml)")
-    return "changed"
+    return "changed", f"parent {current or '?'}→{target}"
 
 
 def _host_dependency_map(host):
@@ -1101,13 +1106,19 @@ def _repin_package_json(text, host_map):
 
 
 def _regenerate_lockfile(pkg_dir):
-    """Rebuild package-lock.json from package.json (no node_modules). Returns (ok, tail-of-output)."""
+    """Rebuild AND advance package-lock.json from package.json (no node_modules).
+
+    'npm update --package-lock-only' both syncs the lockfile with the (possibly re-pinned)
+    package.json and moves every dependency — direct and transitive — to the newest version its
+    semver range allows, which is the whole point of a renovate. package.json constraints are not
+    touched (no --save). Returns (ok, tail-of-output).
+    """
     npm = _npm()
     if not npm:
         return False, "npm not found (set PATH or install Node.js)"
     env = dict(os.environ, PATH=os.path.dirname(npm) + os.pathsep + os.environ.get("PATH", ""))
     result = subprocess.run(
-        [npm, "install", "--package-lock-only", "--no-audit", "--no-fund"],
+        [npm, "update", "--package-lock-only", "--no-audit", "--no-fund"],
         cwd=pkg_dir,
         capture_output=True,
         text=True,
@@ -1117,8 +1128,36 @@ def _regenerate_lockfile(pkg_dir):
     return result.returncode == 0, tail
 
 
+def _host_allow_scripts(host):
+    """The host package.json's allowScripts map (npm >= 11.19 install-script approvals), or {}."""
+    with open(host, encoding="utf-8") as handle:
+        return json.load(handle).get("allowScripts") or {}
+
+
+def _merge_allow_scripts(text, host_allow):
+    """Merge the host's allowScripts entries into a plugin package.json text.
+
+    Only ADDS/overwrites the entries the host declares — plugin-specific approvals are kept. When a
+    change is needed the file goes through a JSON round-trip (indent 2), so it is reformatted once;
+    an already-aligned file is returned untouched. Returns (new_text, changed_entry_count).
+    """
+    data = json.loads(text)
+    current = data.get("allowScripts") or {}
+    merged = {**current, **host_allow}
+    if merged == current:
+        return text, 0
+    data["allowScripts"] = merged
+    changed = sum(1 for key, value in host_allow.items() if current.get(key) != value)
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n", changed
+
+
 def _renovate_npm(repo, host):
-    """Align repo's package.json npm deps with the host and regenerate its lockfile. Returns a status str."""
+    """Align repo's package.json (deps + allowScripts) with the host, regenerate its lockfile.
+
+    Returns (status, fragments, details): status in changed/skip/error, fragments short summary
+    pieces for the one-line report, details the per-dependency change lines (verbose mode only).
+    Silent on purpose — with several plugins renovated in parallel the caller owns the rendering.
+    """
     relative = next(
         (
             path
@@ -1128,47 +1167,62 @@ def _renovate_npm(repo, host):
         None,
     )
     if not relative:
-        utils.info("[plugin]   npm: no package.json — skipped")
-        return "skip"
+        return "skip", ["no package.json"], []
     if not os.path.isfile(host):
-        utils.warn(f"[plugin]   npm: host package.json not found ({host}) — skipped")
-        return "skip"
+        return "skip", [f"host package.json not found ({host})"], []
 
     pkg_path = os.path.join(repo, relative)
     pkg_dir = os.path.dirname(pkg_path)
     host_map = _host_dependency_map(host)
     if not host_map:
-        utils.warn("[plugin]   npm: host declares no dependencies — skipped")
-        return "skip"
+        return "skip", ["host declares no dependencies"], []
 
     with open(pkg_path, encoding="utf-8") as handle:
         original = handle.read()
     updated, changes = _repin_package_json(original, host_map)
-    if changes:
-        try:
-            json.loads(updated)
-        except json.JSONDecodeError:
-            utils.warn("[plugin]   npm: re-pin produced invalid JSON — aborted")
-            return "error"
+    try:
+        json.loads(updated)
+        updated, approvals = _merge_allow_scripts(updated, _host_allow_scripts(host))
+    except json.JSONDecodeError:
+        return "error", ["re-pin produced invalid JSON — aborted"], []
+    if updated != original:
         with open(pkg_path, "w", encoding="utf-8") as handle:
             handle.write(updated)
+
+    # The lockfile is regenerated on every run (that is what keeps it honest), but 'changed' is
+    # reported only when something EFFECTIVELY moved: package.json text, or the lockfile bytes.
+    # npm's lockfile output is deterministic, so a re-run minutes later compares byte-identical and
+    # the plugin reports up-to-date instead of pretending an update happened.
+    lock_path = os.path.join(pkg_dir, "package-lock.json")
+    lock_before = None
+    if os.path.isfile(lock_path):
+        with open(lock_path, "rb") as handle:
+            lock_before = handle.read()
 
     ok, tail = _regenerate_lockfile(pkg_dir)
     if not ok:
         with open(pkg_path, "w", encoding="utf-8") as handle:  # restore our own edit
             handle.write(original)
-        utils.warn(f"[plugin]   npm: 'npm install --package-lock-only' failed — reverted:\n{tail}")
-        return "error"
+        return "error", ["npm lockfile regeneration failed — reverted"], [tail]
 
+    lock_changed = True
+    if os.path.isfile(lock_path):
+        with open(lock_path, "rb") as handle:
+            lock_changed = handle.read() != lock_before
+    if updated == original and not lock_changed:
+        return "skip", [], []
+
+    fragments = []
     if changes:
-        for name, old, new in changes:
-            utils.info(f"[plugin]   npm: {name} {old} → {new}")
-        utils.info(
-            f"[plugin]   npm: {len(changes)} dependency(ies) re-pinned + lockfile regenerated"
-        )
-        return "changed"
-    utils.info("[plugin]   npm: deps already aligned; lockfile regenerated")
-    return "changed"
+        fragments.append(f"{len(changes)} dep(s)")
+    if approvals:
+        fragments.append(f"allowScripts+{approvals}")
+    if lock_changed:
+        fragments.append("npm update" if fragments else "npm update (lockfile)")
+    details = [f"npm: {name} {old} → {new}" for name, old, new in changes]
+    if approvals:
+        details.append(f"npm: {approvals} allowScripts entry(ies) copied from the host")
+    return "changed", fragments, details
 
 
 def _renovate_repos(args):
@@ -1211,6 +1265,121 @@ def _renovate_repos(args):
     return [cwd]
 
 
+# Status glyphs of the per-plugin report line (matching the dev status/start rendering style).
+# Per-status rendering: plain ASCII glyphs with --no-color, emoji + colorama colors otherwise
+# (same gate as every other colored output, utils.no_color).
+_RENOVATE_ICONS = {"changed": "✓", "skip": "↷", "error": "✗"}
+_RENOVATE_EMOJI = {"changed": "✅", "skip": "💤", "error": "❌"}
+_RENOVATE_COLORS = {"changed": Fore.GREEN, "skip": Fore.CYAN, "error": Fore.RED}
+
+
+def _status_icon(status):
+    return _RENOVATE_ICONS[status] if utils.no_color else _RENOVATE_EMOJI[status]
+
+
+def _paint(text, color):
+    return text if utils.no_color else f"{color}{text}{Style.RESET_ALL}"
+
+
+def _renovate_repo(repo, target, host):
+    """Renovate ONE plugin (parent bump + npm alignment); returns the per-plugin result record."""
+    name = os.path.basename(os.path.abspath(repo))
+    try:
+        parent_status, parent_fragment = _renovate_parent(repo, target)
+        npm_status, npm_fragments, details = _renovate_npm(repo, host)
+    except (OSError, ValueError) as error:
+        return {"name": name, "status": "error", "summary": str(error)[:160], "details": []}
+    statuses = {parent_status, npm_status}
+    status = "error" if "error" in statuses else "changed" if "changed" in statuses else "skip"
+    fragments = [fragment for fragment in (parent_fragment, *npm_fragments) if fragment]
+    return {
+        "name": name,
+        "status": status,
+        "summary": " · ".join(fragments) or "up-to-date",
+        "details": details,
+    }
+
+
+def _parallel_renovate(repos, target, host, jobs):
+    """Renovate repos with `jobs` workers; each plugin gets exactly ONE line in the output.
+
+    While in flight a plugin shows in a small live footer (at most `jobs` rows, rewritten in
+    place); on completion its footer row is replaced by the plugin's permanent result line, which
+    then scrolls away normally. Keeping the live region no taller than the worker count is what
+    makes the rendering reliable: one row per PLUGIN (dozens) exceeds the terminal height, and once
+    a block scrolls, cursor-up cannot reach back above the screen top — every redraw then appends a
+    fresh copy of the whole block instead of updating it. Piped output simply prints each plugin's
+    final line as it completes. Workers stay silent (the _renovate_* helpers return instead of
+    logging), so parallel runs cannot interleave their output.
+    """
+    from ligojcli.plugins import dev
+
+    labels = [os.path.basename(os.path.abspath(repo)) for repo in repos]
+    width = max(len(label) for label in labels)
+    tty = dev._live()
+    total = len(repos)
+    running = []  # labels currently in flight, in start order (the live footer)
+    results = {}
+    state = {"footer": 0, "done": 0}  # rows currently on screen below the permanent lines
+    lock = threading.Lock()
+
+    def _final_line(label, columns=None):
+        result = results[label]
+        status = result["status"]
+        summary = result["summary"]
+        if columns:  # clip the PLAIN text; color codes added after so the slice cannot cut them
+            summary = summary[: max(10, columns - width - 8)]
+        name = _paint(label.ljust(width), Style.BRIGHT)
+        return (
+            f"  {name}  {_status_icon(status)} {_paint(summary, _RENOVATE_COLORS[status])}".rstrip()
+        )
+
+    def _redraw(final_label=None):
+        # Clip to the terminal width: a wrapped line occupies two rows and desyncs the cursor-up
+        # arithmetic just like an over-tall block would.
+        columns = max(40, shutil.get_terminal_size().columns)
+        rows = state["footer"]
+        if rows:
+            sys.stdout.write(f"\x1b[{rows}A")
+        written = 0
+        if final_label is not None:
+            sys.stdout.write("\r\x1b[K" + _final_line(final_label, columns) + "\n")
+            written += 1
+        spinner = "…" if utils.no_color else "⏳"
+        for label in running:
+            name = _paint(label.ljust(width), Style.BRIGHT)
+            activity = _paint(f"renovating ({state['done']}/{total} done)", Fore.YELLOW)
+            sys.stdout.write(f"\r\x1b[K  {name}  {spinner} {activity}\n")
+            written += 1
+        leftover = rows - written  # the previous footer was taller: blank what remains of it
+        for _ in range(max(0, leftover)):
+            sys.stdout.write("\r\x1b[K\n")
+        if leftover > 0:
+            sys.stdout.write(f"\x1b[{leftover}A")
+        state["footer"] = len(running)
+        sys.stdout.flush()
+
+    def work(repo, label):
+        with lock:
+            running.append(label)
+            if tty:
+                _redraw()
+        result = _renovate_repo(repo, target, host)
+        with lock:
+            running.remove(label)
+            results[label] = result
+            state["done"] += 1
+            if tty:
+                _redraw(final_label=label)
+            else:
+                print(_final_line(label))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        for future in [pool.submit(work, repo, label) for repo, label in zip(repos, labels)]:
+            future.result()
+    return [results[label] for label in labels]
+
+
 def _renovate(args):
     host = os.path.expanduser(
         args.get("host_package_json")
@@ -1219,20 +1388,34 @@ def _renovate(args):
     )
     target = args.get("parent_version") or _latest_local_release(*_LIGOJ_API_PARENT)
     repos = _renovate_repos(args)
+    jobs = max(1, int(args.get("jobs") or 3))
 
     utils.info(f"[plugin] Renovate {len(repos)} plugin(s); host npm referential: {host}")
     utils.info(f"[plugin] plugin-parent target: {target or '(none found — parent bump skipped)'}")
-    changed = errors = 0
-    for repo in repos:
-        utils.info(f"[plugin] {os.path.basename(os.path.abspath(repo))}")
-        results = (_renovate_parent(repo, target), _renovate_npm(repo, host))
-        changed += results.count("changed")
-        errors += results.count("error")
+    if len(repos) == 1:
+        # Single plugin: keep the verbose per-change report (each dep re-pin on its own line).
+        result = _renovate_repo(repos[0], target, host)
+        utils.info(f"[plugin] {result['name']}")
+        for detail in result["details"]:
+            utils.info(f"[plugin]   {detail}")
+        log = utils.warn if result["status"] == "error" else utils.info
+        log(f"[plugin]   {_status_icon(result['status'])} {result['summary']}")
+        results = [result]
+    else:
+        utils.info(f"[plugin] Renovating with {min(jobs, len(repos))} parallel worker(s) ...")
+        results = _parallel_renovate(repos, target, host, jobs)
+
+    failed = [result for result in results if result["status"] == "error"]
+    for result in failed:
+        for detail in result["details"]:
+            utils.warn(f"[plugin] {result['name']}: {detail}")
+    changed = sum(1 for result in results if result["status"] == "changed")
+    skipped = sum(1 for result in results if result["status"] == "skip")
     utils.info(
-        f"[plugin] Renovate complete: {changed} file-group(s) updated, {errors} error(s) "
-        "(edits left uncommitted for review)"
+        f"[plugin] Renovate complete: {len(results)} analyzed, {changed} updated, "
+        f"{skipped} up-to-date, {len(failed)} error(s) (edits left uncommitted for review)"
     )
-    return errors == 0
+    return not failed
 
 
 # --------------------------------------------------------------------------- #
@@ -1279,9 +1462,22 @@ commit — the edits are left in the working tree for you to review and commit):
   * pom.xml           bump the org.ligoj.api:plugin-parent <version> to the target (see below). A
                       current version newer than the target is left alone.
   * package.json      re-pin the npm dependency constraints that are ALSO declared by the host UI to
-                      the host's versions (only shared deps; none added/removed; scripts untouched).
-  * package-lock.json regenerated from package.json ('npm install --package-lock-only'), always, so
-                      the plugin's 'npm ci' stays in sync.
+                      the host's versions (only shared deps; none added/removed; scripts untouched),
+                      and merge the host's allowScripts entries in (npm >= 11.19 install-script
+                      approvals, e.g. fsevents — plugin-specific approvals are kept).
+  * package-lock.json regenerated AND advanced via 'npm update --package-lock-only': every
+                      dependency (direct + transitive) moves to the newest version its semver range
+                      allows, and the lockfile stays in sync with package.json for 'npm ci'.
+                      package.json constraints are not touched. A plugin where nothing EFFECTIVELY moved
+                      (identical package.json, byte-identical lockfile) reports up-to-date, so a
+                      re-run moments later ends with 'N analyzed, 0 updated, N up-to-date'.
+
+With more than one plugin the work runs in PARALLEL (--jobs workers, default 3) and every plugin
+gets exactly ONE output line: while in flight it shows in a small live footer (at most --jobs rows,
+'… renovating (n/total done)'), replaced on completion by its permanent result line — changed with a
+short summary, up-to-date, or error (failure details printed after the run). On a color terminal the
+lines use emoji and colors (⏳ running, ✅ changed, 💤 up-to-date, ❌ error); with --no-color plain
+glyphs (… ✓ ↷ ✗). A single plugin keeps the verbose per-dependency report.
 
 Target selection (which plugins):
   <plugin>            a plugin artifact under LIGOJ_PLUGINS_DIR, or a path to a plugin directory
@@ -1293,6 +1489,7 @@ Options:
   --host-package-json  Host UI package.json (default: LIGOJ_HOST_PACKAGE_JSON or
                        ~/git/ligoj/app-ui/src/main/webapp/package.json)
   --plugins-dir DIR    Plugins root (default: ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)
+  --jobs N / -j N      Plugins renovated in parallel (default: 3)
 
 Examples:
   ligoj dev plugin renovate                 # renovate the plugin in the current directory

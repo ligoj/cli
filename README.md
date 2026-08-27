@@ -1813,8 +1813,14 @@ if it has fewer than **6 vCPU** or **23 GB RAM** it is **stopped, resized up to 
 restarted** (a fresh machine is created already sized; a machine that already exceeds the minimum is
 left untouched). On macOS it also checks the tools `dev demo` needs
 later — **Java 25** (installed as the Temurin JDK cask via Homebrew) and **Maven 3.9.16** (installed
-via [SDKMAN](https://sdkman.io), bootstrapped if missing); these two are best-effort and never abort
-`init`. Pass `--skip-prereqs` to skip all these checks. Each service streams live progress and is
+via [SDKMAN](https://sdkman.io), bootstrapped if missing) — and **Node.js 26** (any newer version is
+accepted; installed via [nvm](https://github.com/nvm-sh/nvm) when absent, and pointed at by
+`nvm alias default` so new terminals pick it up — the already-open shell keeps its version until
+`nvm use 26`). All three are best-effort and never abort `init`. It also runs **`npm install-scripts approve fsevents`** in the app-ui webapp: npm ≥ 11.19
+blocks dependency install scripts until approved per project, and an unapproved `fsevents` silently
+degrades Vite's file watching to slow polling (the approval lands in the webapp's `package.json`
+`allowScripts`; with only an older npm on the machine there is nothing to approve and the step just
+notes it). Pass `--skip-prereqs` to skip all these checks. Each service streams live progress and is
 **idempotent** — a running pod is reused; use `--recreate` to replace it.
 
 | Service      | Pod / release | Default port | Image                                 | What `dev init` configures |
@@ -2206,6 +2212,21 @@ screen). Instead of granting that to your whole terminal, `dev debug init` compi
 app (default `~/Applications/Ligoj Debug.app`) that drives IntelliJ's *Run ▶ Debug…* chooser for
 `ligoj-api` / `ligoj-ui` (skipping any already running). You grant Accessibility to **that app only**
 — the first `dev debug start` triggers the macOS prompt — and can then revoke your terminal's grant.
+
+**Granting (and re-granting) Accessibility.** The grant is keyed on the app's signature, so every
+re-`init` (and some macOS updates) invalidates it — and a broken grant fails *silently*: `Ligoj
+Debug` launches and stays open, IntelliJ comes to the front, but the run configurations never start
+(`dev debug start` now names this cause when it happens). The reliable order, also printed by
+`dev debug init`:
+
+1. In **System Settings ▸ Privacy & Security ▸ Accessibility**, **remove** any existing
+   `Ligoj Debug` / `applet` row (`−`) — toggling a **stale** row does nothing;
+2. launch the app once (`open ~/Applications/Ligoj\ Debug.app` or `dev debug start`) and approve the
+   *"control this computer"* prompt — beware, it can sit **hidden behind windows or on another
+   display/Space**, unanswered, looking like nothing happened;
+3. the row reappears ticked. To force a clean re-prompt: `tccutil reset Accessibility
+   org.ligoj.dev.debug`, then redo 1–2.
+
 When `dev debug start` launches a **cold** IntelliJ, the launcher first **waits (up to 180 s) for the
 IDE to become UI-ready** — its *Run* menu populated, i.e. the project frame is up — before sending any
 keystroke, so a not-yet-started IDE no longer drops the Debug commands. Because that logic is baked
@@ -2304,9 +2325,15 @@ in the working tree for you to review:
   latest local `org.ligoj.api:parent` release; override with `--parent-version`). A current version
   newer than the target is left alone; the project's own `<version>` is never touched.
 - **`package.json`** — re-pins only the npm dependency constraints that are **also** declared by the
-  host UI to the host's versions (none added/removed; `scripts` and non-shared deps untouched).
-- **`package-lock.json`** — regenerated from `package.json` (`npm install --package-lock-only`) so the
-  plugin's `npm ci` stays in sync.
+  host UI to the host's versions (none added/removed; `scripts` and non-shared deps untouched), and
+  **merges the host's `allowScripts` entries in** (the npm ≥ 11.19 install-script approvals, e.g.
+  `fsevents` — plugin-specific approvals are kept, host entries win on conflict).
+- **`package-lock.json`** — regenerated **and advanced** via `npm update --package-lock-only`: every
+  dependency (direct and transitive) moves to the newest version its semver range allows, while the
+  lockfile stays in sync with `package.json` for `npm ci` (constraints themselves are not touched).
+  `updated` is reported only when something **effectively** moved
+  (`package.json` text or lockfile bytes) — re-running moments later shows every plugin as
+  up-to-date and ends with `N analyzed, 0 updated, N up-to-date, 0 error(s)`.
 
 ```bash
 # Renovate the plugin in the current directory
@@ -2315,9 +2342,23 @@ ligoj dev plugin renovate
 # A specific plugin (artifact under LIGOJ_PLUGINS_DIR, or a path)
 ligoj dev plugin renovate plugin-km
 
-# Every plugin under LIGOJ_PLUGINS_DIR
+# Every plugin under LIGOJ_PLUGINS_DIR, 3 at a time (live one-line-per-plugin report)
 ligoj dev plugin renovate --all
+
+# More parallelism
+ligoj dev plugin renovate --all --jobs 6
 ```
+
+With more than one plugin the work runs in **parallel** (`--jobs` workers, default **3**) and every
+plugin gets **exactly one output line**. While in flight a plugin shows in a small live footer (at
+most `--jobs` rows, `… renovating (n/total done)`, rewritten in place); on completion that row is
+replaced by the plugin's permanent result line — colored, with emoji on a color terminal (`⏳`/`✅`/`💤`/`❌`; plain `…`/`✓`/`↷`/`✗` with `--no-color`) — `✓` changed with a short summary
+(`parent 4.3.0→4.3.2 · 2 dep(s) · allowScripts+2 · lockfile`), `↷` up-to-date, or `✗` error (failing
+plugins get their npm output printed after the run, and their `package.json` edit is reverted).
+Keeping the live region no taller than the worker count is what makes the rendering reliable on any
+terminal height — a full one-row-per-plugin block would scroll and duplicate. Piped output prints one
+final line per plugin instead. A **single** plugin keeps the verbose report with each dependency
+re-pin on its own line.
 
 The host UI referential is `LIGOJ_HOST_PACKAGE_JSON` (default
 `~/git/ligoj/app-ui/src/main/webapp/package.json`, override with `--host-package-json`), the plugins

@@ -30,6 +30,7 @@
 import argparse
 import base64
 import concurrent.futures
+import glob
 import os
 import re
 import secrets
@@ -556,6 +557,13 @@ def configure(subparser_service):
         "--plugins-dir",
         dest="plugins_dir",
         help="Plugins root (default: ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)",
+    )
+    plugin_renovate.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=None,
+        help="Number of plugins renovated in parallel (default: 3)",
     )
 
 
@@ -1282,6 +1290,7 @@ def _service_config(svc, args):
 # --------------------------------------------------------------------------- #
 JAVA_VERSION = "25"
 MAVEN_VERSION = "3.9.16"
+NODE_VERSION = "26"
 
 
 def _check_preconditions(services, args):
@@ -1295,10 +1304,92 @@ def _check_preconditions(services, args):
     # Java + Maven are only needed by 'dev demo' seeding, so they are best-effort (never fatal here).
     _ensure_java(JAVA_VERSION)
     _ensure_maven(MAVEN_VERSION)
+    # Node powers Vite, the plugin frontend builds and the npm install-script approvals below.
+    _ensure_node(NODE_VERSION)
     if set(KIND_SERVICES) & set(services):
         for tool in ("kind", "helm", "kubectl"):
             _ensure_tool(tool)
         utils.info("[dev] kind, helm and kubectl are available (for Harbor/ArgoCD)")
+    _approve_npm_install_scripts(args)
+
+
+def _approve_npm_install_scripts(args):
+    """Approve fsevents' npm install scripts in the app-ui webapp (Vite file watching).
+
+    npm >= 11.19 blocks dependency install scripts until they are approved per project: left
+    unapproved, fsevents never compiles and Vite's file watching silently degrades to slow polling.
+    The approval is stored in the project's package.json (allowScripts), hence the webapp cwd. An
+    older npm neither blocks scripts nor knows the command — nothing to approve there, so a
+    too-old-everywhere outcome is only informational.
+    """
+    project = os.path.expanduser(
+        _dev_get(args, "ligoj_project_dir", "LIGOJ_PROJECT_DIR", "~/git/ligoj")
+    )
+    webapp = os.path.join(project, "app-ui", "src", "main", "webapp")
+    if not os.path.isfile(os.path.join(webapp, "package.json")):
+        utils.warn(f"[dev] npm install-scripts: no package.json under {webapp} — skipped")
+        return
+    # PATH npm first, then the nvm installs newest-first: the subcommand needs npm >= 11.19, and
+    # the approval it writes is project-level, valid for whichever npm runs Vite afterwards.
+    nvm_npms = sorted(glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/npm")), reverse=True)
+    candidates = [npm for npm in [shutil.which("npm"), *nvm_npms] if npm]
+    for npm in dict.fromkeys(candidates):
+        result = _run([npm, "install-scripts", "approve", "fsevents"], check=False, cwd=webapp)
+        output = ((result.stdout or "") + (result.stderr or "")).strip()
+        if result.returncode == 0:
+            detail = " ".join(line.strip() for line in output.splitlines()[:3])
+            utils.info(f"[dev] npm install-scripts: fsevents approved in app-ui webapp ({detail})")
+            return
+        if "Unknown command" not in output:
+            utils.warn(f"[dev] npm install-scripts approve fsevents failed:\n{output[-300:]}")
+            return
+    utils.info(
+        "[dev] npm install-scripts: no npm >= 11.19 found — install-script blocking is not "
+        "active on this machine, nothing to approve"
+    )
+
+
+def _ensure_node(major):
+    """Ensure Node.js >= major is available and is nvm's default (Vite, plugin builds, npm >= 11.19).
+
+    Best-effort like Java/Maven: installs via nvm when absent, and points 'nvm alias default' at the
+    target so NEW shells pick it up (the already-running shell keeps its version until 'nvm use').
+    """
+    if _node_available(major):
+        utils.info(f"[dev] Node.js {major} is available")
+        return
+    nvm_sh = os.path.expanduser("~/.nvm/nvm.sh")
+    installed = glob.glob(os.path.expanduser(f"~/.nvm/versions/node/v{major}.*"))
+    if not installed:
+        if not os.path.isfile(nvm_sh):
+            utils.warn(
+                f"[dev] Node.js {major} not found and nvm is not installed — "
+                f"install Node.js {major} manually (https://github.com/nvm-sh/nvm)"
+            )
+            return
+        utils.info(f"[dev] Installing Node.js {major} with nvm ...")
+        if (
+            _run(["bash", "-c", f'. "{nvm_sh}" && nvm install {major}'], check=False).returncode
+            != 0
+        ):
+            utils.warn(f"[dev] 'nvm install {major}' failed; install Node.js {major} manually")
+            return
+    if os.path.isfile(nvm_sh):
+        _run(["bash", "-c", f'. "{nvm_sh}" && nvm alias default {major}'], check=False)
+    utils.info(
+        f"[dev] Node.js {major} set as the nvm default — new terminals use it; the current shell "
+        f"keeps its version until 'nvm use {major}'"
+    )
+
+
+def _node_available(major):
+    # Minimal-version semantics: any Node >= `major` on the PATH is accepted.
+    node = shutil.which("node")
+    if node is None:
+        return False
+    out = _run([node, "--version"], check=False)
+    match = re.match(r"v(\d+)", (out.stdout or "").strip())
+    return match is not None and int(match.group(1)) >= int(major)
 
 
 def _ensure_java(major):
