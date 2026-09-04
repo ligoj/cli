@@ -109,7 +109,7 @@ def _demo_projects_and_subscriptions(args, active):
     # Fill the tools with demo data (images, artifacts, Sonar analysis, git mirrors). Skipped for a
     # targeted `--only` run, which is meant to stay fast.
     if not args.get("only"):
-        _seed.seed(args, _subscribe.LINK_PROJECT)
+        _seed.seed(args, _subscribe.LINK_PROJECT, {artifact for artifact, _ in active})
 
 
 def _check_ligoj_running():

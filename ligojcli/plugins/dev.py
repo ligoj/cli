@@ -156,6 +156,10 @@ KEYCLOAK_REDIRECT_URIS = [
 ]
 KEYCLOAK_ROOT_URL = "http://localhost:5173/ligoj/"
 
+# Bundled LDAP data: the base DIT and the custom schema template (ligojcli/data/ldap).
+LDAP_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "ldap")
+LDAP_DIT_LDIF = os.path.join(LDAP_DATA_DIR, "dev.ldif")
+LDAP_SCHEMA_TEMPLATE = os.path.join(LDAP_DATA_DIR, "custom-schema.ldif")
 LDAP_DEFAULT_SCHEMA_DIR = (
     "~/git/ligoj-plugins/plugin-id-ldap-embedded/src/main/resources/export/schema"
 )
@@ -1819,13 +1823,10 @@ def _init_openldap(args):
     volumes = [{"name": "data", "persistentVolumeClaim": {"claimName": "openldap_data"}}]
     mounts = [{"name": "data", "mountPath": "/bitnami/openldap"}]
     named = ["openldap_data"]
-    schema_dir = os.path.expanduser(
-        _dev_get(args, "ldap_schema_dir", "LDAP_SCHEMA_DIR", LDAP_DEFAULT_SCHEMA_DIR)
-    )
-    if os.path.isdir(schema_dir):
-        utils.info(f"[dev] Mount LDAP custom schema from {schema_dir}")
-        volumes.append({"name": "schema", "hostPath": {"path": schema_dir}})
-        mounts.append({"name": "schema", "mountPath": "/schema"})
+    schema_dir = _ldap_schema_dir(args)
+    utils.info(f"[dev] Mount LDAP custom schema from {schema_dir}")
+    volumes.append({"name": "schema", "hostPath": {"path": schema_dir}})
+    mounts.append({"name": "schema", "mountPath": "/schema"})
 
     manifest = _pod_manifest(
         "openldap", image, [(1389, port)], env=env, volumes=volumes, mounts=mounts
@@ -1844,18 +1845,113 @@ def _init_openldap(args):
     # `dev demo` commands exists. bitnami only imports /ldifs on a first, empty-volume boot, so apply
     # it ourselves (idempotently) on every init to also heal an already-populated volume.
     wait = args.get("wait")
-    ldif = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "ldap", "dev.ldif")
-    if wait != 0 and os.path.isfile(ldif):
+    if wait != 0:
         container = _pod_container("openldap")
         if _wait_ldap(container, port, wait):
-            _ldap_import(container, port, f"cn={admin_user},{root}", password, ldif)
+            _ldap_ensure_schema(container, schema_dir)
+            _ldap_import(container, port, f"cn={admin_user},{root}", password, LDAP_DIT_LDIF)
 
     utils.info(f"[dev] OpenLDAP available on {endpoint} (bind cn={admin_user},{root})")
     return {"endpoint": endpoint, "admin_user": f"cn={admin_user},{root}", "root": root}
 
 
+def _ldap_schema_dir(args):
+    """The host directory mounted at /schema, created and seeded with the bundled custom schema.
+
+    bitnami applies /schema/custom.ldif on a first boot. The directory is created when missing so a
+    fresh machine gets the schema too; an existing custom.ldif (possibly hand-tuned) is never
+    overwritten.
+    """
+    schema_dir = os.path.expanduser(
+        _dev_get(args, "ldap_schema_dir", "LDAP_SCHEMA_DIR", LDAP_DEFAULT_SCHEMA_DIR)
+    )
+    os.makedirs(schema_dir, exist_ok=True)
+    target = os.path.join(schema_dir, "custom.ldif")
+    if not os.path.isfile(target):
+        shutil.copyfile(LDAP_SCHEMA_TEMPLATE, target)
+        utils.info(f"[dev] Wrote the bundled LDAP custom schema to {target}")
+    return schema_dir
+
+
+def _ldif_cn(path):
+    """The 'cn:' of an LDIF schema entry (the schema name), or None."""
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("cn:"):
+                return line.split(":", 1)[1].strip() or None
+    return None
+
+
+def _ldap_ensure_schema(container, schema_dir):
+    """Load every schema LDIF of schema_dir into cn=config when it is not there yet.
+
+    bitnami only applies /schema on a FIRST boot (slapadd into an empty volume): a volume initialized
+    before the schema existed never picks it up, so `dev init` would silently leave the demo node's
+    custom attribute unusable. The same LDIF loads at runtime over the container's ldapi:/// socket
+    with the EXTERNAL (root) mechanism, which is what this does — idempotently, per 'cn: <name>'.
+    """
+    files = sorted(glob.glob(os.path.join(schema_dir, "*.ldif")))
+    if not files:
+        return
+    listed = _podman(
+        "exec",
+        container,
+        "ldapsearch",
+        "-Y",
+        "EXTERNAL",
+        "-H",
+        "ldapi:///",
+        "-Q",
+        "-LLL",
+        "-b",
+        "cn=schema,cn=config",
+        "-s",
+        "one",
+        "dn",
+        check=False,
+    )
+    loaded = set(re.findall(r"^dn: cn=\{\d+\}([^,]+),", listed.stdout or "", re.MULTILINE))
+    for path in files:
+        name = _ldif_cn(path)
+        if not name:
+            utils.warn(f"[dev] LDAP schema {path}: no 'cn:' entry, skipped")
+            continue
+        if name in loaded:
+            utils.info(f"[dev] LDAP custom schema '{name}' already loaded")
+            continue
+        target = f"/tmp/ligoj-schema-{name}.ldif"
+        _podman("cp", path, f"{container}:{target}", check=False)
+        result = _podman(
+            "exec",
+            container,
+            "ldapadd",
+            "-Y",
+            "EXTERNAL",
+            "-H",
+            "ldapi:///",
+            "-Q",
+            "-f",
+            target,
+            check=False,
+        )
+        if result.returncode == 0:
+            utils.info(f"[dev] LDAP custom schema '{name}' loaded into cn=config")
+        else:
+            detail = (result.stderr or result.stdout or "").strip()
+            utils.warn(f"[dev] LDAP custom schema '{name}' failed to load: {detail[:300]}")
+
+
 def _wait_ldap(container, port, wait):
     def ready():
+        # bitnami runs a TEMPORARY slapd while it initializes a fresh volume (schemas + default tree),
+        # then stops it and starts the real one. Answering the probe is therefore not enough: anything
+        # written to that transient instance gets cut off by the restart. Its log prints
+        # '** Starting slapd **' only for the final start, so require it too (images without the
+        # bitnami markers fall back to the probe alone).
+        logs = _podman("logs", container, check=False)
+        text = (logs.stdout or "") + (logs.stderr or "")
+        if "** Starting LDAP setup **" in text and "** Starting slapd **" not in text:
+            return (False, "initializing")
         result = _podman(
             "exec",
             container,

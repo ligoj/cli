@@ -10,6 +10,8 @@
 #   * Nexus/Artifactory (maven) + SonarQube - build plugin-ui and plugin-id, deploy the artifacts to
 #                       both registries and run `sonar:sonar`.
 #   * GitLab          - mirror the plugin-ui and plugin-id GitHub repositories.
+# Each tool is seeded ONLY when the plugin that uses it is installed and was configured by the
+# demo (the `active` artifact set) — a tool whose plugin is absent is never contacted.
 #
 import concurrent.futures
 import os
@@ -32,15 +34,42 @@ GITHUB_BASE = "https://github.com/ligoj"
 _TIMEOUT = 1800  # per external command (Maven builds are slow)
 
 
-def seed(args, project):
-    """Seed every tool with demo data, in parallel. Best-effort; never raises."""
-    utils.info(f"[dev] === Seeding tools with demo data for '{project}' (this is slow) ===")
-    seeders = [
+# Tool seeder -> the plugin artifact(s) that make it relevant. A seeder runs only when at least one
+# of its plugins is active; the Maven one additionally narrows its targets to the active ones.
+SEEDER_PLUGINS = {
+    "harbor": {"plugin-registry-harbor"},
+    "nexus-docker": {"plugin-registry-nexus"},
+    "gitlab": {"plugin-scm-gitlab"},
+    "maven+sonar": {"plugin-registry-nexus", "plugin-registry-artifactory", "plugin-qa-sonarqube"},
+}
+
+
+def seed(args, project, active):
+    """Seed the tools of the ACTIVE plugins with demo data, in parallel. Best-effort; never raises.
+
+    `active` is the set of plugin artifacts installed in Ligoj and configured by this demo run;
+    every other tool is skipped (and named), so an absent plugin never gets its tool contacted.
+    """
+    active = set(active or ())
+    catalogue = [
         ("harbor", lambda: seed_harbor(args, project)),
         ("nexus-docker", lambda: seed_nexus_docker(args, project)),
         ("gitlab", lambda: seed_gitlab(args)),
-        ("maven+sonar", lambda: seed_maven_sonar(args, project)),
+        ("maven+sonar", lambda: seed_maven_sonar(args, project, active)),
     ]
+    seeders = [(name, fn) for name, fn in catalogue if SEEDER_PLUGINS[name] & active]
+    skipped = [name for name, _ in catalogue if not (SEEDER_PLUGINS[name] & active)]
+    if skipped:
+        utils.info(
+            "[dev] seed: skipping "
+            + ", ".join(skipped)
+            + " (plugin not installed: "
+            + ", ".join(sorted(set().union(*(SEEDER_PLUGINS[n] for n in skipped)) - active))
+            + ")"
+        )
+    if not seeders:
+        return
+    utils.info(f"[dev] === Seeding tools with demo data for '{project}' (this is slow) ===")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(seeders)) as pool:
         pending = {pool.submit(fn): name for name, fn in seeders}
         for future in concurrent.futures.as_completed(pending):
@@ -101,10 +130,14 @@ def _push_images(registry, user, password, prefix, label):
 # --------------------------------------------------------------------------- #
 # Maven artifacts (Nexus, Artifactory) + SonarQube analysis
 # --------------------------------------------------------------------------- #
-def seed_maven_sonar(args, project):
+def seed_maven_sonar(args, project, active):
     if not _has("mvn"):
         utils.warn("[dev] maven: 'mvn' not found; skipping build/deploy/analysis")
         return
+    # Only the targets whose plugin is active: an absent Nexus/Artifactory/Sonar is never contacted.
+    want_nexus = "plugin-registry-nexus" in active
+    want_artifactory = "plugin-registry-artifactory" in active
+    want_sonar = "plugin-qa-sonarqube" in active
     plugins_dir = os.path.expanduser(
         _common.dev_value(args, "ligoj_plugins_dir", "LIGOJ_PLUGINS_DIR", "~/git/ligoj-plugins")
     )
@@ -116,6 +149,13 @@ def seed_maven_sonar(args, project):
     arti_url = f"{arti_ep.rstrip('/')}/example-repo-local/"
     sonar_url = _common.dev_value(args, "sonar_endpoint", "SONAR_ENDPOINT", "http://localhost:9000")
     sonar_token = _common.dev_value(args, "sonar_api_token", "SONAR_API_TOKEN", None)
+    targets = {
+        "nexus": nexus_url if want_nexus else None,
+        "artifactory": arti_url if want_artifactory else None,
+        "sonar": (sonar_url, sonar_token) if want_sonar and sonar_token else None,
+    }
+    if want_sonar and not sonar_token:
+        utils.warn("[dev] maven: no sonar_api_token in [dev]; skipping the Sonar analysis")
 
     settings = _maven_settings(args)
     try:
@@ -124,28 +164,23 @@ def seed_maven_sonar(args, project):
             if not os.path.isfile(pom):
                 utils.warn(f"[dev] maven: {pom} not found; skipping {plugin['name']}")
                 continue
-            _build_plugin(plugin, pom, settings, nexus_url, arti_url, sonar_url, sonar_token)
+            _build_plugin(plugin, pom, settings, targets)
     finally:
         _remove(settings)
 
 
-def _build_plugin(plugin, pom, settings, nexus_url, arti_url, sonar_url, sonar_token):
+def _build_plugin(plugin, pom, settings, targets):
+    """One `verify` build per plugin, extended with only the wanted goals: deploy to Nexus, Sonar
+    analysis, then a lighter re-deploy of the built artifacts to Artifactory."""
     name = plugin["name"]
-    # One build: compile + test + Sonar analysis + deploy to Nexus.
-    build = [
-        "mvn",
-        "-B",
-        "-f",
-        pom,
-        "-s",
-        settings,
-        "clean",
-        "verify",
-        "deploy",
-        "-Djarsigner.skip=true",
-        f"-DaltDeploymentRepository=nexus-demo::default::{nexus_url}",
-    ]
-    if sonar_token:
+    nexus_url, arti_url, sonar = targets["nexus"], targets["artifactory"], targets["sonar"]
+    build = ["mvn", "-B", "-f", pom, "-s", settings, "clean", "verify", "-Djarsigner.skip=true"]
+    done = []
+    if nexus_url:
+        build += ["deploy", f"-DaltDeploymentRepository=nexus-demo::default::{nexus_url}"]
+        done.append("deployed to Nexus")
+    if sonar:
+        sonar_url, sonar_token = sonar
         build += [
             "sonar:sonar",
             f"-Dsonar.host.url={sonar_url}",
@@ -153,14 +188,15 @@ def _build_plugin(plugin, pom, settings, nexus_url, arti_url, sonar_url, sonar_t
             f"-Dsonar.projectKey={plugin['key']}",
             f"-Dsonar.projectName={plugin['label']}",
         ]
-    utils.info(f"[dev] maven: building {name} (deploy to Nexus + Sonar analysis) ...")
+        done.append("analysed in Sonar")
+    utils.info(f"[dev] maven: building {name} ({' + '.join(done) or 'verify only'}) ...")
     result = _run(build)
     if result.returncode != 0:
-        utils.warn(f"[dev] maven: {name} build/deploy/sonar failed: {_tail(result)}")
+        utils.warn(f"[dev] maven: {name} build failed: {_tail(result)}")
         return
-    utils.info(
-        f"[dev] maven: {name} deployed to Nexus" + (" and analysed in Sonar" if sonar_token else "")
-    )
+    utils.info(f"[dev] maven: {name} " + (" and ".join(done) or "built"))
+    if not arti_url:
+        return
     # Second, lighter deploy of the same artifacts to Artifactory.
     deploy = [
         "mvn",

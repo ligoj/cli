@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 packages = ["ligojcli", "ligojcli.plugins", "ligojcli.dev_demo"]
 
 [tool.setuptools.package-data]
-ligojcli = ["assets/*.png", "data/nodes/*.json"]
+ligojcli = ["assets/*.png", "data/nodes/*.json", "data/ldap/*.ldif"]
 
 [project]
 name = "ligoj-cli"

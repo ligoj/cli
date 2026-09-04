@@ -1826,7 +1826,7 @@ notes it). Pass `--skip-prereqs` to skip all these checks. Each service streams 
 | Service      | Pod / release | Default port | Image                                 | What `dev init` configures |
 | ------------ | ------------- | ------------ | ------------------------------------- | -------------------------- |
 | `postgresql` | `ligoj-db`    | `5432`       | `postgres:17`                         | `ligoj/ligoj` user/db (what `ligoj-api` expects), persistent volume `ligoj_db_data` |
-| `openldap`   | `openldap`    | `1389`       | `bitnamilegacy/openldap:latest`       | `Manager` / `dc=sample,dc=com`; generates the admin password if missing; volume `openldap_data` |
+| `openldap`   | `openldap`    | `1389`       | `bitnamilegacy/openldap:latest`       | `Manager` / `dc=sample,dc=com`; generates the admin password if missing; volume `openldap_data`; installs the **custom schema** (`uidFonctionnel` attribute + `mefiPersonne` auxiliary class, backing the demo node's `people-custom-attributes` / `people-class-create`) — written to the mounted schema dir for a first boot **and** loaded over `ldapi:///` into an already-initialized volume; then seeds the base DIT (OUs + sample users). Waits for bitnami's *final* slapd (its first-boot init runs a temporary one) |
 | `keycloak`   | `keycloak`    | `9083`       | `quay.io/keycloak/keycloak:26.7.3`    | **backed by the shared `postgresql`** (dedicated `keycloak` database); realm `ligoj`, LDAP user federation, confidential `ligoj` client; prints Spring Boot properties |
 | `jenkins`    | `jenkins`     | `8085`       | `jenkins/jenkins:2.570-slim-jdk25`    | volume `jenkins_home`; provisions the admin user and generates an API token |
 | `sonarqube`  | `sonarqube`   | `9000`       | `sonarqube:26.6.0.123539-community`   | **backed by the shared `postgresql`** (dedicated `sonarqube` database); changes the default admin password and creates an API token |
@@ -1851,7 +1851,7 @@ are **read** before a secret is generated, so you stay in control:
 | Service      | Inputs (option · env · `[dev]` key)                                                                 |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | `postgresql` | `DB_IMAGE`·`db_image`, `DB_PORT`·`db_port`, `POSTGRES_USER`·`db_user`, `POSTGRES_PASSWORD`·`db_password`, `POSTGRES_DB`·`db_name` |
-| `openldap`   | `LDAP_IMAGE`·`ldap_image`, `LDAP_PORT`·`ldap_port`, `LDAP_ADMIN_USERNAME`·`ldap_admin_user`, `LDAP_ROOT`·`ldap_root`, `LDAP_ADMIN_PASSWORD`·`ldap_admin_password`, `LDAP_SCHEMA_DIR`·`ldap_schema_dir` |
+| `openldap`   | `LDAP_IMAGE`·`ldap_image`, `LDAP_PORT`·`ldap_port`, `LDAP_ADMIN_USERNAME`·`ldap_admin_user`, `LDAP_ROOT`·`ldap_root`, `LDAP_ADMIN_PASSWORD`·`ldap_admin_password`, `LDAP_SCHEMA_DIR`·`ldap_schema_dir`; demo people: `DEMO_LDAP_USERS`·`demo_ldap_users` (default `10000`, `0` disables), `DEMO_MAIL_DOMAIN`·`demo_mail_domain` (default: the LDAP root's `dc=` parts, e.g. `sample.com`) |
 | `keycloak`   | `KEYCLOAK_IMAGE`·`keycloak_image`, `KEYCLOAK_PORT`·`keycloak_port`, `KC_BOOTSTRAP_ADMIN_USERNAME`·`keycloak_admin_user`, `KC_BOOTSTRAP_ADMIN_PASSWORD`·`keycloak_admin_password`, `KEYCLOAK_LDAP_URL`·`keycloak_ldap_url`, `KEYCLOAK_DB_PASSWORD`·`keycloak_db_password` (shared-DB role) |
 | `jenkins`    | `JENKINS_IMAGE`·`jenkins_image`, `JENKINS_PORT`·`jenkins_port`, `JENKINS_API_USER`·`jenkins_api_user`, `JENKINS_ADMIN_PASSWORD`·`jenkins_admin_password`, `JENKINS_API_TOKEN`·`jenkins_api_token` |
 | `sonarqube`  | `SONAR_IMAGE`·`sonar_image`, `SONAR_PORT`·`sonar_port`, `SONAR_ADMIN_PASSWORD`·`sonar_admin_password`, `SONAR_DB_PASSWORD`·`sonar_db_password` (shared-DB role) |
@@ -2049,6 +2049,14 @@ ligoj dev demo --list     # just list installed plugins (id, name, version) and 
 ligoj dev demo --only plugin-id-ldap plugin-build-jenkins
 ```
 
+**Idempotent by design.** Every demo step checks before it creates: projects (`project_get` first),
+subscriptions (an existing subscription of the node on the project with the same parameters is
+reused, never duplicated), nodes (upsert), tool resources (Jenkins job, GitLab/Harbor project,
+Nexus/Artifactory repository, Sonar user/project — "already exists" is treated as success), and
+the LDAP people/groups (fixed seeds + `ldapadd -c`). Running `dev demo` twice in a row leaves the
+same data in place.
+
+
 It (1) checks Ligoj is up via `/manage/health`, (2) lists the installed plugins with
 [`plugin list`](#plugin), (3) runs the demo registered for each one, then (4) creates the demo
 projects and their [link subscriptions](#demo-projects-and-link-subscriptions). Connection values
@@ -2059,7 +2067,7 @@ Each plugin's demo lives in its own module under `ligojcli/dev_demo/`:
 
 | Plugin artifact               | What the demo does                                                                      |
 | ----------------------------- | --------------------------------------------------------------------------------------- |
-| `plugin-id-ldap`              | Upserts the `service:id:ldap:local` node (from [ligojcli/data/nodes/ldap.local.json](ligojcli/data/nodes/ldap.local.json), with the live URL / bind DN / password), makes it the primary IAM, restarts the context, then creates the reference OUs, company/group container scopes and technical groups |
+| `plugin-id-ldap`              | Upserts the `service:id:ldap:local` node (from [ligojcli/data/nodes/ldap.local.json](ligojcli/data/nodes/ldap.local.json), with the live URL / bind DN / password), makes it the primary IAM, restarts the context, creates the reference OUs, company/group container scopes and technical groups, then **seeds 10 000 demo people** straight into LDAP (`ldapadd` inside the pod, ~35 s; a re-run is idempotent): unique random first/last names from an international pool (accented names are base64-encoded in the LDIF), mail `first.last@<domain>`, a unique **9-character uppercase alphanumeric `uid`**, password `ligoj-user`, spread over `ou=department1…5` under `people-internal-dn` (created when missing, discovered as companies). When the node declares **`people-custom-attributes`**, every user also gets each such attribute set to its mail, with the **`people-class-create`** objectClass that allows it (`uidFonctionnel` / `mefiPersonne` by default). Then **100 demo groups** (`<domain>-<team>`, e.g. `billing-core`, under the Project scope `ou=project,ou=groups`) with **50 % of the people in no group, 40 % in one, 10 % in two** (never an empty group). Both the people and the memberships come from **fixed seeds**, so a re-run regenerates the *same* entries and `ldapadd -c` reports them as already present — never 10K new users. The `id-ldap-data` cache is invalidated afterwards so they show up immediately. Count/domain: `demo_ldap_users`, `demo_mail_domain` |
 | `plugin-build-jenkins`        | Upserts the `service:build:jenkins:local` node (url / user / api-token)                  |
 | `plugin-scm-gitlab`           | Upserts the `service:scm:gitlab:local` node (url / user / auth-key)                      |
 | `plugin-registry-harbor`      | Upserts the `service:registry:harbor:local` node (url / user / password)                |
@@ -2134,7 +2142,11 @@ linking.
 
 Finally, `dev demo` fills the tools with real data so the demo project has something to show. This
 step is **heavy** (image pulls, two Maven builds, a Sonar analysis and two git mirrors — several
-minutes) and runs on a full `dev demo` (it is skipped when you pass `--only`). The tools are seeded
+minutes) and runs on a full `dev demo` (it is skipped when you pass `--only`). **Only the tools
+of the plugins actually installed in Ligoj are seeded** — a tool whose plugin is absent (say GitLab
+without `plugin-scm-gitlab`) is never contacted, and the run prints which seeders it skipped and
+why. The Maven step narrows the same way: it deploys to Nexus and/or Artifactory and runs the Sonar
+analysis only for the ones whose plugin is installed. The tools are seeded
 in parallel, best-effort — a failing tool logs a warning and never aborts the rest:
 
 | Tool | Data seeded |
