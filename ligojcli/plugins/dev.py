@@ -125,7 +125,7 @@ LDAP_DEFAULT_IMAGE = "docker.io/bitnamilegacy/openldap:latest"
 JENKINS_DEFAULT_IMAGE = "jenkins/jenkins:2.570-slim-jdk25"
 SONAR_DEFAULT_IMAGE = "sonarqube:26.6.0.123539-community"
 POSTGRES_DEFAULT_IMAGE = "postgres:17"
-KEYCLOAK_DEFAULT_IMAGE = "quay.io/keycloak/keycloak:26.6.1"
+KEYCLOAK_DEFAULT_IMAGE = "quay.io/keycloak/keycloak:26.7.3"
 GITLAB_DEFAULT_IMAGE = "gitlab/gitlab-ce:latest"
 NEXUS_DEFAULT_IMAGE = "docker.io/sonatype/nexus3:latest"
 # Pinned (not ':latest') on purpose: from ~7.125 the OSS web UI (jffe) is stuck retrying a

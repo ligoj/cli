@@ -1827,7 +1827,7 @@ notes it). Pass `--skip-prereqs` to skip all these checks. Each service streams 
 | ------------ | ------------- | ------------ | ------------------------------------- | -------------------------- |
 | `postgresql` | `ligoj-db`    | `5432`       | `postgres:17`                         | `ligoj/ligoj` user/db (what `ligoj-api` expects), persistent volume `ligoj_db_data` |
 | `openldap`   | `openldap`    | `1389`       | `bitnamilegacy/openldap:latest`       | `Manager` / `dc=sample,dc=com`; generates the admin password if missing; volume `openldap_data` |
-| `keycloak`   | `keycloak`    | `9083`       | `quay.io/keycloak/keycloak:26.6.1`    | **backed by the shared `postgresql`** (dedicated `keycloak` database); realm `ligoj`, LDAP user federation, confidential `ligoj` client; prints Spring Boot properties |
+| `keycloak`   | `keycloak`    | `9083`       | `quay.io/keycloak/keycloak:26.7.3`    | **backed by the shared `postgresql`** (dedicated `keycloak` database); realm `ligoj`, LDAP user federation, confidential `ligoj` client; prints Spring Boot properties |
 | `jenkins`    | `jenkins`     | `8085`       | `jenkins/jenkins:2.570-slim-jdk25`    | volume `jenkins_home`; provisions the admin user and generates an API token |
 | `sonarqube`  | `sonarqube`   | `9000`       | `sonarqube:26.6.0.123539-community`   | **backed by the shared `postgresql`** (dedicated `sonarqube` database); changes the default admin password and creates an API token |
 | `gitlab`     | `gitlab`      | `8929` (+ssh `2289`) | `gitlab/gitlab-ce:latest`     | omnibus CE (single container), trimmed footprint; root password in `[dev]` |
