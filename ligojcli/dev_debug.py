@@ -20,6 +20,7 @@ import shutil
 import signal
 import subprocess
 import time
+import webbrowser
 
 from ligojcli.plugins import dev, utils
 
@@ -448,7 +449,21 @@ def _start(args):
                 f"ON. Reset a stale entry with: tccutil reset Accessibility {APP_BUNDLE_ID}"
             )
     _render_status(args)
+    if wait != 0 and not args.get("no_browser"):
+        _open_browser(comps, args)
     return False
+
+
+def _open_browser(comps, args):
+    """Open the application in the browser once it answers — Vite first (the live-reload frontend
+    you debug against), else the UI server; nothing when neither is up yet."""
+    for key in ("vite", "ui"):
+        comp = next(c for c in comps if c["key"] == key)
+        if _reached(comp, True, args):
+            utils.info(f"[debug] Opening {comp['url']} in the browser ...")
+            webbrowser.open(comp["url"])
+            return
+    utils.info("[debug] UI not reachable yet; browser not opened")
 
 
 def _launch_debug_app(args, stopped):

@@ -411,9 +411,12 @@ def configure(subparser_service):
     debug_start = debug_sub.add_parser(
         "start",
         help="Start the ligoj-db + openldap pods, IntelliJ and the Ligoj API/UI/Vite apps "
-        "(only those stopped)",
+        "(only those stopped), then open the app in the browser",
     )
     _add_wait_argument(debug_start)
+    debug_start.add_argument(
+        "--no-browser", action="store_true", help="Do not open the browser once the app is up"
+    )
     debug_stop = debug_sub.add_parser(
         "stop",
         help="Stop the Ligoj API/UI/Vite apps and the ligoj-db + openldap pods (IntelliJ stays open)",

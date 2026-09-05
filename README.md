@@ -2203,12 +2203,18 @@ stack you actually debug: IntelliJ IDEA plus the two Ligoj Spring Boot apps and 
 
 ```bash
 ligoj dev debug init       # compile the dedicated launcher app (one-time; re-run after renaming a config)
-ligoj dev debug start      # start the ligoj-db + openldap pods + IntelliJ + API/UI/Vite (only those stopped)
+ligoj dev debug start      # start the ligoj-db + openldap pods + IntelliJ + API/UI/Vite, then open the app in the browser
+ligoj dev debug start --no-browser   # same without opening the browser
 ligoj dev debug status     # show what is running (process) and reachable (port), no changes
 ligoj dev debug stop       # stop the API/UI/Vite apps AND the two pods (IntelliJ stays open)
 ligoj dev debug restart    # stop then start the apps (the pods are left running)
 ligoj dev debug start -w 60 # same live '--wait' as the other dev commands (0 = no wait)
 ```
+
+**Browser.** Once the wait completes, `start` opens the application in your browser — the **Vite**
+dev server (`http://localhost:5173/ligoj/`, live reload) when it answers, else the UI server
+(`http://localhost:8080/ligoj`); nothing is opened when neither is up yet or with `--no-browser`
+/ `--wait 0`.
 
 **Backing services first.** `start` brings the **dev PostgreSQL** (`ligoj-db` pod) and **OpenLDAP**
 (`openldap` pod) up before anything else — `ligoj-api` cannot boot without the DB, and the LDAP
