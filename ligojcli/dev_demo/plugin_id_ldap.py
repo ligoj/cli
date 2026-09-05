@@ -98,7 +98,9 @@ def run(args):
     # Showcase the identity display options on the demo LDAP data: the "uidFonctionnel"
     # custom attribute is the visual identifier ("Matricule" column, sort key) and the
     # username in the app bar shows the full name.
-    ligoj.configuration_set("service:id:visual-id-name", "customAttributes.uidFonctionnel", system=True)
+    ligoj.configuration_set(
+        "service:id:visual-id-name", "customAttributes.uidFonctionnel", system=True
+    )
     ligoj.configuration_set("service:id:visual-id-label", "Matricule", system=True)
     ligoj.configuration_set("service:id:user-display", "${firstName} ${lastName}", system=True)
     _configure_user_display()
