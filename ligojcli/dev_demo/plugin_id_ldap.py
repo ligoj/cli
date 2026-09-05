@@ -95,6 +95,12 @@ def run(args):
     ligoj.node_upsert(NODE, NODE_NAME, params, "ALL")
     ligoj.node_get_by_id(NODE, return_secured_parameters=True)
     ligoj.configuration_set("feature:iam:node:primary", NODE, system=True)
+    # Showcase the identity display options on the demo LDAP data: the "uidFonctionnel"
+    # custom attribute is the visual identifier ("Matricule" column, sort key) and the
+    # username in the app bar shows the full name.
+    ligoj.configuration_set("service:id:visual-id-name", "customAttributes.uidFonctionnel", system=True)
+    ligoj.configuration_set("service:id:visual-id-label", "Matricule", system=True)
+    ligoj.configuration_set("service:id:user-display", "${firstName} ${lastName}", system=True)
     _configure_user_display()
 
     wait = args.get("wait")
