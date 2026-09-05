@@ -68,6 +68,11 @@ GROUP_TEAMS = (
     "research",
 )
 MEMBERSHIP_ODDS = ((0.5, 0), (0.9, 1), (1.0, 2))  # cumulative probability -> number of groups
+# UI display of the people (plugin-id configurations): the visual identifier shown instead of the uid
+# is the node's first custom attribute (Matricule = uidFonctionnel by default), full name as display.
+VISUAL_ID_LABEL = "Matricule"
+USER_DISPLAY = "${firstName} ${lastName}"
+CONFIG_SYSTEM = True  # same level as the sibling 'feature:iam:node:primary' setting
 
 
 def run(args):
@@ -90,6 +95,7 @@ def run(args):
     ligoj.node_upsert(NODE, NODE_NAME, params, "ALL")
     ligoj.node_get_by_id(NODE, return_secured_parameters=True)
     ligoj.configuration_set("feature:iam:node:primary", NODE, system=True)
+    _configure_user_display()
 
     wait = args.get("wait")
     ligoj.plugin_restart_context(60 if wait is None else wait)
@@ -99,6 +105,26 @@ def run(args):
     _create_group_scopes(root)
     _create_technical_groups()
     _seed_users(args, root, port, admin_user, password)
+
+
+def _configure_user_display():
+    """Set the plugin-id display configurations: full-name display and the custom-attribute visual id.
+
+    'service:id:visual-id-name' points at the node's first custom attribute (customAttributes.<attr>),
+    so the UI shows the Matricule (uidFonctionnel by default) instead of the technical uid; without a
+    custom attribute on the node only the display format is set.
+    """
+    ligoj.configuration_set("service:id:user-display", USER_DISPLAY, system=CONFIG_SYSTEM)
+    attributes, _ = _custom_attributes()
+    if not attributes:
+        utils.info(
+            "[dev] ldap: no custom attribute on the node; visual id left to the default (uid)"
+        )
+        return
+    ligoj.configuration_set(
+        "service:id:visual-id-name", f"customAttributes.{attributes[0]}", system=CONFIG_SYSTEM
+    )
+    ligoj.configuration_set("service:id:visual-id-label", VISUAL_ID_LABEL, system=CONFIG_SYSTEM)
 
 
 def subscribe(args, project):
