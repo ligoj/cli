@@ -271,6 +271,11 @@ def call_rest_api(
     else:
         request_headers = {"Content-Type": MIME_URL_ENCODED, "Accept": MIME_JSON} | headers
 
+    # Never send a body on a body-less method when there is nothing to send: 'json={}' would still
+    # serialize an empty object, and a GET carrying a body is refused (403) by CDN fronts such as
+    # CloudFront, although a direct Ligoj instance tolerates it.
+    if method.upper() in ("GET", "HEAD", "DELETE", "OPTIONS") and dict_data == {}:
+        dict_data = None
     try:
         if (dict_data is None or isinstance(dict_data, dict)) and "files" not in kwargs:
             response = session.request(
