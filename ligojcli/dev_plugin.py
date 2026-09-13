@@ -99,9 +99,11 @@ def execute(args):
         return dev.dev_build_plugin(args)
     if operation == "renovate":
         return _renovate(args)
+    if operation == "deploy":
+        return _deploy(args)
     utils.warn(
-        "[plugin] missing sub-command; try 'dev plugin create <plugin>', "
-        "'dev plugin build' or 'dev plugin renovate'"
+        "[plugin] missing sub-command; try 'dev plugin create <plugin>', 'dev plugin build', "
+        "'dev plugin renovate' or 'dev plugin deploy <plugin>'"
     )
     return False
 
@@ -1419,6 +1421,207 @@ def _renovate(args):
 
 
 # --------------------------------------------------------------------------- #
+# `dev plugin deploy <plugin>` — build a plugin and install it on the profile's Ligoj
+# --------------------------------------------------------------------------- #
+# The target instance (endpoint + credentials) is the active profile — `--profile X` selects it, the
+# default being the 'dev' profile like every `dev` command. The jar is uploaded through the same
+# path as `ligoj plugin upload` (plugin_install with a local file), then the context is restarted
+# and the command waits until the restart has actually COMPLETED: the health endpoint is seen going
+# down and back up (a restart is asynchronous — an immediate 'UP' would be the OLD context), and the
+# plugin is confirmed in the installed list.
+_SIGN_KEYSTORE = "~/.ligoj/code-signing.p12"
+_SIGN_KEYCHAIN = "ligoj.release.sign-storepass"
+_RESTART_DOWN_GRACE = 60  # seconds to observe the old context going down before assuming it did
+
+
+def _deploy(args):
+    from ligojcli.plugins import ligoj
+
+    plugin_dir = _plugin_dir(args)
+    artifact, version = _pom_coordinates(os.path.join(plugin_dir, "pom.xml"))
+    wait = args.get("wait")
+    utils.info(
+        f"[plugin] Deploy {artifact}:{version} from {plugin_dir} to {ligoj.ligoj_endpoint} "
+        f"(profile '{utils.ini_profile}')"
+    )
+    # Fail fast on an unreachable target: a Maven build is not worth running for nothing, and the
+    # error is then a clear sentence instead of a stack of connection refusals after the build.
+    if not _health_up():
+        raise ValueError(
+            f"[plugin] Ligoj is not reachable at {ligoj.ligoj_endpoint} (profile "
+            f"'{utils.ini_profile}') — start it ('dev debug start' / 'dev test start') or pick "
+            "another --profile"
+        )
+    jar = _build_jar(plugin_dir, artifact, version, skip_build=bool(args.get("skip_build")))
+
+    # Upload = what `ligoj plugin upload --from <jar> --force` does (force: same-version redeploys).
+    ligoj.plugin_install(artifact, version, None, jar, False, True)
+
+    utils.info("[plugin] Restart the Ligoj context ...")
+    ligoj.plugin_restart_context(0)
+    if wait == 0:
+        utils.info("[plugin] Restart requested; not waiting (--wait 0)")
+        return False
+    if not _wait_restart(None if wait is None else int(wait)):
+        return False
+    installed = _installed_version(artifact)
+    if installed:
+        utils.info(
+            f"[plugin] {artifact} is installed on {ligoj.ligoj_endpoint}: version {installed}"
+        )
+    else:
+        utils.warn(f"[plugin] {artifact} not found in the installed plugins after the restart")
+    return False
+
+
+def _plugin_dir(args):
+    """The plugin checkout: a path, or an artifact under the plugins dir; must carry a pom.xml."""
+    from ligojcli.plugins import dev
+
+    plugin = (args.get("plugin") or "").strip()
+    candidate = os.path.expanduser(plugin)
+    if os.path.isdir(candidate):
+        plugin_dir = candidate
+    else:
+        plugins_dir = os.path.expanduser(
+            args.get("plugins_dir")
+            or dev._dev_get(args, "ligoj_plugins_dir", "LIGOJ_PLUGINS_DIR", "~/git/ligoj-plugins")
+        )
+        plugin_dir = os.path.join(plugins_dir, plugin)
+    if not os.path.isfile(os.path.join(plugin_dir, "pom.xml")):
+        raise ValueError(f"[plugin] '{plugin}' is not a Maven project (no pom.xml at {plugin_dir})")
+    return os.path.abspath(plugin_dir)
+
+
+def _pom_coordinates(pom):
+    """(artifactId, version) of a pom — the project's own, not the parent's."""
+    root = ET.parse(pom).getroot()
+    artifact = root.find("{*}artifactId")
+    version = root.find("{*}version")
+    if artifact is None or not (artifact.text or "").strip():
+        raise ValueError(f"[plugin] no <artifactId> in {pom}")
+    if version is None or not (version.text or "").strip():
+        raise ValueError(f"[plugin] no project <version> in {pom} (a plugin declares its own)")
+    return artifact.text.strip(), version.text.strip()
+
+
+def _signing_env():
+    """Environment for the Maven build: the code-signing keystore password when signing applies.
+
+    plugin-parent's 'code-sign' profile auto-activates when ~/.ligoj/code-signing.p12 exists and
+    reads the password from LIGOJ_SIGN_STOREPASS (env, else the macOS keychain entry). Without a
+    password the build is told to skip jarsigner rather than hang on a passphrase prompt.
+    """
+    from ligojcli import dev_package
+
+    env = dict(os.environ)
+    extra = []
+    if not os.path.isfile(os.path.expanduser(_SIGN_KEYSTORE)):
+        utils.warn("[plugin] No ~/.ligoj/code-signing.p12: the jar will NOT be code-signed")
+        return env, extra
+    password = env.get("LIGOJ_SIGN_STOREPASS") or dev_package._keychain_secret(_SIGN_KEYCHAIN)
+    if password:
+        env["LIGOJ_SIGN_STOREPASS"] = password
+        utils.info("[plugin] JAR code signing enabled (~/.ligoj/code-signing.p12)")
+    else:
+        utils.warn(
+            "[plugin] Code-signing keystore found but no password (LIGOJ_SIGN_STOREPASS or the "
+            f"'{_SIGN_KEYCHAIN}' keychain entry): building an UNSIGNED jar"
+        )
+        extra.append("-Djarsigner.skip=true")
+    return env, extra
+
+
+def _build_jar(plugin_dir, artifact, version, skip_build=False):
+    """`mvn clean package` (tests skipped) and return the built jar path."""
+    jar = os.path.join(plugin_dir, "target", f"{artifact}-{version}.jar")
+    if skip_build:
+        if not os.path.isfile(jar):
+            raise ValueError(f"[plugin] --skip-build but no built jar at {jar}")
+        utils.info(f"[plugin] Using the existing build {jar}")
+        return jar
+    if shutil.which("mvn") is None:
+        raise ValueError("[plugin] 'mvn' not found on PATH (needed to build the plugin)")
+    env, extra = _signing_env()
+    utils.info(f"[plugin] Building {artifact}:{version} (mvn clean package, tests skipped) ...")
+    result = subprocess.run(
+        [
+            "mvn",
+            "-B",
+            "-ntp",
+            "-f",
+            os.path.join(plugin_dir, "pom.xml"),
+            "clean",
+            "package",
+            "-DskipTests=true",
+            "-Dgpg.skip=true",
+            *extra,
+        ],
+        cwd=plugin_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        tail = "\n".join(((result.stdout or "") + (result.stderr or "")).strip().splitlines()[-25:])
+        raise ValueError(f"[plugin] Maven build failed (exit {result.returncode}):\n{tail}")
+    if not os.path.isfile(jar):
+        raise ValueError(f"[plugin] Build succeeded but {jar} is missing")
+    utils.info(f"[plugin] Built {jar} ({os.path.getsize(jar) // 1024} KB)")
+    return jar
+
+
+def _health_up():
+    from ligojcli.plugins import ligoj
+
+    try:
+        details = ligoj.call_api("GET", "/manage/health", ignore_error=True, ignore_output=True)
+    except Exception:  # noqa: BLE001 - a refused connection is the expected 'down' signal
+        return False
+    return details is not None
+
+
+def _wait_restart(wait):
+    """Wait until the restart COMPLETED: health observed down, then up again. False on timeout."""
+    import time
+
+    deadline = None if wait is None else time.time() + wait
+    utils.info("[plugin] Waiting for the context to go down ...")
+    start = time.time()
+    went_down = False
+    while time.time() - start < _RESTART_DOWN_GRACE:
+        if not _health_up():
+            went_down = True
+            break
+        time.sleep(1)
+    if not went_down:
+        utils.warn(
+            f"[plugin] Health stayed UP for {_RESTART_DOWN_GRACE}s — the restart may have completed "
+            "before it was observed, or was not honoured; continuing"
+        )
+    utils.info(
+        f"[plugin] Waiting for the context to be back up ({'no limit' if wait is None else f'{wait}s max'}) ..."
+    )
+    while deadline is None or time.time() < deadline:
+        if _health_up():
+            utils.info(f"[plugin] Ligoj is back up after {int(time.time() - start)}s")
+            return True
+        time.sleep(2)
+    utils.warn(f"[plugin] Ligoj not back up after {wait}s")
+    return False
+
+
+def _installed_version(artifact):
+    from ligojcli.plugins import ligoj
+
+    for entry in ligoj.plugin_list() or []:
+        plugin = entry.get("plugin") or {}
+        if plugin.get("artifact") == artifact:
+            return plugin.get("version") or entry.get("latestLocalVersion") or "?"
+    return None
+
+
+# --------------------------------------------------------------------------- #
 # Help (surfaced on 'dev plugin create -h')
 # --------------------------------------------------------------------------- #
 HELP = """\
@@ -1495,4 +1698,26 @@ Examples:
   ligoj dev plugin renovate                 # renovate the plugin in the current directory
   ligoj dev plugin renovate plugin-km       # a specific plugin under LIGOJ_PLUGINS_DIR
   ligoj dev plugin renovate --all           # every plugin under LIGOJ_PLUGINS_DIR
+"""
+
+
+HELP_DEPLOY = """\
+dev plugin deploy <plugin> — build a plugin and install it on a Ligoj instance.
+
+  1. mvn clean package (tests skipped) in the plugin checkout; the jar is code-signed when
+     ~/.ligoj/code-signing.p12 exists and its password is available (LIGOJ_SIGN_STOREPASS, else the
+     macOS keychain entry 'ligoj.release.sign-storepass'), otherwise built unsigned with a warning.
+  2. upload the jar exactly like 'ligoj plugin upload --from <jar> --force' (same-version redeploys).
+  3. restart the Ligoj context and WAIT until the restart has completed: the health endpoint is seen
+     going down then up (a restart is asynchronous), and the plugin is confirmed in the installed list.
+
+Target instance: the active profile's endpoint and credentials — the 'dev' profile by default, any
+other with the global option, e.g. 'ligoj --profile staging dev plugin deploy plugin-km'.
+
+<plugin>: an artifact under LIGOJ_PLUGINS_DIR (~/git/ligoj-plugins) or a path to the checkout.
+
+Options:
+  --wait N / -w N     Seconds to wait for the restart (default: until back up; 0 = don't wait)
+  --skip-build        Upload the jar already in target/ instead of rebuilding
+  --plugins-dir DIR   Plugins root for a bare <plugin> name (default ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)
 """

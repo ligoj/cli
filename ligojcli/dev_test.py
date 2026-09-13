@@ -333,6 +333,13 @@ def _user_flags(config):
     return []
 
 
+def _bind_flags(config):
+    """Bind the app on all interfaces when its port is PUBLISHED: the images default SERVER_HOST to
+    127.0.0.1 (right behind host networking or a reverse proxy), which podman's port mapping cannot
+    reach — the container answers on loopback only and the host sees a silent 'not up'."""
+    return ["-e", "SERVER_HOST=0.0.0.0"] if config["network"] == "publish" else []
+
+
 def _net_flags(config, port):
     # 'host' networking (docker / Linux) binds the container port straight on the host, so localhost
     # reaches it. Under podman-machine that only binds inside the VM, unreachable from the mac — so the
@@ -367,6 +374,7 @@ def _run_commands(config):
         *_pull_flag(config, config["api_image"]),
         "-e",
         f"SERVER_PORT={config['api_port']}",
+        *_bind_flags(config),
         "-e",
         f"CUSTOM_OPTS={' '.join(config['api_opts'])}",
         config["api_image"],
@@ -391,6 +399,7 @@ def _run_commands(config):
         f"SERVER_PORT={config['ui_port']}",
         "-e",
         f"CONTEXT_URL={config['ui_context']}",
+        *_bind_flags(config),
         config["ui_image"],
     ]
     return api, ui

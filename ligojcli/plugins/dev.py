@@ -490,7 +490,7 @@ def configure(subparser_service):
     from ligojcli import dev_plugin
 
     parser_plugin = subparser_action.add_parser(
-        "plugin", help="Ligoj plugin dev helpers ('create', 'build', 'renovate')"
+        "plugin", help="Ligoj plugin dev helpers ('create', 'build', 'renovate', 'deploy')"
     )
     plugin_sub = parser_plugin.add_subparsers(title="command", dest="operation")
     plugin_create = plugin_sub.add_parser(
@@ -571,6 +571,29 @@ def configure(subparser_service):
         type=int,
         default=None,
         help="Number of plugins renovated in parallel (default: 3)",
+    )
+
+    plugin_deploy = plugin_sub.add_parser(
+        "deploy",
+        help="Build a plugin and install it on the profile's Ligoj (upload, restart, wait)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Build a plugin jar, upload it to the active profile's Ligoj, restart and wait.",
+        epilog=dev_plugin.HELP_DEPLOY,
+    )
+    plugin_deploy.add_argument(
+        "plugin", help="Plugin to deploy (artifact under LIGOJ_PLUGINS_DIR, or a path)"
+    )
+    _add_wait_argument(plugin_deploy)
+    plugin_deploy.add_argument(
+        "--skip-build",
+        dest="skip_build",
+        action="store_true",
+        help="Upload the jar already built in target/ instead of rebuilding",
+    )
+    plugin_deploy.add_argument(
+        "--plugins-dir",
+        dest="plugins_dir",
+        help="Plugins root for a bare plugin name (default ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)",
     )
 
 

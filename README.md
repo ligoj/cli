@@ -2384,6 +2384,35 @@ root is `LIGOJ_PLUGINS_DIR` / `--plugins-dir` (default `~/git/ligoj-plugins`), a
 `PATH`. A plugin must be an `org.ligoj.api:plugin-parent` project — anything else is skipped (with
 `--all`) or reported as an error (when named).
 
+## Deploy a plugin to a Ligoj instance (`dev plugin deploy`)
+
+`dev plugin deploy <plugin>` builds a plugin and installs it on a running Ligoj — the fast inner loop
+for plugin development against a real instance:
+
+1. **build** — `mvn clean package` (tests skipped) in the plugin checkout. The jar is **code-signed**
+   when `~/.ligoj/code-signing.p12` exists and its password is available (`LIGOJ_SIGN_STOREPASS`, else
+   the macOS keychain entry `ligoj.release.sign-storepass`); otherwise it is built unsigned, with a
+   warning (`--skip-build` reuses the jar already in `target/`);
+2. **upload** — exactly what `ligoj plugin upload --from <jar> --force` does, so a same-version
+   (`-SNAPSHOT`) redeploy replaces the installed jar;
+3. **restart + wait** — the Ligoj context is restarted and the command waits until the restart has
+   actually **completed**: the health endpoint is observed going *down* and then *up* again (a restart
+   is asynchronous — an immediate "UP" would be the old context), and the plugin is confirmed in the
+   installed list with its version. `--wait N` bounds the wait; `--wait 0` returns right after the
+   restart request.
+
+The **target instance comes from the active profile** — endpoint and credentials — which is the `dev`
+profile by default (like every `dev` command) and any other via the global option:
+
+```bash
+ligoj dev plugin deploy plugin-km                       # build + deploy to the dev profile's Ligoj
+ligoj --profile staging dev plugin deploy plugin-km     # ... to the 'staging' profile's instance
+ligoj dev plugin deploy ~/git/my-plugin --skip-build    # a path, reusing the existing target/ jar
+```
+
+`<plugin>` is an artifact under `LIGOJ_PLUGINS_DIR` (`~/git/ligoj-plugins`, `--plugins-dir` to change)
+or a path to the checkout.
+
 ## Build the app container images (`dev package`)
 
 `dev package` builds the two Ligoj application container images **locally**, straight from the
@@ -2455,7 +2484,7 @@ add the driver to your build. Pass an explicit `--api …` group to take full co
 **Networking** adapts to the runtime: **docker/Linux** uses `--network=host` (the API reaches the dev DB
 on `localhost`); **podman-machine** publishes ports (`-p <port>:<port>`) so the mac can reach
 `localhost:<port>`, and the containers reach the machine host — the other container and the dev DB — via
-`host.containers.internal`. Override with `--net host|publish`.
+`host.containers.internal`; in publish mode both apps are also told to bind on all interfaces (`SERVER_HOST=0.0.0.0` — the images default to loopback, unreachable through a port mapping). Override with `--net host|publish`.
 
 Every option resolves from the CLI flag, then the environment, then `~/.ligoj/config` / `~/.ligoj/credentials`:
 
