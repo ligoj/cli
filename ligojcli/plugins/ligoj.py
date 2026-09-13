@@ -517,7 +517,8 @@ def parse_remote_args(args):
     global ligoj_api_local_roles
 
     ligoj_api_key = utils.get_secret(args, "api_key", "LIGOJ_API_KEY", None)
-    ligoj_api_user = utils.get_config(args, "api_user", "LIGOJ_API_USER", DEFAULT_LIGOJ_API_USER)
+    # Same lookup chain as the API key: CLI option, environment, sessions, credentials, then configuration
+    ligoj_api_user = utils.get_secret(args, "api_user", "LIGOJ_API_USER", DEFAULT_LIGOJ_API_USER)
     ligoj_api_run_as_user = utils.get_config(args, "api_run_as_user", "LIGOJ_API_RUN_AS_USER", None)
     ligoj_endpoint = utils.get_config(args, "endpoint", "LIGOJ_ENDPOINT", DEFAULT_LIGOJ_ENDPOINT)
     ligoj_api_local_roles = utils.get_config(
