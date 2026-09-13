@@ -1426,9 +1426,11 @@ def _renovate(args):
 # The target instance (endpoint + credentials) is the active profile — `--profile X` selects it, the
 # default being the 'dev' profile like every `dev` command. The jar is uploaded through the same
 # path as `ligoj plugin upload` (plugin_install with a local file), then the context is restarted
-# and the command waits until the restart has actually COMPLETED: the health endpoint is seen going
-# down and back up (a restart is asynchronous — an immediate 'UP' would be the OLD context), and the
-# plugin is confirmed in the installed list.
+# and the command waits until the restart has actually COMPLETED: the API is seen going down and
+# back up (a restart is asynchronous — an immediate 'UP' would be the OLD context), and the plugin
+# is confirmed in the installed list. The probe is an authenticated 'GET session' rather than the
+# '/manage/health' actuator: a hosted front (SaaS behind a CDN) does not expose the actuator, and
+# the REST probe also tells a rejected credential apart from an instance that is down.
 _SIGN_KEYSTORE = "~/.ligoj/code-signing.p12"
 _SIGN_KEYCHAIN = "ligoj.release.sign-storepass"
 _RESTART_DOWN_GRACE = 60  # seconds to observe the old context going down before assuming it did
@@ -1444,9 +1446,16 @@ def _deploy(args):
         f"[plugin] Deploy {artifact}:{version} from {plugin_dir} to {ligoj.ligoj_endpoint} "
         f"(profile '{utils.ini_profile}')"
     )
-    # Fail fast on an unreachable target: a Maven build is not worth running for nothing, and the
-    # error is then a clear sentence instead of a stack of connection refusals after the build.
-    if not _health_up():
+    # Fail fast on an unreachable target or rejected credentials: a Maven build is not worth running
+    # for nothing, and the error is then a clear sentence instead of a stack of failures after it.
+    state = _probe()
+    if state == "unauthorized":
+        raise ValueError(
+            f"[plugin] Ligoj at {ligoj.ligoj_endpoint} rejected the credentials of profile "
+            f"'{utils.ini_profile}' (401/403) — check 'api_user' and 'api_key' in "
+            f"{utils.INI_CREDENTIALS_FILE} for that profile, or pass --api-user/--api-key"
+        )
+    if state != "up":
         raise ValueError(
             f"[plugin] Ligoj is not reachable at {ligoj.ligoj_endpoint} (profile "
             f"'{utils.ini_profile}') — start it ('dev debug start' / 'dev test start') or pick "
@@ -1571,14 +1580,20 @@ def _build_jar(plugin_dir, artifact, version, skip_build=False):
     return jar
 
 
-def _health_up():
+def _probe():
+    """Classify the target with an authenticated 'GET session': 'up', 'unauthorized' or 'down'."""
     from ligojcli.plugins import ligoj
 
     try:
-        details = ligoj.call_api("GET", "/manage/health", ignore_error=True, ignore_output=True)
-    except Exception:  # noqa: BLE001 - a refused connection is the expected 'down' signal
-        return False
-    return details is not None
+        response = ligoj.call_api("GET", "session", ignore_error=True, ignore_output=True)
+    except Exception as e:  # noqa: BLE001 - a refused connection / 5xx is the expected 'down' signal
+        status = re.search(r"\((\d{3})\)", str(e))
+        return "unauthorized" if status and status.group(1) in ("401", "403") else "down"
+    return "up" if response is not None else "down"
+
+
+def _health_up():
+    return _probe() == "up"
 
 
 def _wait_restart(wait):
@@ -1708,8 +1723,11 @@ dev plugin deploy <plugin> — build a plugin and install it on a Ligoj instance
      ~/.ligoj/code-signing.p12 exists and its password is available (LIGOJ_SIGN_STOREPASS, else the
      macOS keychain entry 'ligoj.release.sign-storepass'), otherwise built unsigned with a warning.
   2. upload the jar exactly like 'ligoj plugin upload --from <jar> --force' (same-version redeploys).
-  3. restart the Ligoj context and WAIT until the restart has completed: the health endpoint is seen
-     going down then up (a restart is asynchronous), and the plugin is confirmed in the installed list.
+  3. restart the Ligoj context and WAIT until the restart has completed: the API is seen going down
+     then up (a restart is asynchronous), and the plugin is confirmed in the installed list.
+
+The target is probed first with an authenticated 'GET session': the build is skipped when the
+instance is unreachable or when it rejects the profile's credentials (401/403).
 
 Target instance: the active profile's endpoint and credentials — the 'dev' profile by default, any
 other with the global option, e.g. 'ligoj --profile staging dev plugin deploy plugin-km'.

@@ -2396,10 +2396,15 @@ for plugin development against a real instance:
 2. **upload** — exactly what `ligoj plugin upload --from <jar> --force` does, so a same-version
    (`-SNAPSHOT`) redeploy replaces the installed jar;
 3. **restart + wait** — the Ligoj context is restarted and the command waits until the restart has
-   actually **completed**: the health endpoint is observed going *down* and then *up* again (a restart
-   is asynchronous — an immediate "UP" would be the old context), and the plugin is confirmed in the
+   actually **completed**: the API is observed going *down* and then *up* again (a restart is
+   asynchronous — an immediate "UP" would be the old context), and the plugin is confirmed in the
    installed list with its version. `--wait N` bounds the wait; `--wait 0` returns right after the
    restart request.
+
+Before building, the target is probed with an authenticated `GET session` (not the `/manage/health`
+actuator, which a hosted front such as a SaaS behind a CDN does not expose). The command stops with
+a one-line error, and no build, when the instance is unreachable **or when it rejects the profile's
+credentials** (401/403) — the latter names the `api_user`/`api_key` entries to check.
 
 The **target instance comes from the active profile** — endpoint and credentials — which is the `dev`
 profile by default (like every `dev` command) and any other via the global option:
