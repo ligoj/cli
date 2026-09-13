@@ -1428,9 +1428,10 @@ def _renovate(args):
 # path as `ligoj plugin upload` (plugin_install with a local file), then the context is restarted
 # and the command waits until the restart has actually COMPLETED: the API is seen going down and
 # back up (a restart is asynchronous — an immediate 'UP' would be the OLD context), and the plugin
-# is confirmed in the installed list. The probe is an authenticated 'GET session' rather than the
-# '/manage/health' actuator: a hosted front (SaaS behind a CDN) does not expose the actuator, and
-# the REST probe also tells a rejected credential apart from an instance that is down.
+# is confirmed in the installed list. The probe is an authenticated 'GET session', with
+# 'GET system/plugin' as failover, rather than the '/manage/health' actuator: a hosted front (SaaS
+# behind a CDN) does not expose the actuator, and the REST probe also tells a rejected credential
+# apart from an instance that is down.
 _SIGN_KEYSTORE = "~/.ligoj/code-signing.p12"
 _SIGN_KEYCHAIN = "ligoj.release.sign-storepass"
 _RESTART_DOWN_GRACE = 60  # seconds to observe the old context going down before assuming it did
@@ -1454,6 +1455,12 @@ def _deploy(args):
             f"[plugin] Ligoj at {ligoj.ligoj_endpoint} rejected the credentials of profile "
             f"'{utils.ini_profile}' (401/403) — check 'api_user' and 'api_key' in "
             f"{utils.INI_CREDENTIALS_FILE} for that profile, or pass --api-user/--api-key"
+        )
+    if state == "error":
+        raise ValueError(
+            f"[plugin] Ligoj at {ligoj.ligoj_endpoint} (profile '{utils.ini_profile}') answered an "
+            "error to both 'GET session' and 'GET system/plugin' — run again with --trace for the "
+            "responses"
         )
     if state != "up":
         raise ValueError(
@@ -1580,16 +1587,30 @@ def _build_jar(plugin_dir, artifact, version, skip_build=False):
     return jar
 
 
-def _probe():
-    """Classify the target with an authenticated 'GET session': 'up', 'unauthorized' or 'down'."""
+def _probe_path(path):
+    """Classify one authenticated GET: 'up', 'unauthorized' (401/403), 'error' (other HTTP error)
+    or 'down' (no connection)."""
     from ligojcli.plugins import ligoj
 
     try:
-        response = ligoj.call_api("GET", "session", ignore_error=True, ignore_output=True)
-    except Exception as e:  # noqa: BLE001 - a refused connection / 5xx is the expected 'down' signal
+        response = ligoj.call_api("GET", path, ignore_output=True)
+    except Exception as e:  # noqa: BLE001 - a refused connection is the expected 'down' signal
         status = re.search(r"\((\d{3})\)", str(e))
-        return "unauthorized" if status and status.group(1) in ("401", "403") else "down"
+        if status is None:
+            return "down"
+        return "unauthorized" if status.group(1) in ("401", "403") else "error"
     return "up" if response is not None else "down"
+
+
+def _probe():
+    """Classify the target: 'GET session' first (available to every authenticated user), then
+    'GET system/plugin' as a failover when the session view fails for a reason unrelated to
+    reachability (e.g. a 500 caused by a display template) — that call is needed by the deploy
+    anyway. 'down' is final: the failover cannot answer when nothing listens."""
+    state = _probe_path("session")
+    if state in ("up", "down"):
+        return state
+    return _probe_path("system/plugin")
 
 
 def _health_up():
@@ -1726,8 +1747,9 @@ dev plugin deploy <plugin> — build a plugin and install it on a Ligoj instance
   3. restart the Ligoj context and WAIT until the restart has completed: the API is seen going down
      then up (a restart is asynchronous), and the plugin is confirmed in the installed list.
 
-The target is probed first with an authenticated 'GET session': the build is skipped when the
-instance is unreachable or when it rejects the profile's credentials (401/403).
+The target is probed first with an authenticated 'GET session' ('GET system/plugin' as failover):
+the build is skipped when the instance is unreachable, answers an error to both, or rejects the
+profile's credentials (401/403).
 
 Target instance: the active profile's endpoint and credentials — the 'dev' profile by default, any
 other with the global option, e.g. 'ligoj --profile staging dev plugin deploy plugin-km'.
