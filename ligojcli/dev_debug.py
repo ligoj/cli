@@ -91,6 +91,12 @@ def execute(args):
     op = args.get("operation")
     if op == "init":
         return _init(args)
+    # 'start|stop|restart vite' — manage ONE component instead of the whole stack. Only Vite can be
+    # driven alone: the Java apps are started together by the launcher app (it starts every run
+    # config that is not running), so a single-app start is not something the CLI can honour.
+    component = args.get("component")
+    if component == "vite" and op in ("start", "stop", "restart"):
+        return _vite_only(op, args)
     if op == "start":
         return _start(args)
     if op == "stop":
@@ -454,6 +460,32 @@ def _start(args):
     return False
 
 
+def _vite_only(op, args):
+    """start | stop | restart of the Vite dev server alone: no pods, no IDE, no Java apps touched."""
+    wait = args.get("wait")
+    comps = _components(args)
+    vite = next(c for c in comps if c["kind"] == "vite")
+    if op in ("stop", "restart"):
+        _stop_vite(vite, args)
+        if wait != 0:
+            # Bounded on restart so a stuck process cannot hang it (same as the full restart).
+            _await_components(
+                [vite], False, (30 if wait is None else wait) if op == "restart" else wait, args
+            )
+    if op in ("start", "restart"):
+        if _running_pids(vite, args) or dev._probe_tcp("localhost", vite["port"]):
+            utils.info("[debug] Vite already running")
+        elif not _start_vite(vite, args):
+            _render_status(args)
+            return False
+        if wait != 0:
+            _await_components([vite], True, wait, args)
+    _render_status(args)
+    if op != "stop" and wait != 0 and not args.get("no_browser"):
+        _open_browser(comps, args)
+    return False
+
+
 def _open_browser(comps, args):
     """Open the application in the browser once it answers — Vite first (the live-reload frontend
     you debug against), else the UI server; nothing when neither is up yet."""
@@ -572,6 +604,14 @@ def _start_vite(comp, args):
     if shutil.which("npm") is None:
         utils.warn("[debug] npm is not on PATH; cannot start Vite")
         return False
+    if not os.path.exists(os.path.join(webapp, "node_modules", ".bin", "vite")):
+        # 'npm run dev' would print 'sh: vite: command not found' and exit at once; say why
+        # instead of waiting for a port that will never open.
+        utils.warn(
+            f"[debug] Vite is not installed in {webapp} (no node_modules/.bin/vite): run "
+            "'npm install' there, then start again"
+        )
+        return False
     os.makedirs(_state_dir(), exist_ok=True)
     log_path = os.path.join(_state_dir(), "vite.log")
     utils.info(f"[debug] Start Vite (npm run dev) in {webapp} ...")
@@ -586,6 +626,18 @@ def _start_vite(comp, args):
         )
     _write_pid(proc.pid)
     utils.debug(f"[debug] Vite started (pid {proc.pid}), logs at {log_path}")
+    # An immediate exit (bad config, missing dependency) is reported now with the log tail, not
+    # after a full wait for a port that never opens.
+    time.sleep(2)
+    if proc.poll() is not None:
+        _clear_pid()
+        with open(log_path, "rb") as log:
+            tail = log.read()[-600:].decode("utf-8", "replace").strip().splitlines()[-6:]
+        utils.warn(f"[debug] Vite exited at once (code {proc.returncode}); last log lines:")
+        for line in tail:
+            utils.warn(f"[debug]   {line}")
+        utils.warn(f"[debug] Full log: {log_path}")
+        return False
     return True
 
 

@@ -196,6 +196,17 @@ KIND_PORT_MAPPINGS = [
 K8S_DIR = os.path.join(utils.user_home, ".ligoj", "dev", "k8s")
 
 
+def _add_debug_component_argument(parser):
+    """'dev debug start|stop|restart [vite]': the optional single component to act on."""
+    parser.add_argument(
+        "component",
+        nargs="?",
+        choices=["vite"],
+        help="Act on this component only (vite: the Vite dev server, http://localhost:5173/ligoj/); "
+        "default: the whole stack",
+    )
+
+
 def _add_wait_argument(parser):
     parser.add_argument(
         "--wait",
@@ -411,19 +422,28 @@ def configure(subparser_service):
     debug_start = debug_sub.add_parser(
         "start",
         help="Start the ligoj-db + openldap pods, IntelliJ and the Ligoj API/UI/Vite apps "
-        "(only those stopped), then open the app in the browser",
+        "(only those stopped), then open the app in the browser; 'start vite' starts Vite only",
     )
+    _add_debug_component_argument(debug_start)
     _add_wait_argument(debug_start)
     debug_start.add_argument(
         "--no-browser", action="store_true", help="Do not open the browser once the app is up"
     )
     debug_stop = debug_sub.add_parser(
         "stop",
-        help="Stop the Ligoj API/UI/Vite apps and the ligoj-db + openldap pods (IntelliJ stays open)",
+        help="Stop the Ligoj API/UI/Vite apps and the ligoj-db + openldap pods (IntelliJ stays "
+        "open); 'stop vite' stops Vite only",
     )
+    _add_debug_component_argument(debug_stop)
     _add_wait_argument(debug_stop)
-    debug_restart = debug_sub.add_parser("restart", help="Restart the Ligoj API/UI/Vite apps")
+    debug_restart = debug_sub.add_parser(
+        "restart", help="Restart the Ligoj API/UI/Vite apps; 'restart vite' restarts Vite only"
+    )
+    _add_debug_component_argument(debug_restart)
     _add_wait_argument(debug_restart)
+    debug_restart.add_argument(
+        "--no-browser", action="store_true", help="Do not open the browser once the app is up"
+    )
     debug_sub.add_parser("status", help="Show the IDE app stack status")
 
     # 'test' takes free-form '-D...' JVM options grouped by '--api' / '--ui', which argparse cannot

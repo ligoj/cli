@@ -2209,7 +2209,15 @@ ligoj dev debug status     # show what is running (process) and reachable (port)
 ligoj dev debug stop       # stop the API/UI/Vite apps AND the two pods (IntelliJ stays open)
 ligoj dev debug restart    # stop then start the apps (the pods are left running)
 ligoj dev debug start -w 60 # same live '--wait' as the other dev commands (0 = no wait)
+ligoj dev debug start vite   # start ONLY the Vite dev server (nothing else is touched)
+ligoj dev debug stop vite    # stop ONLY Vite; 'restart vite' bounces it (pods, IDE, Java apps untouched)
 ```
+
+`start vite` needs the webapp dependencies installed (`npm install` in `app-ui/src/main/webapp`):
+without them the command says so at once instead of waiting for a port that never opens, and a
+Vite process that exits right after launch is reported with the tail of its log
+(`~/.ligoj/dev/debug/vite.log`). Only Vite can be driven alone: the Java apps are started together
+by the launcher app, which starts every run configuration that is not running.
 
 **Browser.** Once the wait completes, `start` opens the application in your browser — the **Vite**
 dev server (`http://localhost:5173/ligoj/`, live reload) when it answers, else the UI server
