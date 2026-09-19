@@ -2420,16 +2420,16 @@ ligoj dev plugin deploy ~/git/my-plugin --skip-build    # a path, reusing the ex
 `<plugin>` is an artifact under `LIGOJ_PLUGINS_DIR` (`~/git/ligoj-plugins`, `--plugins-dir` to change)
 or a path to the checkout.
 
-## Pull the plugin checkouts (`dev pull`)
+## Pull the plugin checkouts (`dev plugin pull`)
 
-`dev pull` runs `git pull --ff-only` in every plugin checkout under the plugins dir (every
+`dev plugin pull` runs `git pull --ff-only` in every plugin checkout under the plugins dir (every
 sub-directory holding a `.git`), or only in the plugins named on the command line, three at a time
 by default:
 
 ```bash
-ligoj dev pull                          # every git checkout under ~/git/ligoj-plugins
-ligoj dev pull plugin-km plugin-bt      # only these (artifact names, or paths)
-ligoj dev pull --jobs 6                 # more parallel pulls
+ligoj dev plugin pull                        # every git checkout under ~/git/ligoj-plugins
+ligoj dev plugin pull plugin-km plugin-bt    # only these (artifact names, or paths)
+ligoj dev plugin pull --jobs 6               # more parallel pulls
 ```
 
 Each plugin gets **one report line**, live while it runs (same rendering as `dev plugin renovate`):

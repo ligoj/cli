@@ -105,7 +105,7 @@ def execute(args):
         return _pull(args)
     utils.warn(
         "[plugin] missing sub-command; try 'dev plugin create <plugin>', 'dev plugin build', "
-        "'dev plugin renovate' or 'dev plugin deploy <plugin>'"
+        "'dev plugin renovate', 'dev plugin deploy <plugin>' or 'dev plugin pull'"
     )
     return False
 
@@ -1431,7 +1431,7 @@ def _renovate(args):
 
 
 # --------------------------------------------------------------------------- #
-# `dev pull [plugin ...]` — git pull every plugin checkout (or the given ones)
+# `dev plugin pull [plugin ...]` — git pull every plugin checkout (or the given ones)
 # --------------------------------------------------------------------------- #
 # Every git checkout under the plugins dir is pulled with '--ff-only': the command never creates a
 # merge commit or rewrites local work — a diverged branch is reported as an error for the user to
@@ -1898,9 +1898,9 @@ Options:
 HELP_PULL = """\
 Git-pull every plugin checkout under the plugins dir, or only the ones given:
 
-  ligoj dev pull                          # every git checkout under ~/git/ligoj-plugins
-  ligoj dev pull plugin-km plugin-bt      # only these (artifact names, or paths)
-  ligoj dev pull --jobs 6                 # more parallel pulls (default 3)
+  ligoj dev plugin pull                        # every git checkout under ~/git/ligoj-plugins
+  ligoj dev plugin pull plugin-km plugin-bt    # only these (artifact names, or paths)
+  ligoj dev plugin pull --jobs 6               # more parallel pulls (default 3)
 
 Pulls are fast-forward only ('git pull --ff-only'): local work is never merged over or rewritten —
 a diverged branch is reported as an error line and left for you to resolve. A detached HEAD or a
