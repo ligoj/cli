@@ -2420,6 +2420,28 @@ ligoj dev plugin deploy ~/git/my-plugin --skip-build    # a path, reusing the ex
 `<plugin>` is an artifact under `LIGOJ_PLUGINS_DIR` (`~/git/ligoj-plugins`, `--plugins-dir` to change)
 or a path to the checkout.
 
+## Pull the plugin checkouts (`dev pull`)
+
+`dev pull` runs `git pull --ff-only` in every plugin checkout under the plugins dir (every
+sub-directory holding a `.git`), or only in the plugins named on the command line, three at a time
+by default:
+
+```bash
+ligoj dev pull                          # every git checkout under ~/git/ligoj-plugins
+ligoj dev pull plugin-km plugin-bt      # only these (artifact names, or paths)
+ligoj dev pull --jobs 6                 # more parallel pulls
+```
+
+Each plugin gets **one report line**, live while it runs (same rendering as `dev plugin renovate`):
+✅ *updated* with the branch and the number of new commits, 💤 *up-to-date* or *skipped*, or ❌ the
+git error. Pulls are **fast-forward only**: local commits are never merged over or rewritten — a
+diverged branch is reported as an error and left untouched for you to resolve, while a detached
+HEAD or a branch without upstream is skipped (nothing to pull, not an error). Submodule checkouts
+(a `.git` *file*) are pulled like plain clones. Credential prompts are disabled, so a repository
+needing an interactive login fails instead of hanging. The exit status is non-zero when any pull
+failed. The plugins dir comes from `--plugins-dir`, else `LIGOJ_PLUGINS_DIR` / the profile's
+`ligoj_plugins_dir`, else `~/git/ligoj-plugins`.
+
 ## Build the app container images (`dev package`)
 
 `dev package` builds the two Ligoj application container images **locally**, straight from the

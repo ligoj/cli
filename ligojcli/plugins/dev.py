@@ -489,6 +489,29 @@ def configure(subparser_service):
     # 'dev plugin <command>' — scaffold, build frontends, and renovate Ligoj plugins.
     from ligojcli import dev_plugin
 
+    # 'dev pull [plugin ...]' — git pull the plugin checkouts (all, or the given ones).
+    parser_pull = subparser_action.add_parser(
+        "pull",
+        help="git pull (fast-forward only) every plugin checkout, or the given ones, in parallel",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Pull the plugin git checkouts under the plugins dir, one report line each.",
+        epilog=dev_plugin.HELP_PULL,
+    )
+    parser_pull.add_argument(
+        "plugins",
+        nargs="*",
+        metavar="plugin",
+        help="Plugins to pull (artifact under LIGOJ_PLUGINS_DIR, or a path); default: all of them",
+    )
+    parser_pull.add_argument(
+        "--plugins-dir",
+        dest="plugins_dir",
+        help="Plugins root (default: ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)",
+    )
+    parser_pull.add_argument(
+        "--jobs", "-j", type=int, default=None, help="Number of parallel pulls (default: 3)"
+    )
+
     parser_plugin = subparser_action.add_parser(
         "plugin", help="Ligoj plugin dev helpers ('create', 'build', 'renovate', 'deploy')"
     )
@@ -651,6 +674,10 @@ def execute_action(service, action, _operation, args):
         from ligojcli import dev_plugin
 
         return dev_plugin.execute(args)
+    if action == "pull":
+        from ligojcli import dev_plugin
+
+        return dev_plugin.execute(args | {"operation": "pull"})
     return None
 
 

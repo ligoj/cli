@@ -101,6 +101,8 @@ def execute(args):
         return _renovate(args)
     if operation == "deploy":
         return _deploy(args)
+    if operation == "pull":
+        return _pull(args)
     utils.warn(
         "[plugin] missing sub-command; try 'dev plugin create <plugin>', 'dev plugin build', "
         "'dev plugin renovate' or 'dev plugin deploy <plugin>'"
@@ -1303,7 +1305,16 @@ def _renovate_repo(repo, target, host):
 
 
 def _parallel_renovate(repos, target, host, jobs):
-    """Renovate repos with `jobs` workers; each plugin gets exactly ONE line in the output.
+    return _parallel_report(
+        repos, lambda repo: _renovate_repo(repo, target, host), "renovating", jobs
+    )
+
+
+def _parallel_report(repos, worker, activity, jobs):
+    """Run `worker(repo)` over repos with `jobs` threads; each plugin gets exactly ONE line.
+
+    `worker` returns a {name, status, summary, details} record (status: changed/skip/error) and
+    must stay silent — it returns instead of logging, so parallel runs cannot interleave output.
 
     While in flight a plugin shows in a small live footer (at most `jobs` rows, rewritten in
     place); on completion its footer row is replaced by the plugin's permanent result line, which
@@ -1311,8 +1322,7 @@ def _parallel_renovate(repos, target, host, jobs):
     makes the rendering reliable: one row per PLUGIN (dozens) exceeds the terminal height, and once
     a block scrolls, cursor-up cannot reach back above the screen top — every redraw then appends a
     fresh copy of the whole block instead of updating it. Piped output simply prints each plugin's
-    final line as it completes. Workers stay silent (the _renovate_* helpers return instead of
-    logging), so parallel runs cannot interleave their output.
+    final line as it completes.
     """
     from ligojcli.plugins import dev
 
@@ -1350,8 +1360,8 @@ def _parallel_renovate(repos, target, host, jobs):
         spinner = "…" if utils.no_color else "⏳"
         for label in running:
             name = _paint(label.ljust(width), Style.BRIGHT)
-            activity = _paint(f"renovating ({state['done']}/{total} done)", Fore.YELLOW)
-            sys.stdout.write(f"\r\x1b[K  {name}  {spinner} {activity}\n")
+            progress = _paint(f"{activity} ({state['done']}/{total} done)", Fore.YELLOW)
+            sys.stdout.write(f"\r\x1b[K  {name}  {spinner} {progress}\n")
             written += 1
         leftover = rows - written  # the previous footer was taller: blank what remains of it
         for _ in range(max(0, leftover)):
@@ -1366,7 +1376,7 @@ def _parallel_renovate(repos, target, host, jobs):
             running.append(label)
             if tty:
                 _redraw()
-        result = _renovate_repo(repo, target, host)
+        result = worker(repo)
         with lock:
             running.remove(label)
             results[label] = result
@@ -1418,6 +1428,129 @@ def _renovate(args):
         f"{skipped} up-to-date, {len(failed)} error(s) (edits left uncommitted for review)"
     )
     return not failed
+
+
+# --------------------------------------------------------------------------- #
+# `dev pull [plugin ...]` — git pull every plugin checkout (or the given ones)
+# --------------------------------------------------------------------------- #
+# Every git checkout under the plugins dir is pulled with '--ff-only': the command never creates a
+# merge commit or rewrites local work — a diverged branch is reported as an error for the user to
+# resolve by hand, while a detached HEAD or a branch without upstream is merely skipped. Pulls run
+# in parallel with the same one-line-per-plugin live report as renovate.
+_GIT_TIMEOUT = 300  # seconds per repo: a hung remote must not block the whole run
+
+
+def _git(repo, *cmd):
+    return subprocess.run(
+        ["git", "-C", repo, *cmd],
+        capture_output=True,
+        text=True,
+        timeout=_GIT_TIMEOUT,
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},  # a missing credential fails, never hangs
+    )
+
+
+def _pull_repos(args):
+    """The checkouts to pull: the named plugins (artifact or path) or every git checkout under the
+    dir — plain clones and submodules alike (a submodule's '.git' is a file pointing at the
+    superproject's modules store, so the test is 'exists', not 'isdir')."""
+    from ligojcli.plugins import dev
+
+    plugins_dir = os.path.expanduser(
+        args.get("plugins_dir")
+        or dev._dev_get(args, "ligoj_plugins_dir", "LIGOJ_PLUGINS_DIR", "~/git/ligoj-plugins")
+    )
+    names = [name for name in (args.get("plugins") or []) if name.strip()]
+    if names:
+        repos = []
+        for name in names:
+            candidate = os.path.expanduser(name)
+            repo = candidate if os.path.isdir(candidate) else os.path.join(plugins_dir, name)
+            if not os.path.exists(os.path.join(repo, ".git")):  # a file for submodules
+                raise ValueError(f"[pull] '{name}' is not a git checkout (no .git at {repo})")
+            repos.append(repo)
+        return repos
+    if not os.path.isdir(plugins_dir):
+        raise ValueError(f"[pull] plugins dir not found: {plugins_dir}")
+    repos = [
+        os.path.join(plugins_dir, name)
+        for name in sorted(os.listdir(plugins_dir))
+        if os.path.exists(os.path.join(plugins_dir, name, ".git"))  # dir, or submodule file
+    ]
+    if not repos:
+        raise ValueError(f"[pull] no git checkout under {plugins_dir}")
+    return repos
+
+
+def _pull_repo(repo):
+    """git pull --ff-only ONE checkout; returns the per-plugin result record (never raises)."""
+    name = os.path.basename(os.path.abspath(repo))
+
+    def error(summary, details=()):
+        return {"name": name, "status": "error", "summary": summary[:160], "details": list(details)}
+
+    def skipped(summary):
+        # Nothing to pull is not a failure: a pinned (detached) or local-only branch is a normal
+        # state of a checkout, reported but not counted as an error (the exit code stays 0).
+        return {"name": name, "status": "skip", "summary": summary, "details": [], "skipped": True}
+
+    try:
+        branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        if not branch or branch == "HEAD":
+            return skipped("detached HEAD, skipped")
+        upstream = _git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+        if upstream.returncode != 0:
+            return skipped(f"{branch}: no upstream branch, skipped")
+        before = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        pulled = _git(repo, "pull", "--ff-only", "--no-rebase")
+        if pulled.returncode != 0:
+            # Keep the useful lines: git's 'hint:' advice block is noise in a per-plugin report.
+            lines = [
+                line
+                for line in (pulled.stderr + pulled.stdout).splitlines()
+                if line.strip() and not line.startswith("hint:")
+            ]
+            reason = lines[-1].strip() if lines else f"git pull failed ({pulled.returncode})"
+            if "Not possible to fast-forward" in reason or "diverg" in reason.lower():
+                reason = f"diverged from {upstream.stdout.strip()}, merge or rebase by hand"
+            return error(f"{branch}: {reason}", lines)
+        after = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return error(f"git failed: {exc}")
+    if before == after:
+        return {"name": name, "status": "skip", "summary": f"{branch}: up-to-date", "details": []}
+    count = _git(repo, "rev-list", "--count", f"{before}..{after}").stdout.strip() or "?"
+    return {
+        "name": name,
+        "status": "changed",
+        "summary": f"{branch}: {count} new commit(s), {before[:7]}..{after[:7]}",
+        "details": [],
+    }
+
+
+def _pull(args):
+    repos = _pull_repos(args)
+    jobs = max(1, int(args.get("jobs") or 3))
+    utils.info(
+        f"[pull] Pull {len(repos)} plugin checkout(s) (fast-forward only) with "
+        f"{min(jobs, len(repos))} parallel worker(s) ..."
+    )
+    results = _parallel_report(repos, _pull_repo, "pulling", jobs)
+    failed = [result for result in results if result["status"] == "error"]
+    for result in failed:
+        for detail in result["details"]:
+            utils.warn(f"[pull] {result['name']}: {detail}")
+    updated = sum(1 for result in results if result["status"] == "changed")
+    skipped = sum(1 for result in results if result.get("skipped"))
+    summary = (
+        f"[pull] Pull complete: {len(results)} checked, {updated} updated, "
+        f"{len(results) - updated - skipped - len(failed)} up-to-date, {skipped} skipped, "
+        f"{len(failed)} error(s)"
+    )
+    if failed:  # raised, not returned: the CLI exits non-zero on an error, not on a False result
+        raise ValueError(summary)
+    utils.info(summary)
+    return False  # the CLI's 'no output' convention: the report lines above are the output
 
 
 # --------------------------------------------------------------------------- #
@@ -1760,4 +1893,21 @@ Options:
   --wait N / -w N     Seconds to wait for the restart (default: until back up; 0 = don't wait)
   --skip-build        Upload the jar already in target/ instead of rebuilding
   --plugins-dir DIR   Plugins root for a bare <plugin> name (default ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)
+"""
+
+HELP_PULL = """\
+Git-pull every plugin checkout under the plugins dir, or only the ones given:
+
+  ligoj dev pull                          # every git checkout under ~/git/ligoj-plugins
+  ligoj dev pull plugin-km plugin-bt      # only these (artifact names, or paths)
+  ligoj dev pull --jobs 6                 # more parallel pulls (default 3)
+
+Pulls are fast-forward only ('git pull --ff-only'): local work is never merged over or rewritten —
+a diverged branch is reported as an error line and left for you to resolve. A detached HEAD or a
+branch without upstream has nothing to pull: it is reported as skipped, not as an error. Each
+plugin gets ONE report line: updated (branch, new commit count), up-to-date, skipped, or the git
+error. Exit status is non-zero when any pull failed.
+
+Plugins dir: --plugins-dir, else LIGOJ_PLUGINS_DIR / 'ligoj_plugins_dir' of the profile, else
+~/git/ligoj-plugins.
 """
