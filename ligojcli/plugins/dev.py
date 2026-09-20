@@ -596,15 +596,27 @@ def configure(subparser_service):
 
     plugin_deploy = plugin_sub.add_parser(
         "deploy",
-        help="Build a plugin and install it on the profile's Ligoj (upload, restart, wait)",
+        help="Build one or more plugins and install them on the profile's Ligoj (upload all, "
+        "one restart, wait)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="Build a plugin jar, upload it to the active profile's Ligoj, restart and wait.",
+        description="Build the plugin jars, upload them to the active profile's Ligoj, restart "
+        "once and wait.",
         epilog=dev_plugin.HELP_DEPLOY,
     )
     plugin_deploy.add_argument(
-        "plugin", help="Plugin to deploy (artifact under LIGOJ_PLUGINS_DIR, or a path)"
+        "plugins",
+        nargs="+",
+        metavar="plugin",
+        help="Plugin(s) to deploy (artifact under LIGOJ_PLUGINS_DIR, or a path)",
     )
     _add_wait_argument(plugin_deploy)
+    plugin_deploy.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=None,
+        help="Number of plugins built in parallel (default: 3)",
+    )
     plugin_deploy.add_argument(
         "--skip-build",
         dest="skip_build",

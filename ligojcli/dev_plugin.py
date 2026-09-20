@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import xml.etree.ElementTree as ET
 
 from colorama import Fore, Style
@@ -1310,8 +1311,10 @@ def _parallel_renovate(repos, target, host, jobs):
     )
 
 
-def _parallel_report(repos, worker, activity, jobs):
+def _parallel_report(repos, worker, activity, jobs, labels=None):
     """Run `worker(repo)` over repos with `jobs` threads; each plugin gets exactly ONE line.
+
+    `labels` names the report lines (default: the repo directory names).
 
     `worker` returns a {name, status, summary, details} record (status: changed/skip/error) and
     must stay silent — it returns instead of logging, so parallel runs cannot interleave output.
@@ -1326,7 +1329,7 @@ def _parallel_report(repos, worker, activity, jobs):
     """
     from ligojcli.plugins import dev
 
-    labels = [os.path.basename(os.path.abspath(repo)) for repo in repos]
+    labels = labels or [os.path.basename(os.path.abspath(repo)) for repo in repos]
     width = max(len(label) for label in labels)
     tty = dev._live()
     total = len(repos)
@@ -1573,12 +1576,21 @@ _RESTART_DOWN_GRACE = 60  # seconds to observe the old context going down before
 def _deploy(args):
     from ligojcli.plugins import ligoj
 
-    plugin_dir = _plugin_dir(args)
-    artifact, version = _pom_coordinates(os.path.join(plugin_dir, "pom.xml"))
     wait = args.get("wait")
+    # Resolve every checkout up front: a typo in the last name must fail before any build starts.
+    targets = []  # (plugin_dir, artifact, version)
+    for plugin in args.get("plugins") or []:
+        plugin_dir = _plugin_dir(plugin, args)
+        artifact, version = _pom_coordinates(os.path.join(plugin_dir, "pom.xml"))
+        if any(existing[1] == artifact for existing in targets):
+            utils.warn(f"[plugin] {artifact} given twice; deploying it once")
+            continue
+        targets.append((plugin_dir, artifact, version))
+    if not targets:
+        raise ValueError("[plugin] deploy: no plugin given")
     utils.info(
-        f"[plugin] Deploy {artifact}:{version} from {plugin_dir} to {ligoj.ligoj_endpoint} "
-        f"(profile '{utils.ini_profile}')"
+        f"[plugin] Deploy {', '.join(f'{artifact}:{version}' for _, artifact, version in targets)} "
+        f"to {ligoj.ligoj_endpoint} (profile '{utils.ini_profile}')"
     )
     # Fail fast on an unreachable target or rejected credentials: a Maven build is not worth running
     # for nothing, and the error is then a clear sentence instead of a stack of failures after it.
@@ -1601,33 +1613,121 @@ def _deploy(args):
             f"'{utils.ini_profile}') — start it ('dev debug start' / 'dev test start') or pick "
             "another --profile"
         )
-    jar = _build_jar(plugin_dir, artifact, version, skip_build=bool(args.get("skip_build")))
+    # Step 1/3 — build everything first (in parallel, one live line per plugin): a build failure
+    # aborts before any upload, so the instance never ends up with a partial set of new jars.
+    skip_build = bool(args.get("skip_build"))
+    jobs = max(1, int(args.get("jobs") or 3))
+    total = len(targets)
+    utils.info(
+        f"[plugin] Step 1/3 — {'reuse the built jars of' if skip_build else 'build'} {total} "
+        f"plugin(s){'' if skip_build else f' with {min(jobs, total)} parallel worker(s)'} ..."
+    )
+    signing = None if skip_build else _signing_env()  # logged once, not once per worker
+    by_dir = {plugin_dir: (artifact, version) for plugin_dir, artifact, version in targets}
+    jars = {}
+    build_started = time.time()
 
-    # Upload = what `ligoj plugin upload --from <jar> --force` does (force: same-version redeploys).
-    ligoj.plugin_install(artifact, version, None, jar, False, True)
+    def build(plugin_dir):
+        artifact, version = by_dir[plugin_dir]
+        started = time.time()
+        try:
+            jar = _build_jar(
+                plugin_dir, artifact, version, skip_build, signing, log=lambda *_: None
+            )
+        except ValueError as error:
+            head, _, tail = str(error).partition("\n")
+            return {
+                "name": artifact,
+                "status": "error",
+                "summary": head.removeprefix("[plugin] ").rstrip(":"),
+                "details": tail.splitlines(),
+            }
+        jars[artifact] = jar
+        size = f"{os.path.getsize(jar) // 1024} KB"
+        summary = (
+            f"{version}: reusing target/ jar ({size})"
+            if skip_build
+            else f"{version}: built in {int(time.time() - started)}s ({size})"
+        )
+        return {"name": artifact, "status": "skip" if skip_build else "changed", "summary": summary}
 
-    utils.info("[plugin] Restart the Ligoj context ...")
+    built = _parallel_report(
+        [plugin_dir for plugin_dir, _, _ in targets],
+        build,
+        "building",
+        jobs,
+        labels=[artifact for _, artifact, _ in targets],  # the artifact, not the checkout dir name
+    )
+    build_seconds = int(time.time() - build_started)
+    failed = [result for result in built if result["status"] == "error"]
+    if failed:
+        for result in failed:
+            for detail in result.get("details") or []:
+                utils.warn(f"[plugin] {result['name']}: {detail}")
+        raise ValueError(
+            f"[plugin] Deploy aborted: {len(failed)}/{total} build(s) failed "
+            f"({', '.join(result['name'] for result in failed)}); nothing was uploaded"
+        )
+
+    # Step 2/3 — upload every jar (= 'ligoj plugin upload --from <jar> --force': same-version
+    # redeploys), then restart ONCE for the whole set.
+    utils.info(f"[plugin] Step 2/3 — upload {total} jar(s) to {ligoj.ligoj_endpoint} ...")
+    upload_started = time.time()
+    for index, (_, artifact, version) in enumerate(targets, 1):
+        utils.info(f"[plugin] ({index}/{total}) Upload {artifact}:{version} ...")
+        ligoj.plugin_install(artifact, version, None, jars[artifact], False, True)
+    upload_seconds = int(time.time() - upload_started)
+
+    utils.info(f"[plugin] Step 3/3 — restart the Ligoj context once for {total} plugin(s) ...")
+    restart_started = time.time()
     ligoj.plugin_restart_context(0)
     if wait == 0:
-        utils.info("[plugin] Restart requested; not waiting (--wait 0)")
-        return False
-    if not _wait_restart(None if wait is None else int(wait)):
-        return False
-    installed = _installed_version(artifact)
-    if installed:
         utils.info(
-            f"[plugin] {artifact} is installed on {ligoj.ligoj_endpoint}: version {installed}"
+            f"[plugin] Deploy summary: {total} plugin(s) built in {build_seconds}s, uploaded in "
+            f"{upload_seconds}s, restart requested and not awaited (--wait 0)"
         )
-    else:
-        utils.warn(f"[plugin] {artifact} not found in the installed plugins after the restart")
+        return False
+    restarted = _wait_restart(None if wait is None else int(wait))
+    restart_seconds = int(time.time() - restart_started)
+
+    # Summary — one line per plugin (same rendering as the build report), then the totals.
+    installed_plugins = ligoj.plugin_list() or [] if restarted else []
+    missing = []
+    width = max(len(artifact) for _, artifact, _ in targets)
+    utils.info("[plugin] Deploy summary:")
+    for _, artifact, version in targets:
+        installed = _installed_version(artifact, installed_plugins) if restarted else None
+        if installed:
+            status, text = "changed", f"{version} uploaded → installed {installed}"
+        else:
+            missing.append(artifact)
+            status, text = (
+                "error",
+                (
+                    f"{version} uploaded → NOT in the installed list after the restart"
+                    if restarted
+                    else f"{version} uploaded → restart not observed, not verified"
+                ),
+            )
+        name = _paint(artifact.ljust(width), Style.BRIGHT)
+        print(f"  {name}  {_status_icon(status)} {_paint(text, _RENOVATE_COLORS[status])}")
+    totals = (
+        f"[plugin] Deploy complete: {total} plugin(s), "
+        f"{'jars reused' if skip_build else f'built in {build_seconds}s'}, uploaded in "
+        f"{upload_seconds}s, restart {'completed' if restarted else 'NOT completed'} in "
+        f"{restart_seconds}s, {total - len(missing)} installed, {len(missing)} error(s)"
+    )
+    if missing:
+        raise ValueError(totals)
+    utils.info(totals)
     return False
 
 
-def _plugin_dir(args):
+def _plugin_dir(plugin, args):
     """The plugin checkout: a path, or an artifact under the plugins dir; must carry a pom.xml."""
     from ligojcli.plugins import dev
 
-    plugin = (args.get("plugin") or "").strip()
+    plugin = (plugin or "").strip()
     candidate = os.path.expanduser(plugin)
     if os.path.isdir(candidate):
         plugin_dir = candidate
@@ -1681,18 +1781,23 @@ def _signing_env():
     return env, extra
 
 
-def _build_jar(plugin_dir, artifact, version, skip_build=False):
-    """`mvn clean package` (tests skipped) and return the built jar path."""
+def _build_jar(plugin_dir, artifact, version, skip_build=False, signing=None, log=utils.info):
+    """`mvn clean package` (tests skipped) and return the built jar path.
+
+    `signing` is the (env, extra args) pair of _signing_env(), resolved once by the caller when
+    several plugins are built; `log` is the progress logger — a no-op for the silent parallel
+    workers, whose progress is the live report line instead.
+    """
     jar = os.path.join(plugin_dir, "target", f"{artifact}-{version}.jar")
     if skip_build:
         if not os.path.isfile(jar):
             raise ValueError(f"[plugin] --skip-build but no built jar at {jar}")
-        utils.info(f"[plugin] Using the existing build {jar}")
+        log(f"[plugin] Using the existing build {jar}")
         return jar
     if shutil.which("mvn") is None:
         raise ValueError("[plugin] 'mvn' not found on PATH (needed to build the plugin)")
-    env, extra = _signing_env()
-    utils.info(f"[plugin] Building {artifact}:{version} (mvn clean package, tests skipped) ...")
+    env, extra = signing or _signing_env()
+    log(f"[plugin] Building {artifact}:{version} (mvn clean package, tests skipped) ...")
     result = subprocess.run(
         [
             "mvn",
@@ -1716,7 +1821,7 @@ def _build_jar(plugin_dir, artifact, version, skip_build=False):
         raise ValueError(f"[plugin] Maven build failed (exit {result.returncode}):\n{tail}")
     if not os.path.isfile(jar):
         raise ValueError(f"[plugin] Build succeeded but {jar} is missing")
-    utils.info(f"[plugin] Built {jar} ({os.path.getsize(jar) // 1024} KB)")
+    log(f"[plugin] Built {jar} ({os.path.getsize(jar) // 1024} KB)")
     return jar
 
 
@@ -1780,10 +1885,10 @@ def _wait_restart(wait):
     return False
 
 
-def _installed_version(artifact):
+def _installed_version(artifact, installed=None):
     from ligojcli.plugins import ligoj
 
-    for entry in ligoj.plugin_list() or []:
+    for entry in ligoj.plugin_list() if installed is None else installed:
         plugin = entry.get("plugin") or {}
         if plugin.get("artifact") == artifact:
             return plugin.get("version") or entry.get("latestLocalVersion") or "?"
@@ -1871,26 +1976,35 @@ Examples:
 
 
 HELP_DEPLOY = """\
-dev plugin deploy <plugin> — build a plugin and install it on a Ligoj instance.
+dev plugin deploy <plugin> [<plugin> ...] — build plugins and install them on a Ligoj instance.
 
-  1. mvn clean package (tests skipped) in the plugin checkout; the jar is code-signed when
-     ~/.ligoj/code-signing.p12 exists and its password is available (LIGOJ_SIGN_STOREPASS, else the
-     macOS keychain entry 'ligoj.release.sign-storepass'), otherwise built unsigned with a warning.
-  2. upload the jar exactly like 'ligoj plugin upload --from <jar> --force' (same-version redeploys).
-  3. restart the Ligoj context and WAIT until the restart has completed: the API is seen going down
-     then up (a restart is asynchronous), and the plugin is confirmed in the installed list.
+  1. mvn clean package (tests skipped) in EACH plugin checkout, all builds before any upload (a
+     failed build aborts the whole deploy); the jar is code-signed when ~/.ligoj/code-signing.p12
+     exists and its password is available (LIGOJ_SIGN_STOREPASS, else the macOS keychain entry
+     'ligoj.release.sign-storepass'), otherwise built unsigned with a warning.
+  2. upload every jar exactly like 'ligoj plugin upload --from <jar> --force' (same-version
+     redeploys).
+  3. restart the Ligoj context ONCE for the whole set and WAIT until the restart has completed: the
+     API is seen going down then up (a restart is asynchronous), and every plugin is confirmed in
+     the installed list.
 
 The target is probed first with an authenticated 'GET session' ('GET system/plugin' as failover):
 the build is skipped when the instance is unreachable, answers an error to both, or rejects the
 profile's credentials (401/403).
 
 Target instance: the active profile's endpoint and credentials — the 'dev' profile by default, any
-other with the global option, e.g. 'ligoj --profile staging dev plugin deploy plugin-km'.
+other with the global option, e.g. 'ligoj --profile staging dev plugin deploy plugin-km plugin-bt'.
 
-<plugin>: an artifact under LIGOJ_PLUGINS_DIR (~/git/ligoj-plugins) or a path to the checkout.
+<plugin>: an artifact under LIGOJ_PLUGINS_DIR (~/git/ligoj-plugins) or a path to the checkout;
+several may be given, e.g. 'ligoj dev plugin deploy plugin-km plugin-km-confluence'.
+
+Progress: the builds run in parallel (--jobs, default 3) with ONE live line per plugin, the
+uploads are numbered, and a summary lists every plugin with its installed version plus the totals
+(build / upload / restart durations, installed count, errors).
 
 Options:
   --wait N / -w N     Seconds to wait for the restart (default: until back up; 0 = don't wait)
+  --jobs N / -j N     Number of plugins built in parallel (default: 3)
   --skip-build        Upload the jar already in target/ instead of rebuilding
   --plugins-dir DIR   Plugins root for a bare <plugin> name (default ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)
 """
