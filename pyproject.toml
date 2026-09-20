@@ -10,7 +10,7 @@ ligojcli = ["assets/*.png", "data/nodes/*.json", "data/ldap/*.ldif"]
 
 [project]
 name = "ligoj-cli"
-version = "1.2.0"
+version = "1.3.0"
 description = "Command-line client for the Ligoj REST API, with a local dev-environment toolkit"
 readme = "README.md"
 license = "MIT"
