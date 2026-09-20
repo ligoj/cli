@@ -2394,20 +2394,28 @@ root is `LIGOJ_PLUGINS_DIR` / `--plugins-dir` (default `~/git/ligoj-plugins`), a
 
 ## Deploy a plugin to a Ligoj instance (`dev plugin deploy`)
 
-`dev plugin deploy <plugin>` builds a plugin and installs it on a running Ligoj — the fast inner loop
-for plugin development against a real instance:
+`dev plugin deploy <plugin> [<plugin> ...]` builds one or more plugins and installs them on a
+running Ligoj — the fast inner loop for plugin development against a real instance:
 
-1. **build** — `mvn clean package` (tests skipped) in the plugin checkout. The jar is **code-signed**
-   when `~/.ligoj/code-signing.p12` exists and its password is available (`LIGOJ_SIGN_STOREPASS`, else
-   the macOS keychain entry `ligoj.release.sign-storepass`); otherwise it is built unsigned, with a
-   warning (`--skip-build` reuses the jar already in `target/`);
-2. **upload** — exactly what `ligoj plugin upload --from <jar> --force` does, so a same-version
-   (`-SNAPSHOT`) redeploy replaces the installed jar;
-3. **restart + wait** — the Ligoj context is restarted and the command waits until the restart has
-   actually **completed**: the API is observed going *down* and then *up* again (a restart is
-   asynchronous — an immediate "UP" would be the old context), and the plugin is confirmed in the
-   installed list with its version. `--wait N` bounds the wait; `--wait 0` returns right after the
-   restart request.
+1. **build** — `mvn clean package` (tests skipped) in each plugin checkout, **all builds before any
+   upload**, so a failed build aborts the deploy before the instance receives anything. The jar is
+   **code-signed** when `~/.ligoj/code-signing.p12` exists and its password is available
+   (`LIGOJ_SIGN_STOREPASS`, else the macOS keychain entry `ligoj.release.sign-storepass`); otherwise
+   it is built unsigned, with a warning (`--skip-build` reuses the jars already in `target/`);
+2. **upload** — every jar, exactly what `ligoj plugin upload --from <jar> --force` does, so a
+   same-version (`-SNAPSHOT`) redeploy replaces the installed jar;
+3. **restart + wait** — the Ligoj context is restarted **once for the whole set** and the command
+   waits until the restart has actually **completed**: the API is observed going *down* and then
+   *up* again (a restart is asynchronous — an immediate "UP" would be the old context), and every
+   plugin is confirmed in the installed list with its version. `--wait N` bounds the wait;
+   `--wait 0` returns right after the restart request.
+
+The three steps are announced as they start. The builds run in parallel (`--jobs`, default 3) with
+**one live line per plugin** (same rendering as `dev plugin renovate`: ⏳ building, then ✅ built
+with its duration and jar size, or ❌ the Maven error — whose log tail is printed after the
+report). The uploads are numbered. A **summary** then lists every plugin with its installed
+version, followed by the totals: build, upload and restart durations, installed count and errors.
+A plugin missing from the installed list after the restart makes the command fail.
 
 Before building, the target is probed with an authenticated `GET session` (available to every
 user), falling over to `GET system/plugin` — the call the deploy relies on anyway — when the session
@@ -2421,6 +2429,7 @@ profile by default (like every `dev` command) and any other via the global optio
 
 ```bash
 ligoj dev plugin deploy plugin-km                       # build + deploy to the dev profile's Ligoj
+ligoj dev plugin deploy plugin-km plugin-km-confluence  # several plugins, ONE restart for all of them
 ligoj --profile staging dev plugin deploy plugin-km     # ... to the 'staging' profile's instance
 ligoj dev plugin deploy ~/git/my-plugin --skip-build    # a path, reusing the existing target/ jar
 ```
