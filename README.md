@@ -2014,6 +2014,16 @@ A kube-play service is started with `podman pod start`; a kind service starts th
 whole-cluster stop stopped it) and scales its workloads back to 1. (`dev init` also brings everything
 up, additionally re-running the chart upgrades and token/realm steps.)
 
+Once the services are up, `start` and `restart` print the **address of every started service** —
+one line each, ready to copy into the browser (`dev config <service>` gives the credentials):
+
+```
+[INFO ] [dev] Addresses:
+[INFO ] [dev]   jenkins  http://localhost:8085
+[INFO ] [dev] Credentials: 'ligoj dev config <service>'
+[INFO ] [dev] Start complete
+```
+
 All of `init`, `start`, `stop` and `restart` take `--wait` and stream **live progress** while waiting
 for the target state (services up, or down for `stop`): omit it to wait until done (or Ctrl+C), `0`
 to return immediately, or `N` to cap the wait at N seconds — e.g. `dev restart --wait 120`.
