@@ -903,6 +903,7 @@ def dev_restart(args):
         _restart_service(service)
     if wait != 0:
         _await_services(services, args, True, wait)
+    _print_addresses(services, args)
     utils.info("[dev] Restart complete")
     return False
 
@@ -1006,8 +1007,20 @@ def dev_start(args):
         _start_service(service)
     if wait != 0:
         _await_services(services, args, True, wait)
+    _print_addresses(services, args)
     utils.info("[dev] Start complete")
     return False
+
+
+def _print_addresses(services, args):
+    """One line per started service with its address, ready to copy into a browser (or a client
+    for PostgreSQL/LDAP). The URL is the same one 'dev status' and 'dev config' show — a stored
+    endpoint when the service was initialised, else the default localhost one."""
+    width = max(len(svc) for svc in services)
+    utils.info("[dev] Addresses:")
+    for svc in services:
+        utils.info(f"[dev]   {svc.ljust(width)}  {_service_url(svc, args)}")
+    utils.info("[dev] Credentials: 'ligoj dev config <service>'")
 
 
 def dev_up(args):
