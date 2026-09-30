@@ -787,7 +787,27 @@ def call_api(method, url, **kwargs):
                     raise ValueError(hook_log)
                 else:
                     utils.debug(hook_log)
+        # Non-blocking warnings of a successful call: percent-encoded JSON {code, parameters} per value, ',' joined
+        for raw in response.headers.get("X-Ligoj-Warning", "").split(","):
+            if raw.strip():
+                utils.warn(f"[ligoj] {_warning_text(urllib.parse.unquote(raw.strip()))}")
     return response
+
+
+def _warning_text(decoded: str) -> str:
+    """Readable text of a warning: `code (k: v, ...)` for the coded JSON form, the text itself otherwise."""
+    if not decoded.startswith("{"):
+        return decoded
+    try:
+        payload = json.loads(decoded)
+    except ValueError:
+        return decoded
+    code = str(payload.get("code") or "")
+    parameters = payload.get("parameters") or {}
+    if not code:
+        return decoded
+    details = ", ".join(f"{k}: {v}" for k, v in parameters.items())
+    return f"{code} ({details})" if details else code
 
 
 def whoami():
