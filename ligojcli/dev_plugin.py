@@ -1610,7 +1610,7 @@ def _deploy(args):
     if state != "up":
         raise ValueError(
             f"[plugin] Ligoj is not reachable at {ligoj.ligoj_endpoint} (profile "
-            f"'{utils.ini_profile}') — start it ('dev debug start' / 'dev test start') or pick "
+            f"'{utils.ini_profile}') — start it ('dev start debug' / 'dev test start') or pick "
             "another --profile"
         )
     # Step 1/3 — build everything first (in parallel, one live line per plugin): a build failure

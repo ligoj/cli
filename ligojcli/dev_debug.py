@@ -1,16 +1,16 @@
 #
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
-# `dev debug` (macOS) — manage the local Ligoj *application* stack you debug from the IDE:
+# `dev start|stop|restart|init debug` (macOS) — manage the local Ligoj *application* stack you debug from the IDE:
 #   * IntelliJ IDEA          - opened on the ligoj project
 #   * ligoj-api  (Java app)  - org.ligoj.boot.api.Application, http://localhost:8081/ligoj-api
 #   * ligoj-ui   (Java app)  - org.ligoj.boot.web.Application,  http://localhost:8080/ligoj
 #   * Vite dev server        - `npm run dev` in app-ui/src/main/webapp, http://localhost:5173/ligoj/
 #
 # IntelliJ has no headless "run this configuration" command; automating its UI needs the broad macOS
-# Accessibility permission. Rather than grant that to the whole terminal, `dev debug init` compiles a
+# Accessibility permission. Rather than grant that to the whole terminal, `dev init debug` compiles a
 # tiny dedicated launcher app (default ~/Applications/Ligoj Debug.app) — you grant Accessibility to
-# THAT app only. `dev debug start` opens the launcher (which starts ligoj-api / ligoj-ui in Debug
+# THAT app only. `dev start debug` opens the launcher (which starts ligoj-api / ligoj-ui in Debug
 # mode, skipping any already running) plus the Vite dev server. Detection (status) and stopping are
 # done from the OS (process match / TCP port), needing no permission. `stop`/`restart` never quit the
 # IDE (to preserve unsaved work). All commands accept the same `--wait` as the other `dev` commands.
@@ -26,8 +26,8 @@ from ligojcli.plugins import dev, utils
 
 IDEA_BUNDLE_ID = "com.jetbrains.intellij"
 APP_BUNDLE_ID = "org.ligoj.dev.debug"
-# Bumped whenever the compiled launcher's AppleScript changes, so `dev debug start` can tell the user
-# to re-run `dev debug init` when the installed app predates the change (v2: wait for IntelliJ ready).
+# Bumped whenever the compiled launcher's AppleScript changes, so `dev start debug` can tell the user
+# to re-run `dev init debug` when the installed app predates the change (v2: wait for IntelliJ ready).
 _LAUNCHER_VERSION = "2"
 
 
@@ -105,7 +105,7 @@ def execute(args):
         return _restart(args)
     if op in (None, "status"):
         return _render_status(args)
-    utils.warn(f"[debug] Unknown command '{op}'; use init | start | stop | restart | status")
+    utils.warn(f"[debug] Unknown operation '{op}'; use init | start | stop | restart | status")
     return False
 
 
@@ -148,7 +148,7 @@ def _apply_app_identity(app_path, name):
     _plist_set(plist, "CFBundleIdentifier", APP_BUNDLE_ID)
     _install_icon(app_path)
     # Stamp the launcher version inside the bundle (before signing, so it is sealed in) — read back by
-    # 'dev debug start' to detect an outdated launcher.
+    # 'dev start debug' to detect an outdated launcher.
     with open(_launcher_version_file(app_path), "w", encoding="utf-8") as handle:
         handle.write(_LAUNCHER_VERSION)
     # Re-sign ad-hoc as the LAST step (after the plist/icon edits): on Apple Silicon an unsigned or
@@ -254,7 +254,7 @@ def _build_applescript(args):
         "on waitForIdeReady()\n"
         "\t-- Block until IntelliJ is UI-scriptable, not merely launched: its process must exist\n"
         "\t-- AND the Run menu must be populated (the project frame is up). Keystrokes sent before\n"
-        "\t-- that -- e.g. right after 'dev debug start' launched a cold IDE -- are simply lost.\n"
+        "\t-- that -- e.g. right after 'dev start debug' launched a cold IDE -- are simply lost.\n"
         "\tset deadline to (current date) + 180\n"
         "\trepeat\n"
         "\t\ttry\n"
@@ -327,17 +327,17 @@ def _print_init_instructions(app_path, args):
     print("     A re-init re-signs the app, so an old row no longer matches: toggling a STALE row")
     print("     does nothing and the launcher keeps failing silently.")
     print(f"  2. Launch the app once: open '{app_path}'")
-    print("     (or run 'ligoj dev debug start'). Approve the 'control this computer' prompt; the")
+    print("     (or run 'ligoj dev start debug'). Approve the 'control this computer' prompt; the")
     print("     row reappears TICKED. The prompt can hide behind windows or on another display /")
     print("     Space — if nothing seems to happen, go look for it; it stays open, unanswered.")
     print("     Only THIS app gets the permission; your terminal needs no Accessibility grant.")
-    print(f"  3. Run 'ligoj dev debug start': it starts {configs} in Debug mode (skipping any")
+    print(f"  3. Run 'ligoj dev start debug': it starts {configs} in Debug mode (skipping any")
     print("     already running), so you can set breakpoints in IntelliJ.")
     print()
     print("  Symptoms of a missing/stale grant: 'Ligoj Debug' launches and stays open, IntelliJ")
     print("  comes to the front, but the run configurations never start. Reset it cleanly with:")
     print(f"    tccutil reset Accessibility {APP_BUNDLE_ID}")
-    print("  then redo steps 1-2. Re-run 'dev debug init' after renaming a run configuration.")
+    print("  then redo steps 1-2. Re-run 'dev init debug' after renaming a run configuration.")
     print()
 
 
@@ -382,7 +382,7 @@ def _ensure_backing_services(args, wait):
 
 
 def _stop_backing_services():
-    """Stop the backing pods ('dev debug stop' owns them symmetrically with start).
+    """Stop the backing pods ('dev stop debug' owns them symmetrically with start).
 
     When the podman machine itself is down every pod is already stopped — skip quietly instead of
     letting the per-pod probes misreport 'does not exist' on a dead connection.
@@ -503,7 +503,7 @@ def _launch_debug_app(args, stopped):
     configs = ", ".join(comp["config"] for comp in stopped)
     if not os.path.isdir(app_path):
         utils.warn(
-            f"[debug] Debug launcher app not found ({app_path}). Run 'ligoj dev debug init' to "
+            f"[debug] Debug launcher app not found ({app_path}). Run 'ligoj dev init debug' to "
             f"create it, then re-run start (or launch {configs} from IntelliJ's Run menu)."
         )
         return []
@@ -511,7 +511,7 @@ def _launch_debug_app(args, stopped):
     if installed != _LAUNCHER_VERSION:
         utils.warn(
             f"[debug] Launcher app is outdated (v{installed or '1'}, expected v{_LAUNCHER_VERSION}); "
-            "re-run 'ligoj dev debug init' so it waits for IntelliJ to be ready before driving it — "
+            "re-run 'ligoj dev init debug' so it waits for IntelliJ to be ready before driving it — "
             "otherwise starting a cold IDE may fail."
         )
     utils.info(f"[debug] Start {configs} in Debug mode via {os.path.basename(app_path)} ...")

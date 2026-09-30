@@ -2002,7 +2002,9 @@ A kube-play service is stopped with `podman pod stop`; a single kind service has
 scaled to 0. Stopping **all** also stops the kind node (pausing Harbor + ArgoCD together while keeping
 their replica counts).
 
-`dev start` is the inverse — it starts stopped services without the full `init` reconcile:
+`dev start` is the inverse — it starts stopped services without the full `init` reconcile. The
+same verbs also take the IDE application stack — `debug` (IntelliJ + Ligoj API/UI + Vite) and
+`vite` (the dev server alone) — see [Debug the Ligoj apps from the IDE](#debug-the-ligoj-apps-from-the-ide-dev-start-debug--macos):
 
 ```bash
 ligoj dev start              # all services
@@ -2197,12 +2199,16 @@ spring.security.oauth2.client.registration.keycloak.client-secret=<generated>
 spring.security.oauth2.client.registration.keycloak.scope=openid
 ```
 
-## Debug the Ligoj apps from the IDE (`dev debug`) — macOS
+## Debug the Ligoj apps from the IDE (`dev start debug`) — macOS
 
-While `dev init` brings up the backing **services**, `dev debug` drives the local **application**
-stack you actually debug: IntelliJ IDEA plus the two Ligoj Spring Boot apps and the Vite dev server.
+While `dev init` brings up the backing **services**, the `debug` target of the same verbs —
+`dev init debug`, `dev start debug`, `dev stop debug`, `dev restart debug` — drives the local
+**application** stack you actually debug: IntelliJ IDEA plus the two Ligoj Spring Boot apps and the
+Vite dev server. `dev status` shows it as a second table. The stack is never implied: a bare
+`dev start` / `dev stop` acts on the container services only, so name `debug` (or `vite`) explicitly,
+alone or alongside services (`dev start postgresql debug`).
 
-| Component       | Started by `dev debug`                                  | Endpoint / path |
+| Component       | Started by `dev start debug`                            | Endpoint / path |
 | --------------- | ------------------------------------------------------- | --------------- |
 | PostgreSQL      | the `ligoj-db` pod (`podman pod start`, machine too)    | `localhost:5432` |
 | OpenLDAP        | the `openldap` pod (`podman pod start`)                 | `localhost:1389` |
@@ -2212,15 +2218,15 @@ stack you actually debug: IntelliJ IDEA plus the two Ligoj Spring Boot apps and 
 | Vite (app-ui)   | `npm run dev` in `app-ui/src/main/webapp`               | `http://localhost:5173/ligoj/` |
 
 ```bash
-ligoj dev debug init       # compile the dedicated launcher app (one-time; re-run after renaming a config)
-ligoj dev debug start      # start the ligoj-db + openldap pods + IntelliJ + API/UI/Vite, then open the app in the browser
-ligoj dev debug start --no-browser   # same without opening the browser
-ligoj dev debug status     # show what is running (process) and reachable (port), no changes
-ligoj dev debug stop       # stop the API/UI/Vite apps AND the two pods (IntelliJ stays open)
-ligoj dev debug restart    # stop then start the apps (the pods are left running)
-ligoj dev debug start -w 60 # same live '--wait' as the other dev commands (0 = no wait)
-ligoj dev debug start vite   # start ONLY the Vite dev server (nothing else is touched)
-ligoj dev debug stop vite    # stop ONLY Vite; 'restart vite' bounces it (pods, IDE, Java apps untouched)
+ligoj dev init debug        # compile the dedicated launcher app (one-time; re-run after renaming a config)
+ligoj dev start debug       # start the ligoj-db + openldap pods + IntelliJ + API/UI/Vite, then open the app in the browser
+ligoj dev start debug --no-browser   # same without opening the browser
+ligoj dev status            # the services table, then what is running (process) and reachable (port) in the IDE stack
+ligoj dev stop debug        # stop the API/UI/Vite apps AND the two pods (IntelliJ stays open)
+ligoj dev restart debug     # stop then start the apps (the pods are left running)
+ligoj dev start debug -w 60 # same live '--wait' as the other dev commands (0 = no wait)
+ligoj dev start vite        # start ONLY the Vite dev server (nothing else is touched)
+ligoj dev stop vite         # stop ONLY Vite; 'restart vite' bounces it (pods, IDE, Java apps untouched)
 ```
 
 `start vite` needs the webapp dependencies installed (`npm install` in `app-ui/src/main/webapp`):
@@ -2238,35 +2244,35 @@ dev server (`http://localhost:5173/ligoj/`, live reload) when it answers, else t
 (`openldap` pod) up before anything else — `ligoj-api` cannot boot without the DB, and the LDAP
 identity backend should be there too — starting the podman machine when it is down. A service already
 answering on its port is a no-op; a pod that was **never created** only warns (run
-`ligoj dev init --only <service>`) so the IDE stack still launches. Symmetrically, **`dev debug stop`
+`ligoj dev init <service>`) so the IDE stack still launches. Symmetrically, **`dev stop debug`
 also stops both pods** (skipped quietly when podman itself is down); `restart` only bounces the apps
 and leaves the pods running.
 
 **Why `init` / the launcher app.** IntelliJ has no headless "run this configuration" command, and
 scripting its UI needs the broad macOS **Accessibility** permission (control any app + read the
-screen). Instead of granting that to your whole terminal, `dev debug init` compiles a tiny dedicated
+screen). Instead of granting that to your whole terminal, `dev init debug` compiles a tiny dedicated
 app (default `~/Applications/Ligoj Debug.app`) that drives IntelliJ's *Run ▶ Debug…* chooser for
 `ligoj-api` / `ligoj-ui` (skipping any already running). You grant Accessibility to **that app only**
-— the first `dev debug start` triggers the macOS prompt — and can then revoke your terminal's grant.
+— the first `dev start debug` triggers the macOS prompt — and can then revoke your terminal's grant.
 
 **Granting (and re-granting) Accessibility.** The grant is keyed on the app's signature, so every
 re-`init` (and some macOS updates) invalidates it — and a broken grant fails *silently*: `Ligoj
 Debug` launches and stays open, IntelliJ comes to the front, but the run configurations never start
-(`dev debug start` now names this cause when it happens). The reliable order, also printed by
-`dev debug init`:
+(`dev start debug` names this cause when it happens). The reliable order, also printed by
+`dev init debug`:
 
 1. In **System Settings ▸ Privacy & Security ▸ Accessibility**, **remove** any existing
    `Ligoj Debug` / `applet` row (`−`) — toggling a **stale** row does nothing;
-2. launch the app once (`open ~/Applications/Ligoj\ Debug.app` or `dev debug start`) and approve the
+2. launch the app once (`open ~/Applications/Ligoj\ Debug.app` or `dev start debug`) and approve the
    *"control this computer"* prompt — beware, it can sit **hidden behind windows or on another
    display/Space**, unanswered, looking like nothing happened;
 3. the row reappears ticked. To force a clean re-prompt: `tccutil reset Accessibility
    org.ligoj.dev.debug`, then redo 1–2.
 
-When `dev debug start` launches a **cold** IntelliJ, the launcher first **waits (up to 180 s) for the
+When `dev start debug` launches a **cold** IntelliJ, the launcher first **waits (up to 180 s) for the
 IDE to become UI-ready** — its *Run* menu populated, i.e. the project frame is up — before sending any
 keystroke, so a not-yet-started IDE no longer drops the Debug commands. Because that logic is baked
-into the compiled app, `dev debug start` warns and asks you to **re-run `dev debug init`** whenever the
+into the compiled app, `dev start debug` warns and asks you to **re-run `dev init debug`** whenever the
 installed launcher predates this behavior (also re-run it after renaming a run config).
 
 Everything else needs no permission: all four components are detected by process
@@ -2507,7 +2513,7 @@ the release helper (`commands/release.sh`).
 
 ## Test the released app containers (`dev test`)
 
-While `dev debug` runs the apps from your IDE, `dev test` runs the **released Docker images**
+While `dev start debug` runs the apps from your IDE, `dev test` runs the **released Docker images**
 (`ligoj/ligoj-api` + `ligoj/ligoj-ui`) against the local dev stack — the quickest way to smoke-test a
 published build. It starts both containers in the background, waits until **both are healthy**, then
 opens the UI in your browser at `http://localhost:<ui-port><context>/` (default context `/ligoj`):

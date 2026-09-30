@@ -73,9 +73,12 @@ Start local dev services that were created by `dev init` but are currently stopp
 With no argument every service is (re)started; otherwise only the space-separated
 services you name are, e.g.:
 
-  ligoj dev start                       # start all services
+  ligoj dev start                       # start all container services
   ligoj dev start postgresql keycloak   # start just these two
   ligoj dev start sonarqube --wait 0    # start, do not wait for health
+  ligoj dev start debug                 # the IDE app stack: ligoj-db + openldap pods, IntelliJ,
+                                        # ligoj-api / ligoj-ui (Debug mode) and Vite, then the browser
+  ligoj dev start vite                  # only the Vite dev server (--no-browser: no browser)
 
 Behavior:
   * The podman machine is started first if it is not already running (a stopped
@@ -103,9 +106,12 @@ persistent directories are kept), so `dev start` / `dev up` brings them back.
 With no argument every service is stopped; otherwise only the space-separated
 services you name are, e.g.:
 
-  ligoj dev stop                        # stop everything
+  ligoj dev stop                        # stop every container service (not the IDE app stack)
   ligoj dev stop gitlab sonarqube       # stop just these two
   ligoj dev stop nexus --wait 0         # stop, do not wait for it to go down
+  ligoj dev stop debug                  # the IDE app stack: ligoj-api / ligoj-ui / Vite and the
+                                        # ligoj-db + openldap pods (IntelliJ stays open)
+  ligoj dev stop vite                   # only the Vite dev server
 
 Behavior:
   * Regular services are podman pods — each is halted with `podman pod stop`.
@@ -196,17 +202,6 @@ KIND_PORT_MAPPINGS = [
 K8S_DIR = os.path.join(utils.user_home, ".ligoj", "dev", "k8s")
 
 
-def _add_debug_component_argument(parser):
-    """'dev debug start|stop|restart [vite]': the optional single component to act on."""
-    parser.add_argument(
-        "component",
-        nargs="?",
-        choices=["vite"],
-        help="Act on this component only (vite: the Vite dev server, http://localhost:5173/ligoj/); "
-        "default: the whole stack",
-    )
-
-
 def _add_wait_argument(parser):
     parser.add_argument(
         "--wait",
@@ -218,17 +213,53 @@ def _add_wait_argument(parser):
     )
 
 
-def _service_choice(value):
-    """argparse per-token validator: like choices=SERVICES, but usable with nargs='*'.
+# The IDE application stack ('debug': IntelliJ + ligoj-api/ligoj-ui + Vite, 'vite': the Vite dev
+# server alone) is driven with the same verbs as the container services — 'dev start debug',
+# 'dev stop vite', 'dev init debug' — but never implicitly: a bare 'dev start' / 'dev stop' acts on
+# the container services only.
+APP_TARGETS = ("debug", "vite")
+START_CHOICES = [*SERVICES, *APP_TARGETS]
 
-    A plain choices=SERVICES on a nargs='*' positional rejects the no-argument case
-    ('invalid choice: []'), so validate each token here instead (empty list = all).
-    """
-    if value not in SERVICES:
+
+def _init_choice(value):
+    if value not in (*SERVICES, "debug"):
         raise argparse.ArgumentTypeError(
-            f"invalid service '{value}' (choose from: {', '.join(SERVICES)})"
+            f"invalid service '{value}' (choose from: {', '.join([*SERVICES, 'debug'])})"
         )
     return value
+
+
+def _service_choice(value):
+    """argparse per-token validator: like choices=START_CHOICES, but usable with nargs='*'.
+
+    A plain choices=... on a nargs='*' positional rejects the no-argument case
+    ('invalid choice: []'), so validate each token here instead (empty list = all services).
+    """
+    if value not in START_CHOICES:
+        raise argparse.ArgumentTypeError(
+            f"invalid service '{value}' (choose from: {', '.join(START_CHOICES)})"
+        )
+    return value
+
+
+def _split_targets(requested):
+    """(container services, app targets) of a requested list; no request = every container service."""
+    requested = list(requested or [])
+    apps = [target for target in APP_TARGETS if target in requested]
+    services = [service for service in requested if service not in APP_TARGETS]
+    if not requested:
+        services = list(SERVICES)
+    return services, apps
+
+
+def _drive_apps(operation, apps, args):
+    """Run the IDE-stack verb for each requested app target ('debug' = whole stack, 'vite')."""
+    from ligojcli import dev_debug
+
+    for target in apps:
+        dev_debug.execute(
+            args | {"operation": operation, "component": None if target == "debug" else target}
+        )
 
 
 def configure(subparser_service):
@@ -236,14 +267,25 @@ def configure(subparser_service):
         "dev", help="Local developer environment helpers"
     ).add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser(
-        "init", help="Bring up the local dev services on Kubernetes (podman kube play / kind)"
+        "init",
+        help="Bring up the local dev services on Kubernetes (podman kube play / kind); "
+        "'init debug' compiles the IDE debug launcher app",
+    )
+    parser_action.add_argument(
+        "init_service",
+        metavar="service",
+        nargs="*",
+        type=_init_choice,
+        help="Services to initialize, space-separated (default: all container services). "
+        "Choices: " + ", ".join([*SERVICES, "debug"]) + "; 'debug' compiles the dedicated "
+        "IDE launcher app (grant it Accessibility, not the terminal)",
     )
     parser_action.add_argument(
         "--only",
         "-O",
         nargs="*",
-        choices=SERVICES,
-        help="Only initialize the given services (default: all)",
+        choices=[*SERVICES, "debug"],
+        help="Same as the positional list (kept for scripts)",
     )
     parser_action.add_argument(
         "--recreate",
@@ -277,20 +319,30 @@ def configure(subparser_service):
     _add_wait_argument(parser_action)
 
     subparser_action.add_parser(
-        "status", help="Show the status, host health check and access URL of each dev service"
+        "status",
+        help="Show the status, host health check and access URL of each dev service, then the "
+        "IDE app stack (IntelliJ, Ligoj API/UI, Vite)",
     )
 
     parser_restart = subparser_action.add_parser(
-        "restart", help="Restart all dev services (or a specific one)"
+        "restart",
+        help="Restart dev services (all, one, or a list); 'restart debug' / 'restart vite' bounce "
+        "the IDE app stack / the Vite dev server",
     )
     parser_restart.add_argument(
         "restart_service",
         metavar="service",
-        nargs="?",
-        choices=SERVICES,
-        help="Service to restart (default: all)",
+        nargs="*",
+        type=_service_choice,
+        help="Services to restart, space-separated (default: all container services). Choices: "
+        + ", ".join(START_CHOICES),
     )
     _add_wait_argument(parser_restart)
+    parser_restart.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="'restart debug' / 'restart vite': do not open the browser once the app is up",
+    )
 
     parser_stop = subparser_action.add_parser(
         "stop",
@@ -304,7 +356,8 @@ def configure(subparser_service):
         metavar="service",
         nargs="*",
         type=_service_choice,
-        help="Services to stop, space-separated (default: all). Choices: " + ", ".join(SERVICES),
+        help="Services to stop, space-separated (default: all container services). Choices: "
+        + ", ".join(START_CHOICES),
     )
     _add_wait_argument(parser_stop)
 
@@ -320,9 +373,15 @@ def configure(subparser_service):
         metavar="service",
         nargs="*",
         type=_service_choice,
-        help="Services to start, space-separated (default: all). Choices: " + ", ".join(SERVICES),
+        help="Services to start, space-separated (default: all container services). Choices: "
+        + ", ".join(START_CHOICES),
     )
     _add_wait_argument(parser_start)
+    parser_start.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="'start debug' / 'start vite': do not open the browser once the app is up",
+    )
 
     parser_up = subparser_action.add_parser(
         "up", help="Start podman + its machine, then start every dev service"
@@ -410,41 +469,6 @@ def configure(subparser_service):
         help="List installed plugins (with their demo availability) and exit, no changes",
     )
     _add_wait_argument(parser_demo)
-
-    parser_debug = subparser_action.add_parser(
-        "debug", help="Manage the IDE app stack (IntelliJ + Ligoj API/UI + Vite); macOS only"
-    )
-    debug_sub = parser_debug.add_subparsers(title="command", dest="operation")
-    debug_sub.add_parser(
-        "init",
-        help="Compile the dedicated debug launcher app (grant it Accessibility, not the terminal)",
-    )
-    debug_start = debug_sub.add_parser(
-        "start",
-        help="Start the ligoj-db + openldap pods, IntelliJ and the Ligoj API/UI/Vite apps "
-        "(only those stopped), then open the app in the browser; 'start vite' starts Vite only",
-    )
-    _add_debug_component_argument(debug_start)
-    _add_wait_argument(debug_start)
-    debug_start.add_argument(
-        "--no-browser", action="store_true", help="Do not open the browser once the app is up"
-    )
-    debug_stop = debug_sub.add_parser(
-        "stop",
-        help="Stop the Ligoj API/UI/Vite apps and the ligoj-db + openldap pods (IntelliJ stays "
-        "open); 'stop vite' stops Vite only",
-    )
-    _add_debug_component_argument(debug_stop)
-    _add_wait_argument(debug_stop)
-    debug_restart = debug_sub.add_parser(
-        "restart", help="Restart the Ligoj API/UI/Vite apps; 'restart vite' restarts Vite only"
-    )
-    _add_debug_component_argument(debug_restart)
-    _add_wait_argument(debug_restart)
-    debug_restart.add_argument(
-        "--no-browser", action="store_true", help="Do not open the browser once the app is up"
-    )
-    debug_sub.add_parser("status", help="Show the IDE app stack status")
 
     # 'test' takes free-form '-D...' JVM options grouped by '--api' / '--ui', which argparse cannot
     # model, so everything after 'test' is captured verbatim (REMAINDER) and parsed in dev_test.
@@ -687,11 +711,6 @@ def execute_action(service, action, _operation, args):
         from ligojcli import dev_demo
 
         return dev_demo.demo(args)
-    if action == "debug":
-        # Lazy import: drives the local IDE app stack (IntelliJ + Ligoj API/UI + Vite).
-        from ligojcli import dev_debug
-
-        return dev_debug.execute(args)
     if action == "test":
         # Lazy import: runs the released Ligoj app containers (docker/podman) in the background.
         from ligojcli import dev_test
@@ -815,7 +834,13 @@ def _cmd_tail(result, lines=15):
 
 
 def dev_init(args):
-    services = args.get("only") or SERVICES
+    requested = list(args.get("init_service") or []) + list(args.get("only") or [])
+    services, apps = _split_targets(requested)
+    if "debug" in apps:
+        # 'dev init debug' — compile the IDE debug launcher app (the merged former 'debug init').
+        _drive_apps("init", ["debug"], args)
+    if not services:
+        return {}
     _check_preconditions(services, args)
     summary = {}
     if "postgresql" in services:
@@ -890,20 +915,26 @@ def _service_url(svc, args):
 
 
 def dev_status(args):
+    from ligojcli import dev_debug
+
     rows = [_service_status(spec, args) for spec in _STATUS_SPECS]
     _print_status_table(rows)
+    # The IDE application stack (IntelliJ, ligoj-api/ligoj-ui, Vite) follows, as a second table.
+    print()
+    dev_debug.execute(args | {"operation": "status"})
     return False
 
 
 def dev_restart(args):
     wait = args.get("wait")
-    svc = args.get("restart_service")
-    services = [svc] if svc else SERVICES
-    for service in services:
-        _restart_service(service)
-    if wait != 0:
-        _await_services(services, args, True, wait)
-    _print_addresses(services, args)
+    services, apps = _split_targets(args.get("restart_service"))
+    if services:
+        for service in services:
+            _restart_service(service)
+        if wait != 0:
+            _await_services(services, args, True, wait)
+        _print_addresses(services, args)
+    _drive_apps("restart", apps, args)  # after the services they depend on
     utils.info("[dev] Restart complete")
     return False
 
@@ -932,9 +963,13 @@ def _restart_service(svc):
 
 def dev_stop(args):
     wait = args.get("wait")
-    # 'stop_service' is a list (nargs='*'); empty or absent means every service.
-    requested = args.get("stop_service")
-    services = list(requested) if requested else SERVICES
+    # 'stop_service' is a list (nargs='*'); empty or absent means every container service, never
+    # the IDE app stack ('debug' / 'vite' are only stopped when named).
+    services, apps = _split_targets(args.get("stop_service"))
+    _drive_apps("stop", apps, args)  # the apps first: they depend on the services
+    if not services:
+        utils.info("[dev] Stop complete")
+        return False
     # Non-kind services are stopped as individual kube-play pods.
     for service in services:
         if service not in KIND_SERVICES:
@@ -997,17 +1032,20 @@ def dev_start(args):
     # Bring the podman runtime up first: start (or init) the machine and launch the Podman Desktop
     # GUI. A stopped machine otherwise makes every pod look absent (podman can't connect), so
     # starting a service would just warn 'pod does not exist'.
-    _ensure_podman()
-    _start_podman_desktop()
     wait = args.get("wait")
-    # 'start_service' is a list (nargs='*'); empty or absent (e.g. via 'dev up') means every service.
-    requested = args.get("start_service")
-    services = list(requested) if requested else SERVICES
-    for service in services:
-        _start_service(service)
-    if wait != 0:
-        _await_services(services, args, True, wait)
-    _print_addresses(services, args)
+    # 'start_service' is a list (nargs='*'); empty or absent (e.g. via 'dev up') means every
+    # container service — never the IDE app stack ('debug' / 'vite' are only started when named;
+    # 'start debug' brings its own backing pods up).
+    services, apps = _split_targets(args.get("start_service"))
+    if services:
+        _ensure_podman()
+        _start_podman_desktop()
+        for service in services:
+            _start_service(service)
+        if wait != 0:
+            _await_services(services, args, True, wait)
+        _print_addresses(services, args)
+    _drive_apps("start", apps, args)  # after the services they depend on
     utils.info("[dev] Start complete")
     return False
 
