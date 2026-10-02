@@ -65,15 +65,17 @@ def init() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
         default=None,
     )
     parser.add_argument("--api-key", help="API key", default=None)
+    # Boolean flags resolved through get_config() default to None (unset), not False: a False
+    # default looks like an explicit choice and would mask the environment variable and the profile.
     parser.add_argument(
         "--api-local-roles",
         help="Restrict the computed roles to the local ones",
-        default=False,
+        default=None,
         action="store_true",
     )
     parser.add_argument("--profile", help="Profile name", default=None)
     parser.add_argument(
-        "--fail-on-hook-error", help="Fail on hook error", default=False, action="store_true"
+        "--fail-on-hook-error", help="Fail on hook error", default=None, action="store_true"
     )
     parser.add_argument("--version", "-v", help="Version", action="store_true")
     parser.add_argument(
