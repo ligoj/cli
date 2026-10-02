@@ -189,34 +189,6 @@
             }
         }
     },
-    "harbor": {
-        "endpoint": "https://harbor.example.com",
-        "user": "admin",
-        "password": "password",
-        "projects": [
-            {
-                "name": "{{ project.name }}-public",
-                "public": true,
-                "roles": {
-                    "dev": {
-                        "role": "Developer"
-                    },
-                    "admin": {
-                        "role": "Project Admin"
-                    }
-                }
-            },
-            {
-                "name": "{{ project.name }}-internal",
-                "public": false,
-                "roles": {
-                    "admin": {
-                        "role": "Project Admin"
-                    }
-                }
-            }
-        ]
-    },
     "nexus": {
         "repositories": [
             {

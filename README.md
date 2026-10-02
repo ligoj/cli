@@ -2922,8 +2922,6 @@ Created contents by tools
 | [Alfresco](#alfresco)             | Sites                   |                                                       |
 | [ArgoCD](#argocd)                 | Permissions             | Optional `permission=deny` and `application` scope    |
 | [ArgoCD](#argocd)                 | Projects                |                                                       |
-| [Harbor](#harbor)                 | Projects                |                                                       |
-| [Harbor](#harbor)                 | Projects members        |                                                       |
 
 
 Group and role configuration [JSON file conf.json](docs/bootstrap/create-roles.json).
@@ -3127,31 +3125,6 @@ By default, repository mode is `hosted` and can be overridden with `mode` proper
 |                    |                      | Sourced from Jenkins credential `NEXUS_API`. |         |
 | `--nexus-password` | `NEXUS_PASSWORD`     | LDAP or internal password                    |         |
 |                    |                      | Sourced from Jenkins credential `NEXUS_API`. |         |
-
-
-### Harbor
-
-Supported resources are:
-- Projects
-- Roles and group mapping, at project level
-
-
-#### Configuration
-
-Harbor has no command-line option: its settings come from the environment or from the profile.
-
-| Profile key       | Environment variable | Note                                          | Default |
-| ----------------- | -------------------- | --------------------------------------------- | ------- |
-| `harbor_endpoint` | `HARBOR_ENDPOINT`    | HTTPS endpoint                                |         |
-|                   |                      | Sourced from Jenkins build parameter.         |         |
-| `harbor_user`     | `HARBOR_USER`        | LDAP or internal user name                    | `admin` |
-|                   |                      | Sourced from Jenkins credential `HARBOR_API`. |         |
-| `harbor_password` | `HARBOR_PASSWORD`    | LDAP or internal password                     |         |
-|                   |                      | Sourced from Jenkins credential `HARBOR_API`. |         |
-
-*Note* `bootstrap create-roles` / `delete-roles` do not process the `harbor` block of the JSON
-configuration yet: Harbor projects and members are managed with the `ligoj harbor project` and
-`ligoj harbor member` commands.
 
 
 ### GitLab
