@@ -79,7 +79,7 @@ def init() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
     )
     parser.add_argument("--version", "-v", help="Version", action="store_true")
     parser.add_argument(
-        "--no-color", help="Disable colors in messages", action="store_true", default=False
+        "--no-color", help="Disable colors in messages", action="store_true", default=None
     )
     parser.add_argument(
         "--verbose", "-V", help="Enable TRACE level", action="store_true", default=False
@@ -108,8 +108,9 @@ def init() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
     parser.add_argument(
         "--buffer-log",
         "-B",
-        help="Enable log buffering, error and output might be out of sync",
-        default=False,
+        help="Enable log buffering, error and output might be out of sync (the default; disable "
+        "it with LIGOJ_BUFFER_LOG=false or 'buffer_log = false' in the profile)",
+        default=None,
         action="store_true",
     )
     parser.add_argument(
@@ -138,12 +139,11 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
 
     default_profile = DEFAULT_DEV_PROFILE if args.get("service") == "dev" else DEFAULT_LIGOJ_PROFILE
     ini_profile = get_config(args, "profile", "LIGOJ_PROFILE", default_profile)
-    no_color = args["no_color"]
-    buffer_log = str(get_config(args, "buffer-log", "LIGOJ_BUFFER_LOG", "True")).lower() in [
-        "true",
-        "1",
-        "yes",
-    ]
+    no_color = _flag(get_config(args, "no_color", "LIGOJ_NO_COLOR", "False"))
+    # 'buffer_log' is the argparse/profile name; the hyphenated profile key was the only one read
+    # before (and never matched the command-line flag), so it stays accepted as a fallback.
+    legacy_buffer_log = ini_config.get(ini_profile, "buffer-log", fallback="True")
+    buffer_log = _flag(get_config(args, "buffer_log", "LIGOJ_BUFFER_LOG", legacy_buffer_log))
     init_logger()
     insecure = str(get_config(args, "insecure", "LIGOJ_INSECURE", "False")).lower() in [
         "true",
@@ -165,6 +165,11 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
         get_config(args, "fail_on_hook_error", "LIGOJ_FAIL_ON_HOOK_ERROR", "False")
     ).lower() in ["true", "1", "yes"]
     return (args, output)
+
+
+def _flag(value) -> bool:
+    """A boolean setting from a flag (True), an environment variable or a profile value (text)."""
+    return str(value).lower() in ["true", "1", "yes"]
 
 
 def not_none(value: str | None, name: str) -> str:

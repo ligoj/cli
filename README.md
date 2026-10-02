@@ -278,7 +278,7 @@ After the content has been retrieved, it is interpolated with [Jinja](https://py
 
 ### No color
 
-Disable colors in messages. Use the `--no-color` option. This option can also be specified in [configuration files](#configuration-files) as `no-color` or in environment variable `LIGOJ_NO_COLOR`
+Disable colors in messages. Use the `--no-color` option. This option can also be specified in [configuration files](#configuration-files) as `no_color` or in environment variable `LIGOJ_NO_COLOR`
 
 ```bash
 ligoj --no-color ....
