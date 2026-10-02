@@ -280,6 +280,14 @@ def configure(subparser_service):
     parser_action.add_argument("--nexus-endpoint", "-N", help="Endpoint of Nexus", required=False)
     parser_action.add_argument("--nexus-user", help="Nexus username", required=False)
     parser_action.add_argument("--nexus-password", help="Nexus password", required=False)
+    parser_action.add_argument("--argocd-endpoint", help="Endpoint of ArgoCD", required=False)
+    parser_action.add_argument("--argocd-token", help="ArgoCD API token", required=False)
+    parser_action.add_argument(
+        "--argocd-user", help="ArgoCD username, when no token is given", required=False
+    )
+    parser_action.add_argument(
+        "--argocd-password", help="ArgoCD password, when no token is given", required=False
+    )
     parser_action.add_argument("--gitlab-endpoint", "-G", help="Endpoint of Gitlab", required=False)
     parser_action.add_argument(
         "--gitlab-token", help="GitLab API token. Must be the owner of base group", required=False
@@ -331,7 +339,8 @@ def configure(subparser_service):
         "--with-data",
         help="Include data deletion, repositories, folders,... for some plugins. '*' for all",
         required=False,
-        action="append",
+        action="extend",
+        nargs="+",
         default=[],
     )
     parser_action.add_argument(
@@ -374,6 +383,14 @@ def configure(subparser_service):
     parser_action.add_argument("--nexus-endpoint", "-N", help="Endpoint of Nexus", required=False)
     parser_action.add_argument("--nexus-user", help="Nexus username", required=False)
     parser_action.add_argument("--nexus-password", help="Nexus password", required=False)
+    parser_action.add_argument("--argocd-endpoint", help="Endpoint of ArgoCD", required=False)
+    parser_action.add_argument("--argocd-token", help="ArgoCD API token", required=False)
+    parser_action.add_argument(
+        "--argocd-user", help="ArgoCD username, when no token is given", required=False
+    )
+    parser_action.add_argument(
+        "--argocd-password", help="ArgoCD password, when no token is given", required=False
+    )
     parser_action.add_argument("--gitlab-endpoint", "-G", help="Endpoint of Gitlab", required=False)
     parser_action.add_argument(
         "--gitlab-token", help="GitLab API token. Must be the owner of base group", required=False

@@ -117,6 +117,11 @@ def configure(subparser_service):
     parser_action = subparser_action.add_parser("delete", help="Delete a user")
     parser_action.add_argument("--id", "-i", help="User name", required=False)
     parser_action.add_argument("--mail", "-m", help="User mail", required=False)
+    parser_action = subparser_action.add_parser(
+        "reset-password", help="Reset the password of a user (default: the current user)"
+    )
+    parser_action.add_argument("--id", "-i", help="User name", required=False)
+    parser_action.add_argument("--mail", "-m", help="User mail", required=False)
     parser_action = subparser_action.add_parser("add", help="Add user to groups")
     parser_action.add_argument("--id", "-i", help="User name", required=False)
     parser_action.add_argument("--mail", "-m", help="User mail", required=False)
@@ -269,7 +274,9 @@ def execute_action(service, action, _, args):
         if action == "delete":
             return user_delete(get_user_id(args))
         if action == "reset-password":
-            user_id = get_user_id(args, True)
+            # Neither --id nor --mail: the current (session) user, like 'user reset-password'.
+            targeted = args.get("id") or args.get("mail")
+            user_id = get_user_id(args, True) if targeted else ligoj.whoami()
             return user_reset_password(user_id)
     elif service == "id:group":
         if action == "get":

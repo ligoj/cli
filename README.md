@@ -168,7 +168,7 @@ To configure the verbosity, use the `--log-level` option. The following levels a
 - `WARN` level displays the unexpected behaviors
 - `ERROR` level displays only fatal errors
 
-This option can also be specified in [configuration files](#configuration-files) as `log-level` or in environment variable `LIGOJ_LOG_LEVEL`
+This option can also be specified in [configuration files](#configuration-files) as `log_level` or in environment variable `LIGOJ_LOG_LEVEL`
 
 ```bash
 ligoj --log-level INFO ....
@@ -190,7 +190,7 @@ ligoj --k ....
 
 ### API user
 
-Ligoj API user name. Use the `--api-user` option. This option can also be specified in [configuration files](#configuration-files) as `api-user` or in environment variable `LIGOJ_API_USER`. By default is `ligoj-admin`.
+Ligoj API user name. Use the `--api-user` option. This option can also be specified in [configuration files](#configuration-files) as `api_user` or in environment variable `LIGOJ_API_USER`. By default is `ligoj-admin`.
 
 ```bash
 ligoj --api-user ligoj-admin ....
@@ -198,7 +198,7 @@ ligoj --api-user ligoj-admin ....
 
 ### API key
 
-Provide an API key, which can be created here [#/api/token ("?" > "Api" > "Token")](https://localhost:8080/ligoj/#/api/token). Use the `--api-key` option. This option can also be specified in [configuration files](#configuration-files) as `api-key` or in environment variable `LIGOJ_API_KEY`
+Provide an API key, which can be created here [#/api/token ("?" > "Api" > "Token")](https://localhost:8080/ligoj/#/api/token). Use the `--api-key` option. This option can also be specified in [configuration files](#configuration-files) as `api_key` or in environment variable `LIGOJ_API_KEY`
 
 ```bash
 ligoj --api-key secret ....
@@ -207,7 +207,7 @@ ligoj --api-key secret ....
 
 ### API run as user
 
-Ligoj API user name for impersonation. Use the `--api-run-as-user` option. This option can also be specified in [configuration files](#configuration-files) as `api-run-as-user` or in environment variable `LIGOJ_API_RUN_AS_USER`.
+Ligoj API user name for impersonation. Use the `--api-run-as-user` option. This option can also be specified in [configuration files](#configuration-files) as `api_run_as_user` or in environment variable `LIGOJ_API_RUN_AS_USER`.
 
 Constraints are:
 - After the authentication succeeds with [--api-key](#api-key) and [--api-user](#api-user)
@@ -215,7 +215,7 @@ Constraints are:
 - `--api-run-as-user` must exist
 - The actions are executed in the name of `--api-run-as-user` and without needing the related credentials.
 
-This option can also be specified in [configuration files](#configuration-files) as `api-run-as-user` or in environment variable `LIGOJ_API_RUN_AS_USER`.
+This option can also be specified in [configuration files](#configuration-files) as `api_run_as_user` or in environment variable `LIGOJ_API_RUN_AS_USER`.
 
 ```bash
 ligoj --api-run-as-user ligoj-user ....
@@ -229,7 +229,7 @@ This flag makes the authentication independent of the configured plugins (e.g., 
 
 Since this flag reduces the set of available roles, there is no restriction on the usage.
 
-This option can also be specified in [configuration files](#configuration-files) as `api-local-roles` or in environment variable `LIGOJ_API_LOCAL_ROLES`.
+This option can also be specified in [configuration files](#configuration-files) as `api_local_roles` or in environment variable `LIGOJ_API_LOCAL_ROLES`.
 
 ```bash
 ligoj --api-local-roles session get
@@ -286,7 +286,7 @@ ligoj --no-color ....
 
 ### Fail on hook error
 
-Fail (exit code 1) when any hook returns a failure status (`X-Ligoj-Hook-*=FAILED`). See [hooks](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) for more details. Use the `--fail-on-hook-error` option. This option can also be specified in [configuration files](#configuration-files) as `fail-on-hook-error` or in environment variable `LIGOJ_FAIL_ON_HOOK_ERROR`
+Fail (exit code 1) when any hook returns a failure status (`X-Ligoj-Hook-*=FAILED`). See [hooks](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) for more details. Use the `--fail-on-hook-error` option. This option can also be specified in [configuration files](#configuration-files) as `fail_on_hook_error` or in environment variable `LIGOJ_FAIL_ON_HOOK_ERROR`
 
 ```bash
 ligoj --fail-on-hook-error ....
@@ -308,12 +308,12 @@ Session operations with credentials and profile management.
 
 Verify the provided user and password and save the returned session cookie into the `~/.ligoj/sessions` file for further API call without providing credentials.
 
-*Note* Secrets like `api-user` and `password` are sourced from the CLI options, sessions and credential files, not from the configuration one.
+*Note* Secrets like `api_user` and `password` are sourced from the CLI options, sessions and credential files, not from the configuration one.
 
 
 ```bash
 ligoj --api-user "ligoj-admin" --profile default session login --password secret
-ligoj --api-user "ligoj-admin" login session --password secret
+ligoj --api-user "ligoj-admin" session login --password secret
 ```
 
 Completed `~/.ligoj/sessions` file:
@@ -328,7 +328,7 @@ api_user = ligoj-admin
 
 Verify the provided user and API key and save the provided API user and API keys into the `~/.ligoj/sessions` file for further API call without providing credentials.
 
-*Note* Secrets like `api-user` and `password` are sourced from the CLI options, sessions and credential files, not from the configuration one.
+*Note* Secrets like `api_user` and `password` are sourced from the CLI options, sessions and credential files, not from the configuration one.
 
 ```bash
 ligoj --api-user "ligoj-admin" --api-key "__api_key__" session login
@@ -583,7 +583,9 @@ Output:
 
 ```bash
 ligoj token list
+```
 
+```json
 ["cli_init", "test"]
 ```
 
@@ -591,6 +593,7 @@ ligoj token list
 
 ```bash
 ligoj token get --id cli_init
+```
 
 ```json
 {"value": "__api_key__"}
@@ -1017,7 +1020,7 @@ ligoj node upsert --id "service:id:ldap:remote1" --name "Remote1" --from https:/
 ```
 
 Input `--from` JSON:
-- See [`--from`](#--from) for JSON loading options
+- See [`--from`](#from) for JSON loading options
 - JSON can be as list or dict (compact). See sample.
 - The parameters marked as sensitive are encrypted in database of Ligoj.
 
@@ -1157,7 +1160,7 @@ Sub nodes inherit the delegate permissions.
 ### List delegate nodes
 
 ```bash
-ligoj delegate-node list
+ligoj id:delegate-node list
 ```
 
 ```json
@@ -1173,9 +1176,9 @@ Create a delegate with subscribe, administration, and creation rights for a rece
 The provided node does not need to exist yet.
 
 ```bash
-ligoj delegate-node create --node service --can-subscribe --can-admin --can-write --receiver jdoe --receiver-type user
-ligoj delegate-node create --node service:id --can-subscribe --receiver internal --receiver-type company
-ligoj delegate-node create --node service:id:ldap:instance1 --can-admin --can-write --receiver group1 --receiver-type group
+ligoj id:delegate-node create --node service --can-subscribe --can-admin --can-write --receiver jdoe --receiver-type user
+ligoj id:delegate-node create --node service:id --can-subscribe --receiver internal --receiver-type company
+ligoj id:delegate-node create --node service:id:ldap:instance1 --can-admin --can-write --receiver group1 --receiver-type group
 ```
 
 ### Delete delegate node
@@ -1183,7 +1186,7 @@ ligoj delegate-node create --node service:id:ldap:instance1 --can-admin --can-wr
 Delete a delegate node from its identifier.
 
 ```bash
-ligoj delegate-node delete --id 1
+ligoj id:delegate-node delete --id 1
 ```
 
 ### Get a delegate node
@@ -1191,8 +1194,7 @@ ligoj delegate-node delete --id 1
 Get a delegate node from its identifier.
 
 ```bash
-ligoj delegate-node get --id 1
-ligoj delegate-node get --node 1
+ligoj id:delegate-node get --id 1
 ```
 
 
@@ -1341,7 +1343,7 @@ ligoj subscription create --project project1 --node "service:id:ldap:remote1" --
 ```
 
 Input `--from` JSON:
-- See [`--from`](#--from) for JSON loading options
+- See [`--from`](#from) for JSON loading options
 - JSON can be as list or dict (compact). See sample.
 - The parameters marked as sensitive are encrypted in database of Ligoj.
 
@@ -1419,12 +1421,11 @@ Operations related to container scopes managed by `service:id` nodes.
 Create a container scope
 
 ```bash
-ligoj id:scope create --id "Unassigned" --type "group" --dn "ou=groups,dc=example,dc=com"
-ligoj id:scope create --id "Projects" --type "group" --dn "ou=project,ou=groups,dc=example,dc=com"
-ligoj id:scope create --id "Tools" --type "group" --dn "ou=tools,ou=groups,dc=example,dc=com"
-ligoj id:scope create --id "Unassigned" --type "company" --dn "ou=people,dc=example,dc=com"
-ligoj id:scope create --id "Internal" --type "company" --dn "ou=internal,ou=people,dc=example,dc=com"
-ligoj id:scope create --id "Unassigned" --type "tree" --dn "dc=example,dc=com"
+ligoj id:scope create --name "Unassigned" --type "group" --dn "ou=groups,dc=example,dc=com"
+ligoj id:scope create --name "Projects" --type "group" --dn "ou=project,ou=groups,dc=example,dc=com"
+ligoj id:scope create --name "Tools" --type "group" --dn "ou=tools,ou=groups,dc=example,dc=com"
+ligoj id:scope create --name "Unassigned" --type "company" --dn "ou=people,dc=example,dc=com"
+ligoj id:scope create --name "Internal" --type "company" --dn "ou=internal,ou=people,dc=example,dc=com"
 ```
 
 
@@ -2870,7 +2871,7 @@ The corresponding command is:
 ligoj bootstrap create-project --project project-a --name "Project A" --groups "admin" "dev" "test" \
 --parent-project "project1" \
 --parent-admin "ligoj-user" \
---team-leader cli100.name@sample.com \
+--team-leader cli100.name@sample.com
 ```
 
 *Note* When `parent-admin` is provided, this operation exploits the `run-as` feature of Ligoj to check the administrator of `parent-project`. In such a case, the session user must be a system administrator.
@@ -2912,9 +2913,9 @@ Created contents by tools
 | [SonarQube](#sonarqube)           | Groups and RBAC         |                                                       |
 | [SonarQube](#sonarqube)           | Projects                |                                                       |
 | [SonarQube](#sonarqube)           | Templates               |                                                       |
-| [GitLab](#gitLab)                 | Wrapper project Groups  |                                                       |
-| [GitLab](#gitLab)                 | LDAP project Groups     |                                                       |
-| [GitLab](#gitLab)                 | Project Groups          |                                                       |
+| [GitLab](#gitlab)                 | Wrapper project Groups  |                                                       |
+| [GitLab](#gitlab)                 | LDAP project Groups     |                                                       |
+| [GitLab](#gitlab)                 | Project Groups          |                                                       |
 | [Sonatype Nexus](#sonatype-nexus) | Roles                   |                                                       |
 | [Sonatype Nexus](#sonatype-nexus) | Repositories            |                                                       |
 | [Alfresco](#alfresco)             | Roles                   |                                                       |
@@ -2926,7 +2927,7 @@ Created contents by tools
 
 
 Group and role configuration [JSON file conf.json](docs/bootstrap/create-roles.json).
-See [`--from`](#--from) for JSON loading options
+See [`--from`](#from) for JSON loading options
 
 ```bash
 ligoj bootstrap create-roles --project project-a --from conf.json \
@@ -2943,10 +2944,7 @@ ligoj bootstrap create-roles --project project-a --from conf.json \
 --jenkins-home="$JENKINS_HOME" \
 --jenkins-endpoint="$JENKINS_ENDPOINT" \
 --sonar-endpoint="$SONAR_ENDPOINT" \
---sonar-api-token="$SONAR_API_KEY" \
---harbor-endpoint="$HARBOR_ENDPOINT" \
---harbor-user="$HARBOR_USER" \
---harbor-password="$HARBOR_PASSWORD"
+--sonar-api-token="$SONAR_API_KEY"
 ```
 
 ```bash
@@ -3140,14 +3138,20 @@ Supported resources are:
 
 #### Configuration
 
-| Parameter           | Environment variable | Note                                          | Default |
-| ------------------- | -------------------- | --------------------------------------------- | ------- |
-| `--harbor-endpoint` | `HARBOR_ENDPOINT`    | HTTPS endpoint                                |         |
-|                     |                      | Sourced from Jenkins build parameter.         |         |
-| `--harbor-user`     | `HARBOR_USER`        | LDAP or internal user name                    | `admin` |
-|                     |                      | Sourced from Jenkins credential `HARBOR_API`. |         |
-| `--harbor-password` | `HARBOR_PASSWORD`    | LDAP or internal password                     |         |
-|                     |                      | Sourced from Jenkins credential `HARBOR_API`. |         |
+Harbor has no command-line option: its settings come from the environment or from the profile.
+
+| Profile key       | Environment variable | Note                                          | Default |
+| ----------------- | -------------------- | --------------------------------------------- | ------- |
+| `harbor_endpoint` | `HARBOR_ENDPOINT`    | HTTPS endpoint                                |         |
+|                   |                      | Sourced from Jenkins build parameter.         |         |
+| `harbor_user`     | `HARBOR_USER`        | LDAP or internal user name                    | `admin` |
+|                   |                      | Sourced from Jenkins credential `HARBOR_API`. |         |
+| `harbor_password` | `HARBOR_PASSWORD`    | LDAP or internal password                     |         |
+|                   |                      | Sourced from Jenkins credential `HARBOR_API`. |         |
+
+*Note* `bootstrap create-roles` / `delete-roles` do not process the `harbor` block of the JSON
+configuration yet: Harbor projects and members are managed with the `ligoj harbor project` and
+`ligoj harbor member` commands.
 
 
 ### GitLab
@@ -3170,7 +3174,7 @@ Real Git repository projects are not managed by this CLI.
 | `--gitlab-base-group`              | `GITLAB_BASE_GROUP`              | Base group where created groups sit                                 | `/`      |
 | `--gitlab-wrapper-group`           | `GITLAB_WRAPPER_GROUP`           | Path of created wrapper group. Ignored if undefined                 | `ligoj`  |
 | `--gitlab-wrapper-group-name`      | `GITLAB_WRAPPER_GROUP_NAME`      | Name  of created wrapper group                                      |          |
-| `--gitlab_project_subgroup_prefix` | `GITLAB_PROJECT_SUBGROUP_PREFIX` | Path prefix of created groups. No wrapper if undefined              | `ligoj-` |
+| `--gitlab-project-subgroup-prefix` | `GITLAB_PROJECT_SUBGROUP_PREFIX` | Path prefix of created groups. No wrapper if undefined              | `ligoj-` |
 
 
 #### Created hierarchy
@@ -3238,10 +3242,11 @@ Sample JSON part:
 | ------------------- | -------------------- | -------------------------------------------------------- |
 | `--argocd-endpoint` | `ARGOCD_ENDPOINT`    | HTTPS endpoint.                                          |
 |                     |                      | Sourced from Jenkins build parameter.                    |
-| `--argocd-user`     | `ARGOCD_USER`        | Username. Not recommended, see `ARGOCD_TICKET`           |
-| `--argocd-password` | `ARGOCD_PASSWORD`    | Password. Not recommended, see `ARGOCD_TICKET`           |
-| `--argocd-ticket`   | `ARGOCD_TICKET`      | Ticket generated by `/alfresco/s/api/login` API          |
-|                     |                      | Generated automatically if `ARGOCD_PASSWORD` is provided |
+| `--argocd-token`    | `ARGOCD_TOKEN`       | API token. The recommended credential                    |
+| `--argocd-user`     | `ARGOCD_USER`        | Username. Not recommended, see `ARGOCD_TOKEN`            |
+| `--argocd-password` | `ARGOCD_PASSWORD`    | Password. Not recommended, see `ARGOCD_TOKEN`            |
+|                     |                      | A session token is requested from the user and password  |
+|                     |                      | when no `ARGOCD_TOKEN` is provided                       |
 |                     |                      | Sourced from Jenkins credential `ARGOCD_API`.            |
 
 
@@ -3302,7 +3307,7 @@ Delete mapped roles from various tools symmetrically as [`create-roles` operatio
 ![Sequence](docs/bootstrap/delete-roles.png)
 
 
-See [`--from`](#--from) for JSON loading options
+See [`--from`](#from) for JSON loading options
 
 By default, only roles are deleted; to perform a full cleanup, see the [--with-data option](#--with-data)
 
@@ -3322,7 +3327,7 @@ ligoj bootstrap delete-roles --project project-a --from conf.json \
 --jenkins-home="$JENKINS_HOME" \
 --jenkins-endpoint="$JENKINS_ENDPOINT" \
 --sonar-endpoint="$SONAR_ENDPOINT" \
---sonar-api-token="$SONAR_API_KEY" \
+--sonar-api-token="$SONAR_API_KEY"
 ```
 
 Deleted contents by tools
@@ -3377,8 +3382,8 @@ ligoj -V bootstrap create-project --project "project-module1" --name "ProjetNew"
 ligoj -V bootstrap create-roles --project "project-module1" --from "conf/ligoj/sample.conf.json" --excludes gitlab alfresco argocd
 ligoj -V bootstrap create-roles --project "project-module1" --from "conf/ligoj/sample.conf.json" --excludes gitlab
 ligoj -V bootstrap delete-roles --project "project-module1" --from "conf/ligoj/sample.conf.json" --excludes gitlab
-ligoj -V project delete              --id "project-module1" --parent-admin "jdupont" --with-data '*'
-ligoj -V project delete              --id "pic-master" --with-data '*'
+ligoj -V project delete              --id "project-module1" --with-data
+ligoj -V project delete              --id "pic-master" --with-data
 ```
 
 # Ligoj SSL Certificates
@@ -3398,7 +3403,7 @@ When successive calls are done, the target TrustStore JKS file contains all aggr
 cp ./ligoj.jks /var/lib/instance_datas/ligoj/
 
 # Start the container with the TrustStore reference
-docker run -e CUSTOM_OPTS='-Djavax.net.ssl.trustStore=/home/ligoj/ligoj.jks' \
+docker run -e CUSTOM_OPTS='-Djavax.net.ssl.trustStore=/home/ligoj/ligoj.jks'
 ```
 
 

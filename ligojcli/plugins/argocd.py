@@ -54,7 +54,11 @@ def parse_remote_args(args):
     global argocd_password
     argocd_endpoint = utils.get_config(args, "argocd_endpoint", "ARGOCD_ENDPOINT", None)
     argocd_token = utils.get_secret(args, "argocd_token", "ARGOCD_TOKEN", None)
-    argocd_user = utils.get_secret(args, "argocd_user", "ARGOCD_API_TOKEN", None)
+    # ARGOCD_USER is the documented variable; ARGOCD_API_TOKEN was read here by mistake and
+    # stays accepted as a fallback for existing environments.
+    argocd_user = utils.get_secret(args, "argocd_user", "ARGOCD_USER", None) or utils.get_secret(
+        args, "argocd_user", "ARGOCD_API_TOKEN", None
+    )
     argocd_password = utils.get_secret(args, "argocd_password", "ARGOCD_PASSWORD", None)
 
 
