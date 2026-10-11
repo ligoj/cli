@@ -2409,6 +2409,37 @@ root is `LIGOJ_PLUGINS_DIR` / `--plugins-dir` (default `~/git/ligoj-plugins`), a
 `PATH`. A plugin must be an `org.ligoj.api:plugin-parent` project — anything else is skipped (with
 `--all`) or reported as an error (when named).
 
+## Package plugin jars (`dev plugin package`)
+
+`dev plugin package` runs `mvn clean package` for one plugin, for every plugin (`--all`) or for the
+checkout in the current directory, three builds at a time (`--jobs`), with the same **one live line
+per plugin** report as `dev plugin renovate`: ✅ built with its duration, jar size and path, or ❌
+the **cause** of the failure — `Javadoc failed: 2 errors`, `Compilation failed`, `Tests failed: 1
+failure(s), 0 error(s)`, a dependency resolution failure, or the failing Maven plugin and its
+message — followed, after the report, by the diagnostics themselves (the `[ERROR]` lines, or for
+Javadoc the `File.java:12: error: …` lines with their source excerpt). A Javadoc failure is caught
+even when Maven still reports `BUILD SUCCESS` (the `javadoc` profile runs with `failOnError` off):
+the plugin is reported as failed and the headline says so. The exit status is non-zero when any
+build failed.
+
+```bash
+ligoj dev plugin package                      # the plugin in the current directory
+ligoj dev plugin package plugin-km            # one plugin (artifact under LIGOJ_PLUGINS_DIR, or a path)
+ligoj dev plugin package --all                # every org.ligoj.api:plugin-parent project under the dir
+ligoj dev plugin package --all --sign --javadoc --test   # the release-grade build
+```
+
+Everything optional is **off by default**, so the plain build is the fastest one:
+
+| Option      | Effect                                                                 | Without it              |
+| ----------- | ---------------------------------------------------------------------- | ----------------------- |
+| `--test`    | run the unit tests                                                     | `-DskipTests=true`      |
+| `--javadoc` | activate the `javadoc` Maven profile                                   | no javadoc              |
+| `--sign`    | code-sign the jar with `~/.ligoj/code-signing.p12` (password from `LIGOJ_SIGN_STOREPASS` or the `ligoj.release.sign-storepass` keychain entry; the command fails when either is missing) | `-Djarsigner.skip=true` |
+
+The plugins root is `LIGOJ_PLUGINS_DIR` / `--plugins-dir` (default `~/git/ligoj-plugins`); a plugin
+must be an `org.ligoj.api:plugin-parent` project, like for `renovate`.
+
 ## Deploy a plugin to a Ligoj instance (`dev plugin deploy`)
 
 `dev plugin deploy <plugin> [<plugin> ...]` builds one or more plugins and installs them on a

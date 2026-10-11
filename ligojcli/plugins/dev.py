@@ -535,7 +535,8 @@ def configure(subparser_service):
 
     parser_plugin = subparser_action.add_parser(
         "plugin",
-        help="Ligoj plugin dev helpers ('create', 'build', 'renovate', 'deploy', 'pull')",
+        help="Ligoj plugin dev helpers ('create', 'build', 'renovate', 'package', 'deploy', "
+        "'pull')",
     )
     plugin_sub = parser_plugin.add_subparsers(title="command", dest="operation")
     plugin_create = plugin_sub.add_parser(
@@ -616,6 +617,45 @@ def configure(subparser_service):
         type=int,
         default=None,
         help="Number of plugins renovated in parallel (default: 3)",
+    )
+
+    plugin_package = plugin_sub.add_parser(
+        "package",
+        help="Build the plugin jars (mvn clean package) in parallel: one, --all, or the current dir",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Build the jar of one plugin, of every plugin (--all) or of the current directory.",
+        epilog=dev_plugin.HELP_PACKAGE,
+    )
+    plugin_package.add_argument(
+        "plugin",
+        nargs="?",
+        help="Plugin to package (artifact under LIGOJ_PLUGINS_DIR, or a path); default: current dir",
+    )
+    plugin_package.add_argument(
+        "--all", action="store_true", help="Package every plugin under LIGOJ_PLUGINS_DIR"
+    )
+    plugin_package.add_argument(
+        "--javadoc", action="store_true", help="Activate the 'javadoc' Maven profile (-Pjavadoc)"
+    )
+    plugin_package.add_argument(
+        "--sign",
+        action="store_true",
+        help="Code-sign the jar with ~/.ligoj/code-signing.p12 (default: -Djarsigner.skip=true)",
+    )
+    plugin_package.add_argument(
+        "--test", action="store_true", help="Run the unit tests (default: -DskipTests=true)"
+    )
+    plugin_package.add_argument(
+        "--plugins-dir",
+        dest="plugins_dir",
+        help="Plugins root (default: ~/git/ligoj-plugins, LIGOJ_PLUGINS_DIR)",
+    )
+    plugin_package.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=None,
+        help="Number of plugins built in parallel (default: 3)",
     )
 
     plugin_deploy = plugin_sub.add_parser(

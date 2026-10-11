@@ -104,9 +104,12 @@ def execute(args):
         return _deploy(args)
     if operation == "pull":
         return _pull(args)
+    if operation == "package":
+        return _package(args)
     utils.warn(
         "[plugin] missing sub-command; try 'dev plugin create <plugin>', 'dev plugin build', "
-        "'dev plugin renovate', 'dev plugin deploy <plugin>' or 'dev plugin pull'"
+        "'dev plugin renovate', 'dev plugin package', 'dev plugin deploy <plugin>' or "
+        "'dev plugin pull'"
     )
     return False
 
@@ -1231,7 +1234,11 @@ def _renovate_npm(repo, host):
 
 
 def _renovate_repos(args):
-    """The plugin repos to renovate: --all, a named/path plugin, or the current directory."""
+    return _target_repos(args, "renovate")
+
+
+def _target_repos(args, verb):
+    """The plugin repos a command acts on: --all, a named/path plugin, or the current directory."""
     from ligojcli.plugins import dev
 
     plugins_dir = os.path.expanduser(
@@ -1240,14 +1247,14 @@ def _renovate_repos(args):
     )
     if args.get("all"):
         if not os.path.isdir(plugins_dir):
-            raise ValueError(f"[plugin] renovate: plugins dir not found: {plugins_dir}")
+            raise ValueError(f"[plugin] {verb}: plugins dir not found: {plugins_dir}")
         repos = [
             os.path.join(plugins_dir, name)
             for name in sorted(os.listdir(plugins_dir))
             if _is_plugin(os.path.join(plugins_dir, name))
         ]
         if not repos:
-            raise ValueError(f"[plugin] renovate: no Ligoj plugins under {plugins_dir}")
+            raise ValueError(f"[plugin] {verb}: no Ligoj plugins under {plugins_dir}")
         return repos
 
     plugin = (args.get("plugin") or "").strip()
@@ -1256,7 +1263,7 @@ def _renovate_repos(args):
         repo = candidate if os.path.isdir(candidate) else os.path.join(plugins_dir, plugin)
         if not _is_plugin(repo):
             raise ValueError(
-                f"[plugin] renovate: '{plugin}' is not a Ligoj plugin "
+                f"[plugin] {verb}: '{plugin}' is not a Ligoj plugin "
                 f"(no org.ligoj.api:plugin-parent pom.xml at {repo})"
             )
         return [repo]
@@ -1264,7 +1271,7 @@ def _renovate_repos(args):
     cwd = os.getcwd()
     if not _is_plugin(cwd):
         raise ValueError(
-            "[plugin] renovate: current directory is not a Ligoj plugin "
+            f"[plugin] {verb}: current directory is not a Ligoj plugin "
             "(no org.ligoj.api:plugin-parent pom.xml); pass <plugin> or --all"
         )
     return [cwd]
@@ -1557,6 +1564,93 @@ def _pull(args):
 
 
 # --------------------------------------------------------------------------- #
+# `dev plugin package [plugin | --all]` — build the plugin jars (mvn clean package)
+# --------------------------------------------------------------------------- #
+# Same target selection as renovate (a plugin, --all, or the current directory) and the same live
+# one-line-per-plugin report. Off by default: tests (--test drops -DskipTests), the javadoc profile
+# (--javadoc = -Pjavadoc) and jar signing (--sign; otherwise -Djarsigner.skip=true, so a missing
+# keystore never matters). The builds run in parallel (--jobs, default 3) — Maven builds are
+# independent per checkout, and the local repository tolerates concurrent readers.
+def _package(args):
+    repos = _target_repos(args, "package")
+    jobs = max(1, int(args.get("jobs") or 3))
+    tests = bool(args.get("test"))
+    profiles = ("javadoc",) if args.get("javadoc") else ()
+    if args.get("sign"):
+        env, extra = _signing_env()
+        if "-Djarsigner.skip=true" in extra or not os.path.isfile(
+            os.path.expanduser(_SIGN_KEYSTORE)
+        ):
+            raise ValueError(
+                f"[plugin] --sign requires the keystore {_SIGN_KEYSTORE} and its password "
+                f"(LIGOJ_SIGN_STOREPASS or the '{_SIGN_KEYCHAIN}' keychain entry)"
+            )
+    else:
+        env, extra = dict(os.environ), ["-Djarsigner.skip=true"]
+    signing = (env, extra)
+    options = ", ".join(
+        [
+            "tests run" if tests else "tests skipped",
+            "javadoc" if profiles else "no javadoc",
+            "signed" if args.get("sign") else "unsigned",
+        ]
+    )
+    coords = {}
+    for repo in repos:
+        coords[repo] = _pom_coordinates(os.path.join(repo, "pom.xml"))
+    utils.info(
+        f"[plugin] Package {len(repos)} plugin(s) ({options}) with "
+        f"{min(jobs, len(repos))} parallel worker(s) ..."
+    )
+
+    def build(repo):
+        artifact, version = coords[repo]
+        started = time.time()
+        try:
+            jar = _build_jar(
+                repo,
+                artifact,
+                version,
+                signing=signing,
+                log=lambda *_: None,
+                tests=tests,
+                profiles=profiles,
+            )
+        except ValueError as error:
+            head, _, tail = str(error).partition("\n")
+            return {
+                "name": artifact,
+                "status": "error",
+                "summary": head.removeprefix("[plugin] ").rstrip(":"),
+                "details": tail.splitlines(),
+            }
+        size = os.path.getsize(jar) // 1024
+        return {
+            "name": artifact,
+            "status": "changed",
+            "summary": f"{version}: built in {int(time.time() - started)}s ({size} KB) → {jar}",
+            "details": [],
+        }
+
+    started = time.time()
+    results = _parallel_report(
+        repos, build, "packaging", jobs, labels=[coords[r][0] for r in repos]
+    )
+    failed = [result for result in results if result["status"] == "error"]
+    for result in failed:
+        for detail in result["details"]:
+            utils.warn(f"[plugin] {result['name']}: {detail}")
+    summary = (
+        f"[plugin] Package complete: {len(results)} plugin(s), {len(results) - len(failed)} "
+        f"built, {len(failed)} error(s) in {int(time.time() - started)}s ({options})"
+    )
+    if failed:
+        raise ValueError(summary)
+    utils.info(summary)
+    return False
+
+
+# --------------------------------------------------------------------------- #
 # `dev plugin deploy <plugin>` — build a plugin and install it on the profile's Ligoj
 # --------------------------------------------------------------------------- #
 # The target instance (endpoint + credentials) is the active profile — `--profile X` selects it, the
@@ -1781,12 +1875,22 @@ def _signing_env():
     return env, extra
 
 
-def _build_jar(plugin_dir, artifact, version, skip_build=False, signing=None, log=utils.info):
-    """`mvn clean package` (tests skipped) and return the built jar path.
+def _build_jar(
+    plugin_dir,
+    artifact,
+    version,
+    skip_build=False,
+    signing=None,
+    log=utils.info,
+    tests=False,
+    profiles=(),
+):
+    """`mvn clean package` and return the built jar path.
 
     `signing` is the (env, extra args) pair of _signing_env(), resolved once by the caller when
     several plugins are built; `log` is the progress logger — a no-op for the silent parallel
-    workers, whose progress is the live report line instead.
+    workers, whose progress is the live report line instead. Tests are skipped unless `tests`;
+    `profiles` are extra Maven profiles to activate (e.g. 'javadoc').
     """
     jar = os.path.join(plugin_dir, "target", f"{artifact}-{version}.jar")
     if skip_build:
@@ -1797,7 +1901,10 @@ def _build_jar(plugin_dir, artifact, version, skip_build=False, signing=None, lo
     if shutil.which("mvn") is None:
         raise ValueError("[plugin] 'mvn' not found on PATH (needed to build the plugin)")
     env, extra = signing or _signing_env()
-    log(f"[plugin] Building {artifact}:{version} (mvn clean package, tests skipped) ...")
+    log(
+        f"[plugin] Building {artifact}:{version} (mvn clean package, tests "
+        f"{'run' if tests else 'skipped'}) ..."
+    )
     result = subprocess.run(
         [
             "mvn",
@@ -1807,8 +1914,9 @@ def _build_jar(plugin_dir, artifact, version, skip_build=False, signing=None, lo
             os.path.join(plugin_dir, "pom.xml"),
             "clean",
             "package",
-            "-DskipTests=true",
+            *([] if tests else ["-DskipTests=true"]),
             "-Dgpg.skip=true",
+            *[f"-P{profile}" for profile in profiles],
             *extra,
         ],
         cwd=plugin_dir,
@@ -1816,13 +1924,102 @@ def _build_jar(plugin_dir, artifact, version, skip_build=False, signing=None, lo
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        tail = "\n".join(((result.stdout or "") + (result.stderr or "")).strip().splitlines()[-25:])
-        raise ValueError(f"[plugin] Maven build failed (exit {result.returncode}):\n{tail}")
+    output = (result.stdout or "") + (result.stderr or "")
+    failure = _maven_failure(output, result.returncode)
+    if failure:
+        headline, details = failure
+        raise ValueError(f"[plugin] {headline}:\n" + "\n".join(details))
     if not os.path.isfile(jar):
         raise ValueError(f"[plugin] Build succeeded but {jar} is missing")
     log(f"[plugin] Built {jar} ({os.path.getsize(jar) // 1024} KB)")
     return jar
+
+
+# Maven failure classification: (regex on the output, headline). The first match wins, so the
+# specific causes come before the generic 'Failed to execute goal' one. The Javadoc case is also
+# checked on a SUCCESSFUL build: maven-javadoc-plugin logs 'MavenReportException: Error while
+# generating Javadoc' as [ERROR] yet lets the build pass when failOnError is off.
+_MAVEN_CAUSES = (
+    (r"MavenReportException: (Error while generating Javadoc.*)", "Javadoc failed: {0}"),
+    (r"\[ERROR\] COMPILATION ERROR", "Compilation failed"),
+    (r"Tests run: \d+, Failures: (\d+), Errors: (\d+)(?:, Skipped: \d+)?\s*$", None),
+    (r"There are test failures", "Tests failed"),
+    (
+        r"(Non-resolvable parent POM[^\n]*|Could not resolve dependencies[^\n]*|Could not find artifact[^\n]*)",
+        "Dependency resolution failed: {0}",
+    ),
+    (
+        r"\[ERROR\] Failed to execute goal [^:]+:([a-z-]+-plugin)[^\n]*?: ([^\n]*)",
+        "{0} failed: {1}",
+    ),
+)
+_JAVADOC_ERROR = re.compile(r"MavenReportException: Error while generating Javadoc")
+
+
+def _javadoc_diagnostics(output):
+    """(error count text, diagnostic lines) of the javadoc tool, or None without a Javadoc failure.
+
+    The javadoc diagnostics ('File.java:12: error: reference not found', the source line and its
+    caret) follow the '[ERROR] MavenReportException' line WITHOUT the [ERROR] prefix, up to the
+    'Command line was:' line — so a plain [ERROR] filter would keep only the exception line.
+    """
+    lines = output.splitlines()
+    start = next((i for i, line in enumerate(lines) if _JAVADOC_ERROR.search(line)), None)
+    if start is None:
+        return None
+    count, diagnostics = "", []
+    for line in lines[start + 1 :]:
+        if line.startswith("Command line was:") or line.startswith("[INFO]"):
+            break
+        if line.startswith("Exit code:") or not line.strip():
+            continue
+        if re.fullmatch(r"\d+ (error|warning)s?", line.strip()):
+            count = line.strip()
+            continue
+        diagnostics.append(line.rstrip())
+    return count, diagnostics
+
+
+def _maven_failure(output, returncode):
+    """(headline, detail lines) describing why a Maven build failed, or None when it passed.
+
+    The headline names the actual cause (javadoc, compilation, tests, dependency, a plugin goal)
+    rather than the bare exit code, and the details keep the [ERROR] lines of the log — the
+    javadoc/compiler diagnostics with their file:line — instead of an arbitrary tail.
+    """
+    if returncode == 0 and not _JAVADOC_ERROR.search(output):
+        return None
+    headline = f"Maven build failed (exit {returncode})"
+    for pattern, template in _MAVEN_CAUSES:
+        match = re.search(pattern, output, re.M)
+        if not match:
+            continue
+        if template is None:  # the surefire summary line: name the counts
+            failures, errors = int(match.group(1)), int(match.group(2))
+            if failures or errors:
+                headline = f"Tests failed: {failures} failure(s), {errors} error(s)"
+                break
+            continue
+        headline = template.format(
+            *[re.sub(r"\s*-> \[Help \d+\]$", "", g.strip()).rstrip(".:") for g in match.groups()]
+        )
+        break
+    if returncode == 0:
+        headline += " — Maven still reported SUCCESS (failOnError is off)"
+    javadoc = _javadoc_diagnostics(output)
+    if javadoc is not None:
+        count, errors = javadoc
+        if count:
+            headline = headline.replace("Error while generating Javadoc", count, 1)
+    else:
+        errors = []
+        for line in output.splitlines():
+            if line.startswith("[ERROR]") and line.strip() != "[ERROR]" and line not in errors:
+                errors.append(line.rstrip())
+    details = errors or output.strip().splitlines()[-25:]
+    if len(details) > 25:  # the first lines carry the diagnostics; the tail is Maven's help text
+        details = details[:25] + [f"... ({len(errors) - 25} more [ERROR] line(s))"]
+    return headline, details
 
 
 def _probe_path(path):
@@ -2024,4 +2221,23 @@ error. Exit status is non-zero when any pull failed.
 
 Plugins dir: --plugins-dir, else LIGOJ_PLUGINS_DIR / 'ligoj_plugins_dir' of the profile, else
 ~/git/ligoj-plugins.
+"""
+
+HELP_PACKAGE = """\
+Build the jar of one plugin, of every plugin, or of the current directory (mvn clean package):
+
+  ligoj dev plugin package                      # the plugin checkout in the current directory
+  ligoj dev plugin package plugin-km            # one plugin (artifact under LIGOJ_PLUGINS_DIR, or a path)
+  ligoj dev plugin package --all                # every org.ligoj.api:plugin-parent project under the dir
+  ligoj dev plugin package --all --sign --javadoc --test   # the release-grade build
+
+Everything optional is OFF by default — the plain build is the fastest one:
+  --test      run the unit tests (otherwise -DskipTests=true)
+  --javadoc   activate the 'javadoc' Maven profile (-Pjavadoc)
+  --sign      code-sign the jar with ~/.ligoj/code-signing.p12 (password from LIGOJ_SIGN_STOREPASS
+              or the 'ligoj.release.sign-storepass' keychain entry); otherwise -Djarsigner.skip=true
+
+The builds run in parallel (--jobs, default 3) with ONE live line per plugin (like renovate):
+built with its duration, size and jar path, or the Maven error (its log tail is printed after
+the report). Exit status is non-zero when any build failed.
 """
