@@ -138,6 +138,7 @@ Determines the output mode of the command. Use the `--output` option. The follow
 
 - `json` : JSON format
 - `text` : Text format
+- `table` : table rendering, for the commands that provide one (e.g. `dev backup list`, `dev config`); the other commands fall back to `text`
 
 This option can also be specified in [configuration files](#configuration-files) as `output` or in environment variable `LIGOJ_OUTPUT`
 
@@ -185,7 +186,7 @@ To allow insecure server connections when using SSL, use the `--insecure` option
 
 ```bash
 ligoj --insecure ....
-ligoj --k ....
+ligoj -k ....
 ```
 
 ### API user
@@ -284,6 +285,14 @@ Disable colors in messages. Use the `--no-color` option. This option can also be
 ligoj --no-color ....
 ```
 
+### Buffer log
+
+Log output is buffered by default, so log lines and the command output may show up out of order. Use the `--buffer-log` option to force it on. To disable it, set `buffer_log = false` in [configuration files](#configuration-files) or the environment variable `LIGOJ_BUFFER_LOG=false` (the legacy profile key `buffer-log` is still honoured).
+
+```bash
+LIGOJ_BUFFER_LOG=false ligoj --log-level DEBUG node list
+```
+
 ### Fail on hook error
 
 Fail (exit code 1) when any hook returns a failure status (`X-Ligoj-Hook-*=FAILED`). See [hooks](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) for more details. Use the `--fail-on-hook-error` option. This option can also be specified in [configuration files](#configuration-files) as `fail_on_hook_error` or in environment variable `LIGOJ_FAIL_ON_HOOK_ERROR`
@@ -291,8 +300,6 @@ Fail (exit code 1) when any hook returns a failure status (`X-Ligoj-Hook-*=FAILE
 ```bash
 ligoj --fail-on-hook-error ....
 ```
-
-Fail (exit code 1) when any hook returns a failure status (`X-Ligoj-Hook-*=FAILED`). See [hooks](https://github.com/ligoj/ligoj/blob/master/DOC.md#hook) for more details.
 
 Hooks status and message are displayed with `DEBUG` log level:
 ```log
@@ -308,13 +315,15 @@ Session operations with credentials and profile management.
 
 Verify the provided user and password and save the returned session cookie into the `~/.ligoj/sessions` file for further API call without providing credentials.
 
-*Note* Secrets like `api_user` and `password` are sourced from the CLI options, sessions and credential files, not from the configuration one.
+*Note* Secrets like `api_user` and `password` are sourced from the CLI options, sessions and credential files, not from the configuration one. The password can also be given as the `LIGOJ_PWD` environment variable or the `password` key of the credentials file.
 
 
 ```bash
 ligoj --api-user "ligoj-admin" --profile default session login --password secret
 ligoj --api-user "ligoj-admin" session login --password secret
 ```
+
+The stored cookie can also be provided as the `LIGOJ_COOKIE_SESSION` environment variable or the `session` key of the credentials file.
 
 Completed `~/.ligoj/sessions` file:
 
@@ -367,6 +376,14 @@ ligoj session whoami
 {"id": "ligoj-admin"}
 ```
 
+### Logout
+
+Remove the session cookie and API key stored by `login` from the `~/.ligoj/sessions` file for the current profile.
+
+```bash
+ligoj session logout
+```
+
 
 ## System User
 
@@ -384,7 +401,7 @@ ligoj user upsert --id ligoj-admin@sample.com --roles USER ADMIN
 Optionally, at this time, an API key is generated but only once and only from administrator users.
 
 ```bash
-ligoj user upsert --id ligoj-admin@sample.com --roles USER ADMIN --api_key_name cli
+ligoj user upsert --id ligoj-admin@sample.com --roles USER ADMIN --api-key-name cli
 ```
 
 Output the API key only if not existing.
@@ -418,12 +435,12 @@ ligoj user list --with-roles
 *Note* When role names are provided API calls are executed to retrieve their identifiers.
 
 
-### Delete a system user 
+### Get a system user
 
-Create a new system user with role names or identifiers.
+Return a system user with its roles.
 
 ```bash
-ligoj user delete --id ligoj-user
+ligoj user get --id ligoj-user
 ```
 
 
@@ -571,7 +588,11 @@ ligoj token create --id today_only --expiration 1d
 ligoj token create --id SELF_TOKEN_RENEW --expiration 2029-12-31T23:59:59
 ```
 
-Optionally, the created token can be saved into the current profile, replacing any previously existing one:
+Optionally, with `--save`, the created token is also written as `api_key` into the current profile of the credentials file, replacing any previous one:
+
+```bash
+ligoj token create --id cli --save
+```
 
 Output:
 
@@ -605,18 +626,13 @@ ligoj token get --id cli_init
 ligoj token delete --id cli_init
 ```
 
-### Version
+### Purge expired tokens
 
-Return API server version
+Expired tokens are hidden but kept in the database until purged. `purge` removes the expired tokens of the current user; `purge-all` removes every expired token and requires an administrator.
 
 ```bash
-ligoj info version
-ligoj --version
-ligoj -v
-```
-
-```json
-{"version": "3.3.1-SNAPSHOT"}
+ligoj token purge
+ligoj token purge-all
 ```
 
 
@@ -740,7 +756,7 @@ ligoj file put --from docs/ui/logo.svg --path "/home/ligoj/META-INF/resources/we
 ligoj file delete --path "/home/ligoj/icon.png"
 ```
 
-### Hook get
+### Get file
 
 Download a remote file and save it to a local file.
 
@@ -835,7 +851,13 @@ ligoj hook delete --id 2
 ligoj hook delete --name "audit_role_change"
 ```
 
-### Hook get
+### List hooks
+
+```bash
+ligoj hook list
+```
+
+### Get hook
 
 Optional `id` or `name` filters are accepted:
 
@@ -937,6 +959,14 @@ Two successful consecutive executions give this output:
 
 *Note* After installing plugins, a restart is needed to use them.
 
+### Install Javadoc
+
+Install the Javadoc of every installed plugin and of the built-in endpoints, for OpenAPI completeness. The `--javadoc` option of `plugin install` does the same for a single plugin at install time.
+
+```bash
+ligoj plugin javadoc --repository central
+```
+
 ### Restart API
 
 ```bash
@@ -1006,6 +1036,8 @@ ligoj node list --parameters-output "map" --refined "service:build:jenkins"
 ```
 
 ### Configure/update a node
+
+`node upsert` creates the node or updates it (`node create` is deprecated and kept as an alias of `upsert`).
 
 
 If the related node already exists, it is updated.
@@ -1141,6 +1173,12 @@ ligoj node get --id "service:id:ldap:remote1" --parameters-mode "all" --paramete
 }
 ```
 
+### Delete node
+
+```bash
+ligoj node delete --id "service:id:ldap:remote1"
+```
+
 ### Get node status
 
 ```bash
@@ -1197,6 +1235,18 @@ Get a delegate node from its identifier.
 ligoj id:delegate-node get --id 1
 ```
 
+
+## Delegate organization
+
+Delegate a company, a group or a whole LDAP tree (`--type tree`, `--name` is then a DN) to a user, a group or a company. `--can-write` allows updating the organization, `--can-admin` allows sharing the delegate.
+
+```bash
+ligoj id:delegate-org create --name "ou=project,ou=groups,dc=sample,dc=com" --type tree --receiver jdoe --receiver-type user --can-write
+ligoj id:delegate-org create --name "nexus-administrators" --type group --receiver "ops" --receiver-type group --can-admin
+ligoj id:delegate-org get
+ligoj id:delegate-org get --name "nexus-administrators" --type group
+ligoj id:delegate-org delete --id 1
+```
 
 ## Project
 
@@ -1461,6 +1511,22 @@ ligoj id:scope list --type "group"
 }
 ```
 
+### Delete container scope
+
+```bash
+ligoj id:scope delete --id 12
+ligoj id:scope delete --name "Projects" --type "group"
+```
+
+## Plugin `id:ou` operations
+
+Manage the intermediate LDAP organizational units (companies) that hold the scopes and groups.
+
+```bash
+ligoj id:ou create --name "project" --parent-dn "ou=groups,dc=example,dc=com"
+ligoj id:ou delete --name "project"
+```
+
 ## Plugin `id:group` operations
 
 Operations related to groups managed by `service:id` nodes
@@ -1484,6 +1550,14 @@ ligoj id:group create --name "SampleSubGroup" --scope "Unassigned" --parent "Sam
 ligoj id:group create --name "SampleSubGroup2" --scope "Unassigned" --parent "SampleSubGroup"
 ```
 
+
+### Import groups
+
+Bulk-create groups from a CSV file (columns `name`, `scope`, `parent`, `department`, `owner`, `assistant`), given as a local path or a URL (see [From](#from)).
+
+```bash
+ligoj id:group import --from ./groups.csv
+```
 
 ### Delete a group
 
@@ -1951,6 +2025,10 @@ database** (`podman pod rm -f artifactory`, `podman volume rm artifactory_data`,
 
 `dev config <service>` prints the key properties of a single service — URL, admin user and password,
 and the other connection details — read straight from `[dev]`:
+
+```bash
+ligoj dev config sonarqube
+```
 
 ```text
 # sonarqube
@@ -2767,6 +2845,72 @@ then:
 Tear the cluster down with `kind delete cluster --name ligoj-dev` (or `dev init --only harbor argocd
 --recreate` to rebuild it).
 
+# Tool clients
+
+Besides the [bootstrap](#bootstrap) bundles, the CLI exposes a small client for each tool. The clients
+have no endpoint/credential options of their own (except `jenkins run`): they read the environment
+variables or profile keys below, endpoints from `~/.ligoj/config` and secrets from
+`~/.ligoj/credentials`. A `[dev]` profile populated by `dev init` drives them directly with
+`--profile dev`.
+
+| Tool      | Endpoint (env · key)                   | Credentials (env · key)                                                                                                                    |
+| --------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Jenkins   | `JENKINS_ENDPOINT`·`jenkins_endpoint`  | `JENKINS_API_USER`·`jenkins_api_user`, `JENKINS_API_TOKEN`·`jenkins_api_token`; `JENKINS_CRUMB`·`jenkins_crumb` (`true`, `false`, `auto`) |
+| SonarQube | `SONAR_ENDPOINT`·`sonar_endpoint`      | `SONAR_API_TOKEN`·`sonar_api_token`                                                                                                        |
+| Nexus     | `NEXUS_ENDPOINT`·`nexus_endpoint`      | `NEXUS_USER`·`nexus_user`, `NEXUS_PASSWORD`·`nexus_password`                                                                               |
+| GitLab    | `GITLAB_ENDPOINT`·`gitlab_endpoint`    | `GITLAB_TOKEN`·`gitlab_token`                                                                                                              |
+| ArgoCD    | `ARGOCD_ENDPOINT`·`argocd_endpoint`    | `ARGOCD_TOKEN`·`argocd_token` (recommended), else `ARGOCD_USER`·`argocd_user` + `ARGOCD_PASSWORD`·`argocd_password`                         |
+| Harbor    | `HARBOR_ENDPOINT`·`harbor_endpoint`    | `HARBOR_USER`·`harbor_user`, `HARBOR_PASSWORD`·`harbor_password`                                                                           |
+| Alfresco  | `ALFRESCO_ENDPOINT`·`alfresco_endpoint`| `ALFRESCO_TICKET`·`alfresco_ticket` (recommended), else `ALFRESCO_USER`·`alfresco_user` + `ALFRESCO_PASSWORD`·`alfresco_password`           |
+
+```bash
+# Jenkins: run a job, optionally on a branch and with key=value parameters; '--wait' (seconds, -1 unlimited)
+# polls the build whose '--wait-parameter' matches, so both go together
+ligoj --profile dev jenkins run --job "my-folder/my-job" --branch main --parameters env=dev build=42
+ligoj --profile dev jenkins run --job "my-job" --parameters build=42 --wait 600 --wait-parameter build
+
+# SonarQube
+ligoj --profile dev sonar project list
+ligoj --profile dev sonar project get --name "my-project"
+ligoj --profile dev sonar project upsert --name "my-project" --description "My project" --visibility private
+ligoj --profile dev sonar project delete --name "my-project"
+ligoj --profile dev sonar session login --user admin --password "..."
+ligoj --profile dev sonar session create-token --user admin --password "..." --name cli --target-user jdoe
+
+# Nexus
+ligoj --profile dev nexus repository get --id "maven-releases" --format maven2 --mode hosted
+ligoj --profile dev nexus repository delete --id "maven-releases" --format maven2 --mode hosted
+ligoj --profile dev nexus role get --id "my-role"
+ligoj --profile dev nexus role delete --id "my-role"
+
+# GitLab
+ligoj --profile dev gitlab project get --path "my-group/my-project"
+
+# ArgoCD
+ligoj --profile dev argocd project list
+ligoj --profile dev argocd project get --name "my-project"
+ligoj --profile dev argocd project upsert --name "my-project" --description "My project"
+
+# Harbor ('--id' accepts the project identifier or name; roles: "Project Admin", Maintainer, Developer, Guest, "Limited Guest")
+ligoj --profile dev harbor project list --search my
+ligoj --profile dev harbor project create --name "my-project" --public
+ligoj --profile dev harbor project get --id "my-project"
+ligoj --profile dev harbor member add --project "my-project" --group "my-group" --role Developer
+ligoj --profile dev harbor member list --project "my-project"
+ligoj --profile dev harbor member remove --project "my-project" --group "my-group"
+ligoj --profile dev harbor project delete --id "my-project"
+
+# Alfresco (site roles: SiteManager, SiteCollaborator, SiteConsumer)
+ligoj alfresco site list
+ligoj alfresco site create --id "my-site" --title "My site" --visibility PRIVATE
+ligoj alfresco site get --id "my-site"
+ligoj alfresco group create --id "GROUP_my" --display-name "My group" --parents "GROUP_parent"
+ligoj alfresco site add-group --id "my-site" --group "GROUP_my" --role SiteCollaborator
+ligoj alfresco site remove-group --id "my-site" --group "GROUP_my"
+ligoj alfresco group get --id "GROUP_my"
+ligoj alfresco group delete --id "GROUP_my"
+```
+
 # Bootstrap
 
 The following commands can be executed to perform several API commands following a complex workflow.
@@ -2784,7 +2928,7 @@ Sample Docker command:
 ligoj bootstrap init --base-dn="dc=sample,dc=com"
 ```
 
-*Note* `--base-dn` argument can also be defined as `ligoj_ldap_base_dn` in [configuration file](#configuration-files) and `LIGOJ_LDAP_BASE_DN` environment variable.
+*Note* `--base-dn` can also be defined as `base_dn` in the [configuration file](#configuration-files) or as the `LIGOJ_LDAP_BASE_DN` environment variable. The other options follow the same pattern: `users_base_dn`·`LIGOJ_LDAP_USERS_BASE_DN`, `internal_users_base_dn`·`LIGOJ_LDAP_INTERNAL_USERS_BASE_DN`, `technical_users_base_dn`·`LIGOJ_LDAP_TECHNICAL_USERS_BASE_DN`, `external_users_base_dn`·`LIGOJ_LDAP_EXTERNAL_USERS_BASE_DN`, `groups_base_dn`·`LIGOJ_LDAP_GROUPS_BASE_DN`, `technical_groups_base_dn`·`LIGOJ_LDAP_TECHNICAL_GROUPS_BASE_DN`, `projects_base_dn`·`LIGOJ_LDAP_PROJECTS_BASE_DN` and `technical_groups`·`LIGOJ_LDAP_TECHNICAL_GROUPS` (comma-separated).
 
 
 Hierarchy tree sample for base DN `dc=sample,dc=com`
@@ -2829,7 +2973,7 @@ ligoj id:scope create --name "Technical" --type "company" --dn "ou=technical-use
 
 ### OU LDAP intermediate
 ligoj id:ou create --name "groups" --parent-dn "dc=sample,dc=com"
-ligoj id:ou create --name "projects" --parent-dn "ou=groups,dc=sample,dc=com"
+ligoj id:ou create --name "project" --parent-dn "ou=groups,dc=sample,dc=com"
 ligoj id:ou create --name "tools" --parent-dn "ou=groups,dc=sample,dc=com"
 
 ### Scope functionals for groups
@@ -2907,6 +3051,16 @@ ligoj bootstrap create-project --project project-a --name "Project A" --groups "
 
 *Note* When `parent-admin` is provided, this operation exploits the `run-as` feature of Ligoj to check the administrator of `parent-project`. In such a case, the session user must be a system administrator.
 
+
+## Bootstrap `create-nested-project`
+
+Same bundle as `create-project` for a project nested inside a parent one: the project name is derived from its key (no `--name`), and the groups are created with the parent project as context. The `--parent-project`, `--parent-admin` and `--team-leader` options behave as for `create-project`.
+
+```bash
+ligoj bootstrap create-nested-project --project project-a-sub --groups "admin" "dev" \
+--parent-project "project-a" \
+--parent-admin "ligoj-user"
+```
 
 ## Bootstrap `delete-project`
 
@@ -3433,6 +3587,7 @@ Run `make help` to list every target:
 | `make lint`         | Static analysis with `ruff` and `flake8`                |
 | `make test`         | Full local gate: lint, format check, build, twine check |
 | `make build`        | Build the sdist and wheel into `dist/`                  |
+| `make check`        | Build, then validate the distributions with `twine`     |
 | `make release-test` | Publish a dev build to TestPyPI and wait until live     |
 | `make release`      | Cut a PyPI release (bump, tag, publish, wait)           |
 | `make clean`        | Remove build artifacts and caches                       |
