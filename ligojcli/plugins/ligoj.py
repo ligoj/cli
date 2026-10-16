@@ -57,8 +57,6 @@ def configure(subparser_service):
     ).add_subparsers(title="action", help="Action", dest="action")
     parser_action = subparser_action.add_parser("get", help="Return system user information")
     parser_action.add_argument("--id", "-i", help="User id/login")
-    parser_action = subparser_action.add_parser("reset-password", help="Reset user password")
-    parser_action.add_argument("--id", "-i", help="User id/login. By default, the current user")
     parser_action = subparser_action.add_parser("delete", help="Delete a system user")
     parser_action.add_argument("--id", "-i", help="User id/login")
     parser_action = subparser_action.add_parser("list", help="Return system users")
@@ -71,8 +69,10 @@ def configure(subparser_service):
         "--roles", "-r", help="Roles names or identifier", nargs="*", default=[]
     )
     parser_action.add_argument(
+        "--api-key-name",
         "--api_key_name",
         "-k",
+        dest="api_key_name",
         help="Create and return an API key with the given name",
         required=False,
     )
