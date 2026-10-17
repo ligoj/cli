@@ -1680,8 +1680,8 @@ def subscription_get_by_id(subscription_id: int, with_details: bool):
 def subscription_refresh(subscription_id: int | None):
     utils.info(f"[ligoj] Refresh subscription '{subscription_id}' ...")
     if subscription_id:
-        return call_api("GET", f"subscription/status/{subscription_id}/refresh").json()
-    return call_api("GET", "subscription/status/refresh").json()
+        return call_api("POST", f"subscription/status/{subscription_id}/refresh").json()
+    return call_api("POST", "subscription/status/refresh").json()
 
 
 def subscription_status(project: int | str | None):

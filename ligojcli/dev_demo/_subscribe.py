@@ -78,7 +78,7 @@ def create(project, node, params=None):
 
 def _refresh(sub_id):
     resp = ligoj.call_api(
-        "GET", f"subscription/status/{sub_id}/refresh", ignore_error=True, ignore_output=True
+        "POST", f"subscription/status/{sub_id}/refresh", ignore_error=True, ignore_output=True
     )
     try:
         return resp.json().get("status") if resp is not None else "unknown"
