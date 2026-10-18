@@ -40,7 +40,7 @@ classifiers = [
 ]
 dependencies = [
     "colorama==0.4.6",
-    "requests==2.34.2",
+    "requests==2.33.0",
     "dnspython==2.7.0",
     "pyyaml==6.0.3",
     "configparser==7.2.0",
