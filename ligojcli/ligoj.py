@@ -99,8 +99,8 @@ def execute_action(service, action, operation, args):
     # The 'dev' service only drives local containers, no Ligoj endpoint required.
     if service == "dev":
         return dev.execute_action(service, action, operation, args)
-    # Self-update of the CLI itself: no Ligoj endpoint required either.
-    if service == "update":
+    # Self-update and version of the CLI itself: no Ligoj endpoint required either.
+    if service in ("update", "version"):
         return update.execute_action(service, action, operation, args)
 
     utils.check_endpoint(utils.not_none(ligoj_plugin.ligoj_endpoint, "endpoint"), "ligoj")

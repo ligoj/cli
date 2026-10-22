@@ -77,7 +77,12 @@ def init() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
     parser.add_argument(
         "--fail-on-hook-error", help="Fail on hook error", default=None, action="store_true"
     )
-    parser.add_argument("--version", "-v", help="Version", action="store_true")
+    parser.add_argument(
+        "--version",
+        "-v",
+        help="Server version, same as 'info version'. The CLI version is 'ligoj version'",
+        action="store_true",
+    )
     parser.add_argument(
         "--no-color", help="Disable colors in messages", action="store_true", default=None
     )

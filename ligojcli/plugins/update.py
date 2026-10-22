@@ -2,6 +2,7 @@
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
 # `ligoj update` — self-update of this CLI through `uv`.
+# `ligoj version` — the version of this CLI (not of the server: see `ligoj info version`).
 #
 # The recommended installation is `uv tool install ligoj-cli` (see README):
 # `uv tool upgrade ligoj-cli` refreshes it to the latest published release,
@@ -26,8 +27,17 @@ def configure(subparser_service):
         default=None,
     )
 
+    # `ligoj version`: offline, unlike `ligoj --version` / `ligoj info version` (server version).
+    parser = subparser_service.add_parser(
+        "version",
+        help="Show the version of this CLI (the server version is 'ligoj info version')",
+    )
+    parser.set_defaults(action="self")
+
 
 def execute_action(service, action, operation, args):  # noqa: ARG001 - uniform plugin signature
+    if service == "version":
+        return {"version": _current_version()}
     if service != "update":
         return False
     return _self_update(args)
@@ -69,5 +79,5 @@ def _self_update(args):
         )
         return True
 
-    utils.info("[update] Done. Run 'ligoj --version' in a new command to verify the version")
+    utils.info("[update] Done. Run 'ligoj version' in a new command to verify the version")
     return True

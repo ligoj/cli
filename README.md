@@ -18,7 +18,7 @@ Install it as an isolated tool with [`uv`](https://docs.astral.sh/uv/) (recommen
 
 ```bash
 uv tool install ligoj-cli
-ligoj --version
+ligoj version
 ```
 
 Alternatively, use `pipx` or `pip`:
@@ -49,6 +49,23 @@ ligoj update --target 1.3.0   # pin a specific version (uv tool install --force)
 When the CLI was installed with `pipx`/`pip` instead of `uv`, update it with the
 matching command (`pipx upgrade ligoj-cli` / `pip install -U ligoj-cli`) — 
 `ligoj update` reminds you of these when `uv` is not available.
+
+## CLI version
+
+`ligoj version` prints the version of the installed CLI. It needs no Ligoj endpoint nor credentials.
+It follows the [output mode](#output-mode), like the other commands.
+
+```bash
+ligoj version
+ligoj --output text version
+```
+
+```json
+{"version": "1.4.0"}
+```
+
+Do not confuse it with `ligoj --version` and `ligoj info version`, which return the version of the
+Ligoj **server** (see [Version](#version)).
 
 
 # Configuration
@@ -533,7 +550,7 @@ ligoj info status --wait 20
 
 ### Version
 
-Return API server version
+Return API server version. For the version of the CLI itself, use [`ligoj version`](#cli-version).
 
 ```bash
 ligoj info version
