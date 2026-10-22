@@ -145,11 +145,7 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
     legacy_buffer_log = ini_config.get(ini_profile, "buffer-log", fallback="True")
     buffer_log = _flag(get_config(args, "buffer_log", "LIGOJ_BUFFER_LOG", legacy_buffer_log))
     init_logger()
-    insecure = str(get_config(args, "insecure", "LIGOJ_INSECURE", "False")).lower() in [
-        "true",
-        "1",
-        "yes",
-    ]
+    insecure = _flag(get_config(args, "insecure", "LIGOJ_INSECURE", "False"))
     cookie_session = get_secret(args, "session", "LIGOJ_COOKIE_SESSION", None)
     if args["verbose"] is True or args["trace"] is True:
         log_level = "TRACE"
@@ -161,15 +157,22 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
     if insecure is True:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     output = get_config(args, "output", "LIGOJ_OUTPUT", "json")
-    fail_on_hook_error = str(
+    fail_on_hook_error = _flag(
         get_config(args, "fail_on_hook_error", "LIGOJ_FAIL_ON_HOOK_ERROR", "False")
-    ).lower() in ["true", "1", "yes"]
+    )
     return (args, output)
 
 
+FLAG_TRUE_VALUES = ("true", "1", "yes", "on")
+
+
 def _flag(value) -> bool:
-    """A boolean setting from a flag (True), an environment variable or a profile value (text)."""
-    return str(value).lower() in ["true", "1", "yes"]
+    """A boolean setting from a flag (True), an environment variable or a profile value (text).
+
+    Case-insensitive and blank-tolerant: 'true', '1', 'yes' and 'on' enable it, anything else
+    (including 'false', '0', an empty value or an unset one) leaves it disabled.
+    """
+    return str(cleanup_ini_value(str(value).strip())).strip().lower() in FLAG_TRUE_VALUES
 
 
 def not_none(value: str | None, name: str) -> str:
@@ -425,11 +428,14 @@ def get_secret(args, name: str, env_variable_name: str, default: str | None) -> 
     return cleanup_ini_value(value)
 
 
-# Return configuration value from options, environment variable or configuration file.
+# Return configuration value from options, environment variable, credentials file or configuration
+# file: the documented order, the credentials file being allowed to hold settings too.
 def get_config(args, name: str, env_variable_name: str, default: str | None) -> str | bool:
     value = args.get(name)
     if value is None:
         value = os.environ.get(env_variable_name)
+        if value is None or isinstance(value, str) and len(value) == 0:
+            value = ini_credentials.get(ini_profile, name, fallback=None)
         if value is None or isinstance(value, str) and len(value) == 0:
             value = ini_config.get(ini_profile, name, fallback=default)
     return cleanup_ini_value(value)
@@ -439,6 +445,8 @@ def get_config_list(args, name: str, env_variable_name: str, default: list = [])
     value = args.get(name)
     if value is None:
         value = os.environ.get(env_variable_name)
+        if value is None or isinstance(value, str) and len(value) == 0:
+            value = ini_credentials.get(ini_profile, name, fallback=None)
         if value is None or isinstance(value, str) and len(value) == 0:
             value = ini_config.get(ini_profile, name, fallback=default)
     if value is None or isinstance(value, str) and len(value) == 0:

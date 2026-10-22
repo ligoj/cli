@@ -522,9 +522,9 @@ def parse_remote_args(args):
     ligoj_api_run_as_user = utils.get_config(args, "api_run_as_user", "LIGOJ_API_RUN_AS_USER", None)
     ligoj_endpoint = utils.get_config(args, "endpoint", "LIGOJ_ENDPOINT", DEFAULT_LIGOJ_ENDPOINT)
     # Parsed, not just truthy: the environment/profile value is a string, and "false" is truthy.
-    ligoj_api_local_roles = str(
+    ligoj_api_local_roles = utils._flag(
         utils.get_config(args, "api_local_roles", "LIGOJ_API_LOCAL_ROLES", "False")
-    ).lower() in ["true", "1", "yes"]
+    )
 
 
 def execute_action(service, action, _, args):

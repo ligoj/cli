@@ -105,7 +105,7 @@ def execute_action(service, action, operation, args):
 
     utils.check_endpoint(utils.not_none(ligoj_plugin.ligoj_endpoint, "endpoint"), "ligoj")
     utils.debug(
-        f"[ligoj] Ligoj CLI '{service}/{action}' profile '{utils.ini_profile}', user '{ligoj_plugin.ligoj_api_user}'{'' if ligoj_plugin.ligoj_api_run_as_user is None else (' as ' + ligoj_plugin.ligoj_api_run_as_user)} on endpoint '{ligoj_plugin.ligoj_endpoint}'"
+        f"[ligoj] Ligoj CLI '{service}/{action}' profile '{utils.ini_profile}', user '{ligoj_plugin.ligoj_api_user}'{'' if ligoj_plugin.ligoj_api_run_as_user is None else (' as ' + ligoj_plugin.ligoj_api_run_as_user)}{' with local roles only' if ligoj_plugin.ligoj_api_local_roles else ''} on endpoint '{ligoj_plugin.ligoj_endpoint}'"
     )
 
     return (

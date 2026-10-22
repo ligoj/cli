@@ -230,10 +230,23 @@ This flag makes the authentication independent of the configured plugins (e.g., 
 
 Since this flag reduces the set of available roles, there is no restriction on the usage.
 
-This option can also be specified in [configuration files](#configuration-files) as `api_local_roles` or in environment variable `LIGOJ_API_LOCAL_ROLES`.
+When enabled, every Ligoj API call carries the `x-api-local-roles: true` header. It can be enabled in three ways, the first one found wins:
+
+1. The `--api-local-roles` option, placed before the command like every [generic option](#generic-options).
+2. The `LIGOJ_API_LOCAL_ROLES` environment variable.
+3. The `api_local_roles` key of the selected [profile](#profile), in `~/.ligoj/credentials` or `~/.ligoj/config`. The key is spelled with underscores.
+
+The values `true`, `1`, `yes` and `on` enable it, in any case. Any other value, such as `false` or `0`, leaves it disabled.
 
 ```bash
 ligoj --api-local-roles session get
+LIGOJ_API_LOCAL_ROLES=true ligoj session get
+```
+
+```ini
+[default]
+endpoint = https://ligoj.sample.com/ligoj
+api_local_roles = true
 ```
 
 
