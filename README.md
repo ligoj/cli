@@ -1557,6 +1557,8 @@ ligoj id:ou create --name "project" --parent-dn "ou=groups,dc=example,dc=com"
 ligoj id:ou delete --name "project"
 ```
 
+`create` can be run again safely: when an OU already exists at this DN in the LDAP, it is kept as is. This also covers OUs that Ligoj does not list as companies, such as those outside the companies DN, which drop out of Ligoj's cache at its next reload, and those created directly in the LDAP.
+
 ## Plugin `id:group` operations
 
 Operations related to groups managed by `service:id` nodes

@@ -2,6 +2,7 @@
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
 import json
+import re
 import urllib.parse
 
 from unidecode import unidecode
@@ -591,12 +592,14 @@ def company_create(name: str | int, container_scope: str | int, **kwargs):
 
 
 def ou_create(name: str, parent_dn: str, **kwargs):
-    utils.info(f"[ligoj] Create LDAP OU'{name}' in parent DN '{parent_dn}' ...")
+    utils.info(f"[ligoj] Create LDAP OU '{name}' in parent DN '{parent_dn}' ...")
+    # Fast path, by name: Ligoj only knows the OUs below the companies DN, plus the ones created
+    # through it until its next cache reload
     container_response = ligoj.call_api(
         "GET", f"service/id/company/{urllib.parse.quote(name, safe='')}", ignore_error=True
     )
     if container_response:
-        utils.debug(f"[ligoj] OU '{name}' already exists'")
+        utils.debug(f"[ligoj] OU '{name}' already exists")
         return container_response
 
     container_scope_id = container_scope_create(f"temporary-scope-{name}", "company", parent_dn)
@@ -605,11 +608,40 @@ def ou_create(name: str, parent_dn: str, **kwargs):
             "POST",
             "service/id/company",
             data={"name": name, "scope": container_scope_id},
-            ignore_error=kwargs.get("ignore_error", False),
+            return_400=True,
         )
     finally:
         container_scope_delete_by_id(container_scope_id)
-    return ou_response
+    if ou_response is None or ou_response.status_code != 400:
+        return ou_response
+
+    # The LDAP is the reference: an entry already bound at this DN is this OU, even unknown from Ligoj
+    ou_dn = f"ou={name},{parent_dn}"
+    if is_dn_already_bound(ou_response, ou_dn):
+        utils.debug(f"[ligoj] OU '{ou_dn}' already exists in LDAP")
+        return None
+    if kwargs.get("ignore_error", False):
+        return None
+    raise ValueError(
+        f"[ligoj] API POST service/id/company (400), invalid input, {ou_response.text}"
+    )
+
+
+def is_dn_already_bound(response, dn: str) -> bool:
+    """Tell whether a 400 response reports the LDAP entry 'dn' as already existing."""
+    try:
+        errors = response.json().get("errors") or {}
+    except ValueError:
+        return False
+    return any(
+        normalize_dn(field) == normalize_dn(dn)
+        and any(error.get("rule") == "integrity-unicity" for error in rules)
+        for field, rules in errors.items()
+    )
+
+
+def normalize_dn(dn: str) -> str:
+    return re.sub(r"\s*([,=])\s*", r"\1", dn.strip().lower())
 
 
 def ou_delete(name: str):

@@ -260,6 +260,8 @@ def call_rest_api(
     ignore_409 = kwargs.get("ignore_409", False) is True
     ignore_404 = kwargs.get("ignore_404", False) is True
     ignore_400 = kwargs.get("ignore_400", False) is True
+    # Hand the 400 response over to the caller inspecting the validation errors
+    return_400 = kwargs.get("return_400", False) is True
     full_url = re.sub("([^:]/)/", "\\1", re.sub("([^:]/)/", "\\1", f"{endpoint}/{url}"))
     message_url = f"[{component}] API {method} {full_url if log_level in ['TRACE'] else url}"
     message_req = f"{message_url}{f' ?{query_parameters}' if len(query_parameters.keys()) else ''} {dict_data if isinstance(dict_data, dict) and len(dict_data.keys()) else ''}"
@@ -348,6 +350,9 @@ def call_rest_api(
             raise ValueError(f"{message_response}, object not found, {response.text}")
         return None
     elif response.status_code == 400:
+        if return_400:
+            trace(f"{message_response}, invalid input, {response.text}")
+            return response
         if ignore_error or ignore_400:
             trace(f"{message_response}, invalid input, {response.text}")
         else:
