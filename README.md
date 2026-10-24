@@ -147,7 +147,18 @@ sonar_api_token = secret
 
 ## Generic options
 
-The generic options are available to all actions.
+The generic options are available to all actions. You can give them before or after the command:
+
+```bash
+ligoj --output table node list
+ligoj node list --output table
+```
+
+When a command defines the same flag for its own purpose, its meaning wins after that command. For
+example, `ligoj file get -o copy.txt` is the output file of `file get`. In that case the long form,
+here `--output`, still sets the generic option, unless the command also defines the long form, as
+`info api --output` does. `--version` is only accepted before the command, since it replaces the
+command with the server version.
 
 ### Output mode
 

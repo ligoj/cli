@@ -25,7 +25,8 @@ from ligojcli.plugins import (
 from ligojcli.plugins import ligoj as ligoj_plugin
 
 
-def main():
+def build_parser():
+    """The main parser with every plugin command."""
     (parser, subparser_service) = utils.init()
     alfresco.configure(subparser_service)
     argocd.configure(subparser_service)
@@ -41,7 +42,11 @@ def main():
     prov.configure(subparser_service)
     sonarqube.configure(subparser_service)
     update.configure(subparser_service)
+    return parser
 
+
+def main():
+    parser = build_parser()
     (args, output) = utils.configure(parser)
 
     if args["version"] is True:

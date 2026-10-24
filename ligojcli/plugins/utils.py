@@ -2,6 +2,7 @@
 # Licensed under MIT (https://github.com/ligoj/ligoj/blob/master/LICENSE)
 #
 import argparse
+import copy
 import json
 import os
 import re
@@ -129,6 +130,40 @@ def init() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
     return (parser, subparser_service)
 
 
+# Not shared with the commands: '--version' replaces the command itself (server version).
+_UNSHARED_OPTIONS = ("help", "version")
+
+
+def share_global_options(parser: argparse.ArgumentParser) -> None:
+    """Accept the global options after the command too: 'ligoj node list --output table'.
+
+    Each global option is copied into every command parser, without a default (SUPPRESS) so that
+    leaving it out there keeps the value given before the command, and hidden from the command
+    help. A command keeps its own meaning for a flag it defines itself: 'file get -o' stays the
+    output file ('--output' is still the global one there), 'plugin install --version' its version.
+    """
+    shared = [a for a in parser._actions if a.option_strings and a.dest not in _UNSHARED_OPTIONS]
+    for command in _command_parsers(parser):
+        taken_dests = {action.dest for action in command._actions}
+        for action in shared:
+            strings = [s for s in action.option_strings if s not in command._option_string_actions]
+            if not strings or action.dest in taken_dests:
+                continue
+            clone = copy.copy(action)
+            clone.option_strings = strings
+            clone.default = argparse.SUPPRESS
+            clone.help = argparse.SUPPRESS
+            command._add_action(clone)
+
+
+def _command_parsers(parser: argparse.ArgumentParser):
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for command in action.choices.values():
+                yield command
+                yield from _command_parsers(command)
+
+
 def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
     global no_color
     global insecure
@@ -137,6 +172,7 @@ def configure(parser: argparse.ArgumentParser) -> tuple[str, dict[str, Any]]:
     global cookie_session
     global log_level
     global fail_on_hook_error
+    share_global_options(parser)
     args = parser.parse_args()
     args = vars(args)
 
