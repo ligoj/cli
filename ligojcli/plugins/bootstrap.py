@@ -703,7 +703,7 @@ def bootstrap_init(
         scope_technical_group = id.container_scope_create(
             "Technical", "group", id.ldap_concat(technical_groups_base_dn, groups_base_dn, base_dn)
         )
-        id.ou_create("technical-groups", scope_unassigned_group, "group")
+        id.ou_create("technical-groups", id.ldap_concat(groups_base_dn, "", base_dn))
         for technical_group in technical_groups:
             id.group_create(technical_group, scope_technical_group)
 
