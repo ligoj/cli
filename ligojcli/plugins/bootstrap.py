@@ -691,9 +691,7 @@ def bootstrap_init(
     id.company_create(DEFAULT_LDAP_OU_EXTERNAL_USERS, scope_unassigned_company)
 
     # Groups
-    scope_unassigned_group = id.container_scope_create(
-        "Unassigned", "group", id.ldap_concat(groups_base_dn, "", base_dn)
-    )
+    id.container_scope_create("Unassigned", "group", id.ldap_concat(groups_base_dn, "", base_dn))
     id.container_scope_create(
         "Project", "group", id.ldap_concat(projects_base_dn, groups_base_dn, base_dn)
     )
