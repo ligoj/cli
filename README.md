@@ -1940,7 +1940,7 @@ notes it). Pass `--skip-prereqs` to skip all these checks. Each service streams 
 | `gitlab`     | `gitlab`      | `8929` (+ssh `2289`) | `gitlab/gitlab-ce:latest`     | omnibus CE (single container), trimmed footprint; root password in `[dev]` |
 | `harbor`     | `harbor` (Helm, on `kind`) | `8088`  | `goharbor/harbor` chart            | minimal Harbor (no trivy/metrics); admin password in `[dev]` |
 | `nexus`      | `nexus`       | `8181`       | `sonatype/nexus3:latest`              | volume `nexus_data`; resets the generated initial admin password and stores it in `[dev]` (host `8181` leaves `8081` free for the Ligoj API) |
-| `artifactory`| `artifactory` | `8082`       | `jfrog/artifactory-oss:7.111.9` (pinned) | **backed by the shared `postgresql`** (dedicated `artifactory` database, Derby is refused), volume `artifactory_data`; admin `password` in `[dev]`. Forces IPv4, **self-heals a hung boot** (see below), and is **pinned below 7.125** to keep the web UI usable (see below) |
+| `artifactory`| `artifactory` | `8082`       | `jfrog/artifactory-oss:7.161.26` | **backed by the shared `postgresql`** (dedicated `artifactory` database, Derby is refused), volume `artifactory_data`; admin `password` in `[dev]`. Forces IPv4, **self-heals a hung boot** (see below), and **disables JFrog Connect** to keep the web UI usable (see below) |
 | `argocd`     | `argocd` (Helm, on `kind`) | `8083`  | `argo/argo-cd` chart               | `role:ligoj` RBAC + `ligoj` account & API token; Dex **LDAP federation** to OpenLDAP |
 
 ## Options
@@ -1963,10 +1963,10 @@ are **read** before a secret is generated, so you stay in control:
 | `jenkins`    | `JENKINS_IMAGE`·`jenkins_image`, `JENKINS_PORT`·`jenkins_port`, `JENKINS_API_USER`·`jenkins_api_user`, `JENKINS_ADMIN_PASSWORD`·`jenkins_admin_password`, `JENKINS_API_TOKEN`·`jenkins_api_token` |
 | `sonarqube`  | `SONAR_IMAGE`·`sonar_image`, `SONAR_PORT`·`sonar_port`, `SONAR_ADMIN_PASSWORD`·`sonar_admin_password`, `SONAR_DB_PASSWORD`·`sonar_db_password` (shared-DB role) |
 | `gitlab`     | `GITLAB_IMAGE`·`gitlab_image`, `GITLAB_PORT`·`gitlab_port`, `GITLAB_SSH_PORT`·`gitlab_ssh_port`, `GITLAB_ROOT_PASSWORD`·`gitlab_root_password` |
-| `harbor`     | `HARBOR_PORT`·`harbor_port`, `HARBOR_NODE_PORT`·`harbor_node_port`, `HARBOR_ADMIN_PASSWORD`·`harbor_admin_password`, `HARBOR_REDIS_IMAGE`·`harbor_redis_image` |
+| `harbor`     | `HARBOR_PORT`·`harbor_port`, `HARBOR_NODE_PORT`·`harbor_node_port`, `HARBOR_ADMIN_PASSWORD`·`harbor_admin_password`, `HARBOR_REDIS_IMAGE`·`harbor_redis_image`, `HARBOR_CHART_VERSION`·`harbor_chart_version` (default: newest chart) |
 | `nexus`      | `NEXUS_IMAGE`·`nexus_image`, `NEXUS_PORT`·`nexus_port`, `NEXUS_ADMIN_PASSWORD`·`nexus_admin_password` |
 | `artifactory`| `ARTIFACTORY_IMAGE`·`artifactory_image`, `ARTIFACTORY_PORT`·`artifactory_port`, `ARTIFACTORY_USER`·`artifactory_user`, `ARTIFACTORY_PASSWORD`·`artifactory_password`, `ARTIFACTORY_DB_PASSWORD`·`artifactory_db_password` (shared-DB role), `ARTIFACTORY_HEAL_AFTER`·`artifactory_heal_after` (boot self-heal grace, default `90`, `0` disables) |
-| `argocd`     | `ARGOCD_PORT`·`argocd_port`, `ARGOCD_NODE_PORT`·`argocd_node_port` (LDAP fields reuse the `openldap` keys) |
+| `argocd`     | `ARGOCD_PORT`·`argocd_port`, `ARGOCD_NODE_PORT`·`argocd_node_port`, `ARGOCD_CHART_VERSION`·`argocd_chart_version` (default: newest chart; LDAP fields reuse the `openldap` keys) |
 
 In return, `dev init` **writes** to `[dev]`: `db_*` (host/port/name/user/password/url), `ldap_url` and
 `ldap_admin_password`, `keycloak_endpoint` / `keycloak_admin_password` / `keycloak_client_secret` /
@@ -2037,21 +2037,31 @@ with `-Djava.net.preferIPv4Stack=true`, and if the router is still not listening
 once** — a fresh boot usually wins the race (~40 s). A healthy-but-slow boot (which answers `503`
 while starting) is never restarted.
 
-### Artifactory version pin (usable UI)
+### Artifactory web UI (JFrog Connect disabled)
 
-The image is pinned to `artifactory-oss:7.111.9`, **not** `:latest`, on purpose. From ~7.125 the OSS
-web UI's frontend service (`jffe`) is stuck in an unbounded retry loop on a *"first-time entitlement
-fetch"* — a licensing/entitlements gRPC call that returns **404 UNIMPLEMENTED** because that service
-ships only with the commercial JFrog Platform, not OSS. Until it "succeeds" (it never does) `jffe`
-won't serve UI data, so **every** `/ui/api/v1/ui/*` call hangs ~12 s and the UI is effectively
-unusable (long JFrog splash, every screen crawls). The REST API and all `dev demo` Maven operations
-are unaffected — only the browser UI. Tested across versions: 7.146/7.133/7.125 all hang; **7.111.9**
-is the newest OSS tag whose UI answers in milliseconds with no entitlement loop. (The many `404`s the
-browser logs for `xray`, `mc`, `distribution`, `apptrust`, … microfrontends are unrelated and
-harmless — those are commercial modules absent from OSS.) Override the pin with `ARTIFACTORY_IMAGE` /
-`[dev] artifactory_image` if you need a specific version; a **downgrade needs a fresh volume and
-database** (`podman pod rm -f artifactory`, `podman volume rm artifactory_data`, and drop the
-`artifactory` DB), because a newer schema/master-key won't start on an older binary.
+From about 7.125, the OSS image's generated `system.yaml` enables **JFrog Connect**
+(`jfconnect.enabled: true`), but the OSS image does not contain that service:
+`/opt/jfrog/artifactory/app/` has no `jfconnect`, and the router does not list it among its
+services. The web UI's frontend service (`jffe`) then keeps asking it for the licence entitlements:
+`POST /com.jfrog.jfconnect.v1.entitlements.JFConnectResource/GetEntitlements`, which the router
+answers with **404**. `frontend-service.log` logs *"First-time entitlement fetch failed: 12
+UNIMPLEMENTED"* about once per second, in bursts of about 3 minutes separated by about 40 s, and
+every `/ui/api/v1/ui/*` call hangs during a burst. The UI is unusable most of the time. The REST API
+and all `dev demo` Maven operations are not affected.
+
+`dev init` sets **`JF_JFCONNECT_ENABLED=false`** in the Artifactory pod. The UI then never makes
+that call and answers in milliseconds. This was verified on 7.161.26 on 2026-10-24: no
+entitlement call or failure in 10 minutes, and the UI answered every request in under 100 ms. Before
+this setting, the image was pinned to 7.111.9, the newest version whose UI worked without it.
+`dev update` also adds the variable to the pod manifest of an Artifactory created by an older
+`dev init`.
+
+The `404`s the browser logs for the `xray`, `mc`, `distribution`, `apptrust` and other
+micro-frontends are unrelated and harmless: those are commercial modules that OSS does not include.
+You can override the version with `ARTIFACTORY_IMAGE` or `[dev] artifactory_image`. A **downgrade
+needs a fresh volume and database** (`podman pod rm -f artifactory`, `podman volume rm
+artifactory_data`, and drop the `artifactory` database), because an older binary will not start on a
+newer schema and master key.
 
 ## Per-service config
 
@@ -2159,6 +2169,91 @@ which otherwise keeps the machine managed/alive — force-terminating it if it d
 as `init`, but **without** the resource resize), **launches Podman Desktop**, waits for the machine to
 be ready, then runs the `dev start` actions to bring the pods and kind workloads back. `dev up` takes
 `--wait` like `start`. (Podman Desktop is only touched on macOS, and only when it is installed.)
+
+## Update the dev services (`dev update`)
+
+`dev update` brings the services created by `dev init` to a newer version. It keeps their data
+volumes and leaves the passwords and tokens stored in `[dev]` unchanged, so the Ligoj nodes
+configured by `dev demo` keep working.
+
+```bash
+ligoj dev update --check             # what each service runs, and what it could move to
+ligoj dev update                     # update every service within its safe range
+ligoj dev update sonarqube jenkins   # only these two
+ligoj dev update gitlab --force      # cross the safe range, after a snapshot
+```
+
+For each service, in `dev init` order:
+
+1. **The image is pulled again.** A floating tag such as `:latest` or `postgres:17` gets its
+   newest build.
+2. **The newest stable upstream release of the same flavour is picked.** It is looked up with
+   `podman search --list-tags`, or `helm search repo` for the charts. Same flavour means SonarQube
+   stays `-community` and Jenkins stays on the weekly `-slim-jdk25` line. Pre-releases are ignored.
+3. **A safe range applies, unless `--force` is given:**
+
+   | Service | Safe range | With `--force` |
+   | --- | --- | --- |
+   | `postgresql` | same major version | newest major, through a dump/restore into a new volume |
+   | `gitlab` | the next [required upgrade stop](https://docs.gitlab.com/update/upgrade_paths/) only | every remaining stop, in one run |
+   | `artifactory` | same major version | newest major |
+   | `harbor`, `argocd` | same major chart version | newest chart |
+   | others | newest release | same |
+
+   Anything held back is reported, along with the version `--force` would reach. `openldap` uses
+   the frozen `bitnamilegacy` repository, so it is only re-pulled.
+4. **The chosen version is saved in `[dev]`** (`db_image`, `sonar_image`, `gitlab_image`, …,
+   `harbor_chart_version`, `argocd_chart_version`) as soon as the service runs it. A later
+   `dev init --recreate` keeps that version instead of the older default pinned by the CLI. For
+   Harbor and ArgoCD, `dev init` installs the saved chart version (`helm --version`) instead of
+   the newest one. Their releases are upgraded with `helm upgrade --reuse-values`. A kind node
+   that was stopped is started for the update and then stopped again, and a release that was
+   scaled down stays scaled down.
+
+`--check` changes nothing: no pull, no restart. It prints one row per service, with the current
+version, the target, the newest release, the result (`update available`, `up to date`,
+`held back`, `skipped`, `failed`) and the reason. A floating tag shows its real version, e.g.
+`latest (19.1.1)`. Use `-o json` for a JSON list, or `-o text` for tab-separated rows.
+
+The services are updated one at a time. A pod that was stopped is started for its own update, then
+stopped again. One failed service does not stop the others, except PostgreSQL: Keycloak, SonarQube
+and Artifactory keep their data in it, so the remaining services are skipped. The command exits with
+an error when any service failed. With `--wait 0`, or when the wait times out, the post-upgrade
+steps are skipped and reported. Run `ligoj dev update <service>` again to finish them.
+
+Some services need more than a new image:
+
+- **SonarQube:** its database migration is started when the new version asks for one. Plugins
+  installed in `sonarqube_extensions` are not updated, and you get a warning to check their
+  compatibility.
+- **Jenkins:** every installed plugin that has an update is updated, then Jenkins restarts
+  safely. This also happens when only the plugins are outdated.
+- **GitLab:** an upgrade stop is applied only when GitLab's background migrations are finished.
+  Otherwise, run the command again later.
+
+### Crossing the safe range (`--force`)
+
+Before crossing a safe limit, `--force` takes a snapshot under
+`~/.ligoj/dev/snapshots/<service>/<timestamp>/`. It contains:
+
+- the service's data volumes (`podman volume export`, taken with the pod stopped);
+- for Keycloak, SonarQube and Artifactory, a `pg_dump` of their database in the shared PostgreSQL;
+- a copy of the pod manifest, and the image the service ran.
+
+The restore commands are logged and saved in `RESTORE.txt` next to the snapshot.
+
+A **new PostgreSQL major** is not a simple image swap, because the data format changes:
+
+1. Keycloak, SonarQube and Artifactory are stopped.
+2. Every database is dumped with `pg_dumpall`.
+3. The new major starts on a new volume, `ligoj_db_data_<major>`, and the dump is restored there.
+4. The dependent services start again.
+
+The previous volume (or host directory) is left untouched, so going back is replaying the saved
+manifest. This step always waits for PostgreSQL, even with `--wait 0`, since the restore needs it.
+
+Harbor and ArgoCD take no snapshot, since Helm keeps the release history. The `helm rollback`
+command to go back is printed instead.
 
 ## Configure Ligoj with `dev demo`
 

@@ -127,6 +127,37 @@ start` / `dev restart` mirror this command; `dev status` shows what is running.
 
 Services: """ + ", ".join(SERVICES)
 
+# Detailed help shown by `dev update -h`. Mirrors _START_HELP.
+_UPDATE_HELP = """\
+Update local dev services to a newer version, keeping their data and the passwords and tokens
+stored in [dev].
+
+With no argument every service is updated; otherwise only the space-separated services you
+name are, e.g.:
+
+  ligoj dev update --check              # what each service runs, and what it could move to
+  ligoj dev update                      # update every service within its safe range
+  ligoj dev update sonarqube jenkins    # just these two
+  ligoj dev update gitlab --force       # cross the safe range, after a snapshot
+
+Behavior:
+  * The image is always pulled again, so a floating tag (':latest', 'postgres:17') gets its newest
+    build; the newest stable upstream release of the same flavour is then picked (e.g. SonarQube
+    stays '-community', Jenkins stays on the weekly '-slim-jdk25' line).
+  * Safe range, crossed only with --force:
+      postgresql   same major version (a new major needs a dump/restore)
+      gitlab       the next required upgrade stop only
+      artifactory  same major version
+      harbor/argocd  same major chart version
+    Anything held back is reported, with the version --force would reach.
+  * The chosen image / chart version is saved in [dev] (e.g. sonar_image), so a later
+    `dev init --recreate` keeps it.
+  * --force takes a snapshot first under ~/.ligoj/dev/snapshots and prints how to restore it.
+  * --check only reports, nothing is pulled or restarted.
+  * `--wait/-w` as for `dev start`.
+
+Services: """ + ", ".join(SERVICES)
+
 LDAP_DEFAULT_IMAGE = "docker.io/bitnamilegacy/openldap:latest"
 JENKINS_DEFAULT_IMAGE = "jenkins/jenkins:2.570-slim-jdk25"
 SONAR_DEFAULT_IMAGE = "sonarqube:26.6.0.123539-community"
@@ -134,12 +165,12 @@ POSTGRES_DEFAULT_IMAGE = "postgres:17"
 KEYCLOAK_DEFAULT_IMAGE = "quay.io/keycloak/keycloak:26.7.3"
 GITLAB_DEFAULT_IMAGE = "gitlab/gitlab-ce:latest"
 NEXUS_DEFAULT_IMAGE = "docker.io/sonatype/nexus3:latest"
-# Pinned (not ':latest') on purpose: from ~7.125 the OSS web UI (jffe) is stuck retrying a
-# "first-time entitlement fetch" that 404s in OSS (the entitlements service is Pro/cloud only), which
-# blocks/slows every /ui/api/v1/ui/* call and makes the UI unusable. 7.111.9 is the newest OSS tag
-# whose UI works (login + data calls answer in ms, no entitlement retry loop). Override with
+# Explicit version (not ':latest'), moved by 'dev update'. From ~7.125 the OSS system.yaml enables
+# JFrog Connect without shipping it, so the web UI (jffe) retries a "first-time entitlement fetch" the
+# router answers with 404 and every /ui/api/v1/ui/* call hangs: JF_JFCONNECT_ENABLED=false (set by
+# _init_artifactory) turns that call off and the UI answers in ms again. Override with
 # ARTIFACTORY_IMAGE / [dev] artifactory_image if you need another version.
-ARTIFACTORY_DEFAULT_IMAGE = "releases-docker.jfrog.io/jfrog/artifactory-oss:7.111.9"
+ARTIFACTORY_DEFAULT_IMAGE = "releases-docker.jfrog.io/jfrog/artifactory-oss:7.161.26"
 
 POSTGRES_CONTAINER = "ligoj-db"
 POSTGRES_VOLUME = "ligoj_db_data"
@@ -238,6 +269,15 @@ def _service_choice(value):
     if value not in START_CHOICES:
         raise argparse.ArgumentTypeError(
             f"invalid service '{value}' (choose from: {', '.join(START_CHOICES)})"
+        )
+    return value
+
+
+def _update_choice(value):
+    """argparse per-token validator of `dev update`: container services only (no IDE targets)."""
+    if value not in SERVICES:
+        raise argparse.ArgumentTypeError(
+            f"invalid service '{value}' (choose from: {', '.join(SERVICES)})"
         )
     return value
 
@@ -343,6 +383,38 @@ def configure(subparser_service):
         action="store_true",
         help="'restart debug' / 'restart vite': do not open the browser once the app is up",
     )
+
+    parser_update = subparser_action.add_parser(
+        "update",
+        help="Update dev services to a newer version, keeping data and credentials; "
+        "'--check' only reports",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Update one or more local dev services to a newer version.",
+        epilog=_UPDATE_HELP,
+    )
+    parser_update.add_argument(
+        "update_service",
+        metavar="service",
+        nargs="*",
+        type=_update_choice,
+        help="Services to update, space-separated (default: all). Choices: " + ", ".join(SERVICES),
+    )
+    parser_update.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        default=False,
+        help="Cross the safe range (PostgreSQL and Artifactory major, GitLab stops, chart major), "
+        "after a snapshot",
+    )
+    parser_update.add_argument(
+        "--check",
+        "-c",
+        action="store_true",
+        default=False,
+        help="Only report the current and available versions, change nothing",
+    )
+    _add_wait_argument(parser_update)
 
     parser_stop = subparser_action.add_parser(
         "stop",
@@ -736,6 +808,11 @@ def execute_action(service, action, _operation, args):
         return dev_up(args)
     if action == "down":
         return dev_down(args)
+    if action == "update":
+        # Lazy import: pulls and swaps images, reads registries and Helm repositories.
+        from ligojcli import dev_update
+
+        return dev_update.execute(args)
     if action == "backup":
         # Lazy import: snapshot / list / restore a service's DB rows via the PostgreSQL tools.
         from ligojcli import dev_backup
@@ -2961,6 +3038,8 @@ def _init_artifactory(args):
         # join over localhost (a frequent cause of the boot deadlock). The Go router isn't covered by
         # this, so the wait also self-heals a stuck boot by restarting the pod once.
         "EXTRA_JAVA_OPTIONS": "-Djava.net.preferIPv4Stack=true",
+        # OSS ships without JFrog Connect but enables it: the UI would hang retrying its entitlements.
+        "JF_JFCONNECT_ENABLED": "false",
     }
     volumes = [{"name": "data", "persistentVolumeClaim": {"claimName": "artifactory_data"}}]
     mounts = [{"name": "data", "mountPath": "/var/opt/jfrog/artifactory"}]
@@ -3005,7 +3084,11 @@ def _init_harbor(args):
     redis_image = _dev_get(args, "harbor_redis_image", "HARBOR_REDIS_IMAGE", HARBOR_REDIS_IMAGE)
     _ensure_kind_cluster(args, recreate)
     _helm_repo(HARBOR_REPO_NAME, HARBOR_REPO_URL)
-    _harbor_helm_install(admin_password, node_port, external_url, args.get("wait"), redis_image)
+    # A chart version saved by 'dev update' is kept, else the newest chart is installed.
+    chart_version = _dev_get(args, "harbor_chart_version", "HARBOR_CHART_VERSION", None)
+    _harbor_helm_install(
+        admin_password, node_port, external_url, args.get("wait"), redis_image, chart_version
+    )
 
     _dev_set("harbor_endpoint", external_url)
     _dev_set("harbor_admin_user", "admin")
@@ -3037,7 +3120,9 @@ def _init_argocd(args):
         "root": _dev_get(args, "ldap_root", "LDAP_ROOT", "dc=sample,dc=com"),
         "password": _dev_get(args, "ldap_admin_password", "LDAP_ADMIN_PASSWORD", None) or "",
     }
-    _argocd_helm_install(external_url, node_port, ldap, args.get("wait"))
+    # A chart version saved by 'dev update' is kept, else the newest chart is installed.
+    chart_version = _dev_get(args, "argocd_chart_version", "ARGOCD_CHART_VERSION", None)
+    _argocd_helm_install(external_url, node_port, ldap, args.get("wait"), chart_version)
 
     _dev_set("argocd_endpoint", external_url)
     _dev_set("argocd_admin_user", "admin")
@@ -3071,7 +3156,7 @@ def _init_argocd(args):
     }
 
 
-def _argocd_helm_install(external_url, node_port, ldap, wait):
+def _argocd_helm_install(external_url, node_port, ldap, wait, chart_version=None):
     dex_config = (
         "connectors:\n"
         "- type: ldap\n"
@@ -3138,6 +3223,7 @@ def _argocd_helm_install(external_url, node_port, ldap, wait):
         "--values",
         values_path,
         "--force-conflicts",  # argocd-server co-owns argocd-cm fields; force SSA on re-runs
+        *(["--version", chart_version] if chart_version else []),
         *_helm_wait_flags(wait),
         stream=True,
     )
@@ -3259,7 +3345,9 @@ def _kind_node_start():
     utils.warn("[dev] kind API server is not ready yet; cluster operations may fail")
 
 
-def _harbor_helm_install(admin_password, node_port, external_url, wait, redis_image):
+def _harbor_helm_install(
+    admin_password, node_port, external_url, wait, redis_image, chart_version=None
+):
     repo, sep, tag = redis_image.rpartition(":")
     if not sep:  # no tag in the reference
         repo, tag = redis_image, "latest"
@@ -3294,6 +3382,7 @@ def _harbor_helm_install(admin_password, node_port, external_url, wait, redis_im
         "--values",
         values_path,
         "--force-conflicts",  # take over server-side-apply field ownership on re-runs
+        *(["--version", chart_version] if chart_version else []),
         *_helm_wait_flags(wait),
         stream=True,
     )

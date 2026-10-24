@@ -63,8 +63,12 @@ Issues = "https://github.com/ligoj/cli/issues"
 [dependency-groups]
 dev = [
     "ruff>=0.15.2",
-    "flake8"
+    "flake8",
+    "pytest>=8"
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py311"

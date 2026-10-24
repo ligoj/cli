@@ -44,10 +44,11 @@ lint: ## Static analysis with ruff and flake8
 	$(UV) run ruff check .
 	$(UV) run flake8
 
-test: ## Run the full local quality gate (lint, format check, build, twine check)
+test: ## Run the full local quality gate (lint, format check, unit tests, build, twine check)
 	$(UV) run ruff check .
 	$(UV) run ruff format --check .
 	$(UV) run flake8
+	$(UV) run pytest -q
 	rm -rf dist build *.egg-info
 	$(UV) build
 	$(UV) run --with twine twine check dist/*
